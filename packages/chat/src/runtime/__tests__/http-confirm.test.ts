@@ -1,14 +1,18 @@
-import { describe, expect, it, vi } from 'vitest';
-import Fastify from 'fastify';
-import { zodToProviderJsonSchema } from '@plumbus/core';
-import { z } from '@plumbus/core/zod';
-import { capabilityInputSchemaHashV2 } from '../../policy/action-schema-hash.js';
-import { CapabilityRegistry, buildCapabilityRuntimeDeps, defineCapability } from '@plumbus/core';
+import {
+  buildCapabilityRuntimeDeps,
+  CapabilityRegistry,
+  defineCapability,
+  zodToProviderJsonSchema,
+} from '@plumbus/core';
 import { createTestContext } from '@plumbus/core/testing';
+import { z } from '@plumbus/core/zod';
+import Fastify from 'fastify';
+import { describe, expect, it, vi } from 'vitest';
 import { defineChat } from '../../define/defineChat.js';
+import { capabilityInputSchemaHashV2 } from '../../policy/action-schema-hash.js';
 import type { ChatPendingActionV2 } from '../../session/pending-action-v2.js';
 import type { ChatConversationStore } from '../chat-conversation-store.js';
-import { CHAT_CSRF_HEADER_NAME, issueCsrfToken, csrfBindingFromAuth } from '../csrf.js';
+import { CHAT_CSRF_HEADER_NAME, csrfBindingFromAuth, issueCsrfToken } from '../csrf.js';
 import { registerChatRoutes } from '../http.js';
 
 const shipInput = z.object({ orderId: z.string() });
@@ -352,6 +356,44 @@ describe('POST /chat/:name/confirm', () => {
     await app.close();
   });
 
+  it('/turn passes owner + chat to inspectSession and hides a pending action the caller does not own', async () => {
+    const inspectSession = vi.fn(async () => ({
+      pending: 'pending' as const,
+      actionId,
+      expiresAt,
+    }));
+    const app = Fastify();
+    registerChatRoutes(app, routeConfig(createTestContext()), [chat], {
+      // A custom store that ignores the scope argument; the ownership-enforced
+      // peek is what keeps the action id and expiry from leaking.
+      store: fakeStore({
+        inspectSession,
+        peekPending: vi.fn(async () => ({ found: false as const, reason: 'wrong_owner' as const })),
+      }),
+    });
+    await app.ready();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/chat/confirmChat/turn',
+      headers: { authorization: 'Bearer good' },
+      payload: {
+        sessionId: '00000000-0000-4000-8000-000000000200',
+        userMessage: 'hi',
+        audience: 'user',
+        locale: 'en',
+      },
+    });
+    expect(inspectSession).toHaveBeenCalledWith(
+      '00000000-0000-4000-8000-000000000200',
+      expect.any(String),
+      { owner: expect.objectContaining({ userId: 'u1' }), chatName: 'confirmChat' },
+    );
+    expect(res.statusCode).not.toBe(409);
+    expect(res.body).not.toContain(actionId);
+    expect(res.body).not.toContain('chat.pending_action_exists');
+    await app.close();
+  });
+
   it('accepts cookie auth with valid Origin and CSRF header', async () => {
     const secret = 'csrf-secret';
     const auth = { userId: 'u1', roles: ['user'], scopes: [], provider: 'test' };
@@ -381,5 +423,53 @@ describe('POST /chat/:name/confirm', () => {
     });
     expect(res.statusCode).toBe(200);
     await app.close();
+  });
+});
+
+describe('registerChatRoutes browser-security configuration', () => {
+  const chat = defineChat({ name: 'cfgChat', access: {}, streaming: false, instructions: ['x'] });
+
+  it('warns at registration when cookie auth is on without csrfSecret/externalBaseUrl', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      registerChatRoutes(Fastify(), routeConfig(createTestContext()), [chat], {
+        authCookieNames: ['session'],
+        csrfSecret: 'secret',
+      });
+      expect(warn).toHaveBeenCalledTimes(1);
+      const message = String(warn.mock.calls[0]?.[0]);
+      expect(message).toContain('externalBaseUrl');
+      expect(message).toContain('requireBrowserSecurity');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('throws at registration with requireBrowserSecurity: true and incomplete settings', () => {
+    expect(() =>
+      registerChatRoutes(Fastify(), routeConfig(createTestContext()), [chat], {
+        authCookieNames: ['session'],
+        requireBrowserSecurity: true,
+      }),
+    ).toThrow(/csrfSecret and externalBaseUrl/);
+  });
+
+  it('stays silent when the settings are complete or cookie auth is off', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      registerChatRoutes(Fastify(), routeConfig(createTestContext()), [chat], {
+        authCookieNames: ['session'],
+        csrfSecret: 'secret',
+        externalBaseUrl: 'https://app.example.com',
+        requireBrowserSecurity: true,
+      });
+      registerChatRoutes(Fastify(), routeConfig(createTestContext()), [chat], {
+        requireBrowserSecurity: true,
+      });
+      registerChatRoutes(Fastify(), routeConfig(createTestContext()), [chat]);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

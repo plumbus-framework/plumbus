@@ -34,7 +34,7 @@ This split lets apps generate the MCP manifest without installing the runtime, a
 ```ts
 // from '@plumbus/mcp'
 createMcpServer(config, options?)          // builds an MCP Server from a CapabilityRegistry
-McpServerConfig                            // { registry, db, authAdapter, createDependencies, jobQueue?, onCapabilityError?, onMcpToolCall?, requestTimeoutMs? }
+McpServerConfig                            // { registry, db, authAdapter, createDependencies, jobQueue?, onCapabilityError?, onMcpToolCall?, requestTimeoutMs?, maxToolInputElements? }
 McpToolCallInfo                            // payload passed to onMcpToolCall
 CreateMcpServerOptions                     // { name?, version? }
 

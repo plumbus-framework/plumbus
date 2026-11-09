@@ -88,7 +88,12 @@ export interface ServerConfig {
   host?: string;
   /** Fastify listen port (default: 3000) */
   port?: number;
-  /** Trust proxy for X-Forwarded-For / X-Forwarded-Proto headers. Passed to Fastify's trustProxy option. */
+  /**
+   * Trust proxy for X-Forwarded-For / X-Forwarded-Proto headers. Passed to Fastify's trustProxy option.
+   * Prefer proxy addresses/CIDRs (`'10.0.0.0/8'`, `['127.0.0.1']`) or `true`. A hop count (`number`)
+   * is still accepted for compatibility, but Fastify 5.12+ treats it as "trust no proxy" (hop counts
+   * cannot verify the immediate peer), so Plumbus logs a warning when one is passed.
+   */
   trustProxy?: boolean | string | string[] | number;
   /** Jobs queue for async kind: 'job' capabilities (when API wires jobQueue). */
   jobQueue?: EventQueue;
@@ -222,6 +227,12 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
         })
       : denyAllAuthAdapter);
 
+  if (typeof trustProxy === 'number') {
+    logger.warn(
+      `trustProxy is a hop count (${trustProxy}). Fastify 5.12+ ignores hop counts and trusts no proxy, so X-Forwarded-* headers are not used. Set trustProxy (or TRUST_PROXY) to the proxy addresses/CIDRs, or true.`,
+    );
+  }
+
   // Fastify instance
   const app = createFastify({
     logger:
@@ -232,7 +243,8 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
         : {
             level: 'info',
           },
-    ...(trustProxy != null && { trustProxy }),
+    // Fastify 5.12 types drop `number`; at runtime a number is still accepted and trusts no proxy.
+    ...(trustProxy != null && { trustProxy: trustProxy as boolean | string | string[] }),
   });
 
   // Health check endpoint

@@ -7,30 +7,32 @@
  * attestation (`@plumbus/auth-cognito/triggers`). Cognito stays the user directory and token
  * issuer; no hosted UI, no passwords, no Cognito-sent mail. Node only; uses the AWS SDK.
  */
+
+export type { AttestationKey } from '../attestation/index.js';
+export { parseAttestationKeys, validateAttestationKeys } from '../attestation/index.js';
+export type { CognitoConnectionOptions } from './connection.js';
 export {
   assertUserPoolId,
   cognitoUserPoolIssuer,
   regionOfUserPool,
 } from './connection.js';
-export type { CognitoConnectionOptions } from './connection.js';
-export { CognitoServerError, CognitoServerErrorReason, toCognitoServerError } from './errors.js';
-export { createCognitoPoolDirectory } from './directory.js';
 export type { CognitoPoolDirectory, CognitoPoolDirectoryOptions } from './directory.js';
-export { createCognitoPoolAdministration } from './pools.js';
+export { createCognitoPoolDirectory } from './directory.js';
+export { CognitoServerError, CognitoServerErrorReason, toCognitoServerError } from './errors.js';
 export type {
   AttestedUserPoolSpec,
   CognitoMfaPolicy,
   CognitoPoolAdministration,
+  CognitoPoolAdministrationOptions,
   EnsuredAttestedUserPool,
 } from './pools.js';
-export { createCognitoIdTokenVerifier } from './tokens.js';
+export { attestedClientDrift, createCognitoPoolAdministration } from './pools.js';
 export type { CognitoIdTokenVerifier } from './tokens.js';
-export { createCognitoPoolUsers } from './users.js';
+export { createCognitoIdTokenVerifier } from './tokens.js';
 export type {
   AttestedCognitoIdentity,
   CognitoPoolUser,
   CognitoPoolUsers,
   CognitoPoolUsersOptions,
 } from './users.js';
-export { parseAttestationKeys, validateAttestationKeys } from '../attestation/index.js';
-export type { AttestationKey } from '../attestation/index.js';
+export { createCognitoPoolUsers } from './users.js';

@@ -1,44 +1,45 @@
 import type { CapabilityContract, ChatMessage, ExecutionContext } from '@plumbus/core';
-import { checkBudgetPreflight } from '../budget/enforcer.js';
 import { trimContextToBudget } from '../budget/context-budget.js';
+import { checkBudgetPreflight } from '../budget/enforcer.js';
 import { withTurnTimeout } from '../budget/timeout.js';
 import { resolveContextSources } from '../context/resolver.js';
+import type { TraceRecorder } from '../eval/trace.js';
+import { chatRefusalRecordedEvent, chatTurnCompletedEvent } from '../events/chat-events.js';
 import { maybeSummarize } from '../history/summarizer.js';
 import { loadHistoryWindow } from '../history/window.js';
-import { compilePolicy } from '../policy/registry.js';
 import { runBehavioralPostGuard } from '../policy/behavioral-guard.js';
+import { buildNormalizedPending } from '../policy/pending-action-factory.js';
+import { compilePolicy } from '../policy/registry.js';
 import { buildSystemPrompt } from '../prompt/build-system-prompt.js';
-import { chatTurnPrompt } from '../prompt/chat-turn.prompt.js';
+import { chatScopeCheckPrompt } from '../prompt/chat-scope-check.prompt.js';
+import { chatToolRoundPrompt } from '../prompt/chat-tool-round.prompt.js';
 import type { ChatTurnModelOutput } from '../prompt/chat-turn.prompt.js';
+import { chatTurnPrompt } from '../prompt/chat-turn.prompt.js';
+import type { ChatPendingActionV2, ChatToolResumePayloadV1 } from '../session/pending-action-v2.js';
 import type { loadSession } from '../session/service.js';
-import { resolveChatSessionStore, type ChatSessionStore } from '../session/session-store.js';
+import { type ChatSessionStore, resolveChatSessionStore } from '../session/session-store.js';
 import type { ChatDefinition } from '../types/chat.js';
+import type { ChatSourceRef } from '../types/context.js';
 import type { ChatEvent } from '../types/event.js';
 import type { GuardState } from '../types/policy.js';
-import type { ChatSourceRef } from '../types/context.js';
-import type { TraceRecorder } from '../eval/trace.js';
-import { capClientHistory, type ClientHistoryMessage } from './constants.js';
-import { ChatEventEmitter, emitterToIterable } from './events.js';
+import type { ChatNestedAiCall, ToolExecutionRecord } from '../types/tool.js';
 import {
-  createChatConversationStore,
-  type ChatConversationStore,
-} from './chat-conversation-store.js';
-import { buildNormalizedPending } from '../policy/pending-action-factory.js';
-import type { ChatPendingActionV2, ChatToolResumePayloadV1 } from '../session/pending-action-v2.js';
-import type { ChatTurnWrite } from './chat-conversation-store.js';
-import { chatRefusalRecordedEvent, chatTurnCompletedEvent } from '../events/chat-events.js';
-import {
+  type BoundChatTool,
   bindChatCapabilityTools,
   bindFlowTools,
   ChatToolBindError,
   resolveToolBinding,
-  type BoundChatTool,
 } from './bind-tools.js';
-import { runToolPhase } from './tool-phase.js';
-import { chatScopeCheckPrompt } from '../prompt/chat-scope-check.prompt.js';
-import { chatToolRoundPrompt } from '../prompt/chat-tool-round.prompt.js';
+import type { ChatTurnWrite } from './chat-conversation-store.js';
+import {
+  type ChatConversationStore,
+  createChatConversationStore,
+} from './chat-conversation-store.js';
 import type { ChatRegistry } from './chat-registry.js';
-import type { ChatNestedAiCall, ToolExecutionRecord } from '../types/tool.js';
+import { clientSafeErrorMessage } from './client-error.js';
+import { type ClientHistoryMessage, capClientHistory } from './constants.js';
+import { ChatEventEmitter, emitterToIterable } from './events.js';
+import { runToolPhase } from './tool-phase.js';
 
 export interface RunChatTurnArgs {
   chatDefinition: ChatDefinition;
@@ -200,6 +201,19 @@ export async function* runChatTurn(
             userId: (ctx.auth as { userId?: string }).userId ?? 'ephemeral',
             tenantId: (ctx.auth as { tenantId?: string }).tenantId,
           } as unknown as Awaited<ReturnType<typeof loadSession>>);
+      // A session is bound to the chat it was created for. Built-in stores refuse
+      // a mismatch already; this also covers injected stores that only check the
+      // owner. Same error as the store's ownership refusal. A row with no chatName
+      // (a custom store that does not record it) is not refused.
+      if (
+        session &&
+        saveToDb &&
+        typeof session.chatName === 'string' &&
+        session.chatName !== '' &&
+        session.chatName !== chat.name
+      ) {
+        throw ctx.errors.notFound('Session not found', { sessionId: args.sessionId });
+      }
       if (!session) {
         emit({
           type: 'turn.failed',
@@ -481,7 +495,7 @@ export async function* runChatTurn(
           emit({
             type: 'turn.failed',
             code: 'chat.turn_error',
-            message: err instanceof Error ? err.message : String(err),
+            message: clientSafeErrorMessage(ctx, err, 'scope_preflight'),
           });
           emitter.end();
           return;
@@ -502,7 +516,7 @@ export async function* runChatTurn(
               emit({
                 type: 'turn.failed',
                 code: 'chat.turn_error',
-                message: err instanceof Error ? err.message : String(err),
+                message: clientSafeErrorMessage(ctx, err, 'bind_tools'),
               });
             }
             emitter.end();
@@ -1157,7 +1171,8 @@ export async function* runChatTurn(
         sources: citedSourceRefs,
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      // Raw err.message can carry provider/database detail — log it, send a safe message.
+      const message = clientSafeErrorMessage(ctx, err, 'turn');
       emit({ type: 'turn.failed', code: 'chat.turn_error', message });
     } finally {
       emitter.end();

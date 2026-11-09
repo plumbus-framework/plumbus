@@ -1,6 +1,6 @@
 {
   "name": "@plumbus/api",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Plumbus external API contract layer \u2014 partner-grade API exposure, OpenAPI, docs, and test intent",
   "type": "module",
   "main": "./dist/index.js",
@@ -48,7 +48,7 @@
     "@plumbus/core": "0.8.x"
   },
   "dependencies": {
-    "fastify": "^5.8.2",
+    "fastify": "^5.12.8",
     "yaml": "^2.5.0",
     "zod-to-json-schema": "^3.25.2"
   },

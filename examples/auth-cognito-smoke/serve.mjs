@@ -55,7 +55,9 @@ app.get('/login-error', async (req, reply) => {
 
 app.get('/healthz', async () => ({ ok: true }));
 
-await app.listen({ host: '0.0.0.0', port: cfg.port });
+// Loopback by default: the demo's admin controls (/attested/admin) have no auth of their own.
+// Set HOST=0.0.0.0 only on a machine nobody else can reach.
+await app.listen({ host: process.env.HOST ?? '127.0.0.1', port: cfg.port });
 
 console.log('\nReady.');
 console.log(`  Open       ${cfg.externalBaseUrl}`);
@@ -160,15 +162,26 @@ runtime pointed at your cognitox emulator.</p>
 </div>
 
 <script>
+// Claims come from the identity provider: render them as text, never as markup.
+function signedIn(el, title, value, buttonId, buttonLabel) {
+  el.replaceChildren();
+  const strong = document.createElement('strong');
+  strong.textContent = title;
+  const pre = document.createElement('pre');
+  pre.textContent = JSON.stringify(value, null, 2);
+  const button = document.createElement('button');
+  button.className = 'secondary';
+  button.id = buttonId;
+  button.textContent = buttonLabel;
+  el.append(strong, pre, button);
+  return button;
+}
 async function refresh() {
   const el = document.getElementById('session');
   const r = await fetch('/auth/session', { credentials: 'include' });
   const s = await r.json();
   if (!s.authenticated) { el.innerHTML = '<em>Not signed in.</em>'; return; }
-  el.innerHTML = '<strong>Signed in</strong><pre>' +
-    JSON.stringify(s.user, null, 2) + '</pre>' +
-    '<button class="secondary" id="lo">Log out</button>';
-  document.getElementById('lo').onclick = async () => {
+  signedIn(el, 'Signed in', s.user, 'lo', 'Log out').onclick = async () => {
     await fetch('/auth/logout', { method: 'POST', credentials: 'include',
       headers: { 'x-csrf-token': s.csrfToken } });
     refresh();
@@ -186,10 +199,8 @@ async function attestedRefresh() {
   const el = document.getElementById('attested-session');
   const s = await (await fetch('/attested/session', { credentials: 'include' })).json();
   if (!s.authenticated) { el.innerHTML = '<em>Not signed in (attested).</em>'; return; }
-  el.innerHTML = '<strong>Signed in through Cognito</strong><pre>' +
-    JSON.stringify(s, null, 2).replace(/</g, '&lt;') + '</pre>' +
-    '<button class="secondary" id="attested-logout">Log out (attested)</button>';
-  document.getElementById('attested-logout').onclick = async () => {
+  signedIn(el, 'Signed in through Cognito', s, 'attested-logout', 'Log out (attested)').onclick =
+    async () => {
     await post('/attested/logout');
     attestedRefresh();
   };
@@ -200,8 +211,15 @@ document.getElementById('attested-form').onsubmit = async (event) => {
   const body = await r.json();
   const out = document.getElementById('attested-link');
   if (!r.ok) { out.textContent = 'Refused: ' + body.error; return; }
-  out.innerHTML = '<p>Sign-in link (a real app would email this; valid ' + body.expiresInSeconds +
-    ' s, single use):<br><a id="attested-open" href="' + body.link + '">Open sign-in link</a></p>';
+  const p = document.createElement('p');
+  p.append('Sign-in link (a real app would email this; valid ' + Number(body.expiresInSeconds) +
+    ' s, single use):', document.createElement('br'));
+  const a = document.createElement('a');
+  a.id = 'attested-open';
+  a.textContent = 'Open sign-in link';
+  if (/^https?:/i.test(String(body.link))) a.href = body.link;
+  p.append(a);
+  out.replaceChildren(p);
 };
 for (const button of document.querySelectorAll('[data-admin]')) {
   button.onclick = async () => {

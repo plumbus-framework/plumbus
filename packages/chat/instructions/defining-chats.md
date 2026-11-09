@@ -136,10 +136,11 @@ The optional fourth argument is `RegisterChatRoutesOpts`:
 | `audienceTenantOverride: (audience, auth) => tenantId \| undefined` | Audience-implied tenant routing when the auth adapter couldn't infer one. Only applied when `auth.tenantId` is empty. |
 | `beforeTurn: (ctx, parsed, rawBody) => { userMessage? } \| { error: { status, body } }` | Sanitize the user message or short-circuit with a typed error before any runtime work. |
 | `afterTurn: (ctx, rawBody, events) => Promise<void>` | Observability hook. Receives the full ordered `ChatEvent[]` after the turn completes. Errors are swallowed with `console.warn`. |
-| `store: ChatConversationStore` | **Required for confirmations.** Mounts `POST /chat/:name/confirm` and the lease/CAS commit path. |
+| `store: ChatConversationStore` | **Required for confirmations.** Mounts `POST /chat/:name/confirm` and the lease/CAS commit path. Custom stores: `inspectSession(sessionId, now, { owner, chatName })` must report `{ pending: 'none' }` for a session that is not that owner's or that chat's. |
 | `sessionStore: ChatSessionStore` | Serve session/turn state from somewhere other than `ctx.data` — deployments with no local database. Validated against every registered chat at registration. See `/docs/chat/session-store.md`. |
 | `authenticator: ChatRequestAuthenticator` | Replace the default credential resolution (Authorization header, then cookies). |
-| `externalBaseUrl` + `csrfSecret` | Set **both** to enable exact-Origin + session-bound CSRF enforcement on cookie-authenticated writes. |
+| `externalBaseUrl` + `csrfSecret` | Set **both** to enable exact-Origin + session-bound CSRF enforcement on cookie-authenticated writes. With `authCookieNames` and either missing, cookie writes are unprotected and registration logs a warning. |
+| `requireBrowserSecurity: boolean` | Default `false`. `true` turns cookie auth without both `csrfSecret` and `externalBaseUrl` into a registration error. Set it whenever you use `authCookieNames`. |
 
 ### `<ChatPanel turnUrl=… />`
 

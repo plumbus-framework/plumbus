@@ -16,6 +16,14 @@ Read this before exposing any voice routes.
 - **S10:** If a voice session is ephemeral/client-derived, document that any caps derived from the client are advisory.
 - **Clone HTTP:** ownership on every per-id route; `listOwnedClones` only for list; create-persist rollback; stricter `referenceAccess` for synthesize-reference. See [`voice-cloning.md`](./voice-cloning.md).
 
+## Hardening options (0.6.2, opt-in)
+
+- Set `externalBaseUrl` on `registerVoiceRoutes` so `wsUrl` comes from the public URL, not `Host` / `X-Forwarded-Proto`.
+- With cookie auth (`authCookieNames`), set `csrfSecret` + `externalBaseUrl` on `registerVoiceRoutes` and `registerVoiceCloneRoutes`. Browser clients must echo the `plumbus_voice_csrf` cookie in the `x-plumbus-voice-csrf` header (`VOICE_CSRF_COOKIE_NAME` / `VOICE_CSRF_HEADER_NAME`).
+- `rejectQuerySessionToken: true` once clients send the token in `Sec-WebSocket-Protocol`.
+- `singleUseSessionTokens: true` blocks handshake replay within one process (not across replicas).
+- Unset options keep earlier behaviour and log one-time warnings. Details: `/docs/voice/security.md`.
+
 ## Do's
 
 - **Do** send the websocket session token in `Sec-WebSocket-Protocol` where possible.

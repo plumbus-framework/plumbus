@@ -131,6 +131,14 @@ describe('Config Loader', () => {
       expect(config.database.ssl).toBe(true);
     });
 
+    it('leaves TLS enforcement off by default and reads DATABASE_SSL_ENFORCE', () => {
+      expect(loadConfig({ environment: 'production', env: {} }).database.sslEnforce).toBe(false);
+      expect(
+        loadConfig({ environment: 'production', env: { DATABASE_SSL_ENFORCE: 'true' } }).database
+          .sslEnforce,
+      ).toBe(true);
+    });
+
     it('uses larger pool size in production', () => {
       const config = loadConfig({
         environment: 'production',

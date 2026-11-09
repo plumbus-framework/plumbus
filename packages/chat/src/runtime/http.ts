@@ -1,18 +1,16 @@
-import type { AuthContext, ExecutionContext } from '@plumbus/core';
-import type { RouteGeneratorConfig } from '@plumbus/core';
+import type { AuthContext, ExecutionContext, RouteGeneratorConfig } from '@plumbus/core';
 import { createExecutionContext, evaluateAccess } from '@plumbus/core/sdk';
 import { z } from '@plumbus/core/zod';
-import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { chatActionRejectedEvent } from '../events/chat-events.js';
 import type { ChatPendingActionV2 } from '../session/pending-action-v2.js';
+import { assertChatStoresSupportChats, type ChatSessionStore } from '../session/session-store.js';
 import type { ChatDefinition } from '../types/chat.js';
 import type { ChatEvent } from '../types/event.js';
 import { resolveToolBinding } from './bind-tools.js';
+import type { ChatConversationStore } from './chat-conversation-store.js';
 import type { ChatRegistry } from './chat-registry.js';
 import { capClientHistory, validateClientHistorySize } from './constants.js';
-import type { ChatConversationStore } from './chat-conversation-store.js';
-import { assertChatStoresSupportChats, type ChatSessionStore } from '../session/session-store.js';
-import type { RunChatTurnOpts } from './run-turn.js';
 import {
   CHAT_CSRF_COOKIE_NAME,
   CHAT_CSRF_HEADER_NAME,
@@ -22,7 +20,8 @@ import {
   verifyCsrfToken,
 } from './csrf.js';
 import { checkLivePending } from './pending-actions.js';
-import { resumeAfterConfirm, type ChatConfirmResult } from './resume-after-confirm.js';
+import { type ChatConfirmResult, resumeAfterConfirm } from './resume-after-confirm.js';
+import type { RunChatTurnOpts } from './run-turn.js';
 import { runChatTurn } from './run-turn.js';
 
 const turnBodySchema = z
@@ -107,9 +106,67 @@ export interface RegisterChatRoutesOpts {
   externalBaseUrl?: string;
   /** D3 — HMAC secret for session-bound CSRF tokens. Enables browser write protection when set. */
   csrfSecret?: string;
+  /**
+   * Refuse to register when cookie auth is on (`authCookieNames` non-empty) but
+   * browser write protection is not (`csrfSecret` or `externalBaseUrl` missing).
+   * Default `false`: such a setup only logs a warning at registration, because a
+   * deployment may protect cookies another way (e.g. a proxy). Set `true` to make
+   * the missing settings a startup error.
+   */
+  requireBrowserSecurity?: boolean;
 }
 
 class ChatUnauthorizedError extends Error {}
+
+/**
+ * Cookie credentials are sent by the browser on cross-site requests, so cookie
+ * auth without Origin + CSRF enforcement leaves /turn and /confirm open to
+ * cross-site writes. Warn (default) or throw (`requireBrowserSecurity`) at
+ * registration when that is the configuration.
+ */
+function checkBrowserSecurityConfig(opts: RegisterChatRoutesOpts | undefined): void {
+  const cookieNames = opts?.authCookieNames ?? [];
+  if (cookieNames.length === 0) return;
+  const missing: string[] = [];
+  if (!opts?.csrfSecret) missing.push('csrfSecret');
+  if (!opts?.externalBaseUrl) missing.push('externalBaseUrl');
+  if (missing.length === 0) return;
+  const message =
+    `registerChatRoutes: cookie auth is enabled (authCookieNames) but ${missing.join(' and ')} ` +
+    `${missing.length === 1 ? 'is' : 'are'} not set, so cookie-authenticated /turn and /confirm ` +
+    'requests are NOT checked for Origin or CSRF. Set both csrfSecret and externalBaseUrl ' +
+    'to enable browser write protection.';
+  if (opts?.requireBrowserSecurity) {
+    throw new Error(`${message} (requireBrowserSecurity: true)`);
+  }
+  console.warn(
+    `[registerChatRoutes] ${message} Pass requireBrowserSecurity: true to make this a startup error.`,
+  );
+}
+
+/**
+ * C5 pending probe that never reveals another caller's pending action. The
+ * scope is passed to the store (built-in stores resolve owner + chat first);
+ * when a custom store ignores it, the ownership-enforced `peekPending` confirms
+ * the action is the caller's before its id and expiry are returned.
+ */
+async function inspectOwnSession(
+  store: ChatConversationStore,
+  sessionId: string,
+  owner: AuthContext,
+  chatName: string,
+): Promise<{ pending: 'none' | 'pending' | 'confirming'; actionId?: string; expiresAt?: string }> {
+  const now = new Date().toISOString();
+  // runChatTurn stores an anonymous caller's session under userId '' — match it.
+  owner = { ...owner, userId: owner.userId ?? '' };
+  const info = await store.inspectSession(sessionId, now, { owner, chatName });
+  if (info.pending === 'none' || !info.actionId) return info;
+  const peek = await store.peekPending({ actionId: info.actionId, owner, chatName, now });
+  if (!peek.found && (peek.reason === 'not_found' || peek.reason === 'wrong_owner')) {
+    return { pending: 'none' };
+  }
+  return info;
+}
 
 function readCookie(req: FastifyRequest, name: string): string | undefined {
   const cookies = (req as { cookies?: Record<string, string> }).cookies;
@@ -195,6 +252,7 @@ export function registerChatRoutes(
   const cookieNames = opts?.authCookieNames ?? [];
   const authenticator = opts?.authenticator ?? defaultAuthenticator(routeConfig, cookieNames);
   const store = opts?.store;
+  checkBrowserSecurityConfig(opts);
   // Fail fast when injected storage cannot serve the registered chats (no-op
   // unless a sessionStore was injected).
   assertChatStoresSupportChats({
@@ -271,7 +329,7 @@ export function registerChatRoutes(
 
       // C5 — check live pending BEFORE scope/provider work.
       if (store) {
-        const info = await store.inspectSession(parsed.data.sessionId, new Date().toISOString());
+        const info = await inspectOwnSession(store, parsed.data.sessionId, auth, chat.name);
         if (info.pending === 'confirming') {
           return reply.status(409).send({
             code: 'chat.session_busy',
@@ -295,7 +353,10 @@ export function registerChatRoutes(
         (chat.persistence?.saveToDb ?? true) &&
         (chat.persistence?.messageContent ?? 'server') !== 'client'
       ) {
-        const live = await checkLivePending(ctx, parsed.data.sessionId);
+        const live = await checkLivePending(ctx, parsed.data.sessionId, {
+          userId: auth.userId ?? '',
+          chatName: chat.name,
+        });
         if (live.blocked) {
           return reply
             .status(409)

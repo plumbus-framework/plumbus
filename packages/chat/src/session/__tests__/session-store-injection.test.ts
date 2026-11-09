@@ -1,14 +1,15 @@
-import { describe, expect, it, createTestContext, mockAI } from '@plumbus/core/testing';
 import type { ExecutionContext } from '@plumbus/core';
+import { createTestContext, describe, expect, it, mockAI, mockLogger } from '@plumbus/core/testing';
 import { defineChat } from '../../define/defineChat.js';
+import { CHAT_GENERIC_ERROR_MESSAGE } from '../../runtime/client-error.js';
 import { runChatTurn } from '../../runtime/run-turn.js';
+import type { ChatEvent } from '../../types/event.js';
 import { createInMemoryChatSessionStore } from '../in-memory-session-store.js';
 import {
   assertChatStoresSupportChats,
-  ChatStoreUnsupportedError,
   type ChatSessionStore,
+  ChatStoreUnsupportedError,
 } from '../session-store.js';
-import type { ChatEvent } from '../../types/event.js';
 
 const SESSION_ID = '11111111-1111-4111-8111-111111111111';
 
@@ -199,7 +200,8 @@ describe('runChatTurn — injected session store', () => {
   });
 
   it('fails closed rather than skipping a budget the store cannot evaluate', async () => {
-    const ctx = contextWithoutData({ ai: mockAI({ generate: inScopeResponse }) });
+    const logger = mockLogger();
+    const ctx = contextWithoutData({ ai: mockAI({ generate: inScopeResponse }), logger });
     const full = createInMemoryChatSessionStore();
     const { aggregateForBudget: _omitted, ...withoutAggregate } = full;
     const chat = defineChat({
@@ -214,7 +216,52 @@ describe('runChatTurn — injected session store', () => {
     const failed = events.find((e) => e.type === 'turn.failed');
     expect(failed?.type).toBe('turn.failed');
     // Surfaced through the turn error path; the cap is never silently ignored.
-    expect(failed?.type === 'turn.failed' && failed.message).toContain('aggregateForBudget');
+    // The configuration detail is an internal error: logged, not sent to the client.
+    expect(failed?.type === 'turn.failed' && failed.code).toBe('chat.turn_error');
+    expect(failed?.type === 'turn.failed' && failed.message).toBe(CHAT_GENERIC_ERROR_MESSAGE);
+    const logged = logger.logs.find((l) => l.level === 'error');
+    expect(String(logged?.metadata?.error)).toContain('aggregateForBudget');
+  });
+
+  it('refuses a session id that was created for a different chat', async () => {
+    const ctx = contextWithoutData({ ai: mockAI({ generate: inScopeResponse }) });
+    const store = createInMemoryChatSessionStore();
+    const billing = defineChat({ name: 'billing', access: {}, instructions: ['x'] });
+    const help = defineChat({ name: 'help', access: {}, instructions: ['x'] });
+
+    const first = await runTurn(ctx, billing, 'my card ends 4242', store);
+    expect(first.map((e) => e.type)).toContain('turn.completed');
+
+    const reused = await runTurn(ctx, help, 'what did I say?', store);
+    const failed = reused.find((e) => e.type === 'turn.failed');
+    expect(failed?.type === 'turn.failed' && failed.message).toBe('Session not found');
+    expect(reused.map((e) => e.type)).not.toContain('turn.completed');
+    // Nothing was appended to the billing session by the other chat.
+    expect(store.__turns.filter((t) => t.sessionId === SESSION_ID)).toHaveLength(2);
+  });
+
+  it('refuses a cross-chat session even when an injected store only checks the owner', async () => {
+    const ctx = contextWithoutData({ ai: mockAI({ generate: inScopeResponse }) });
+    const inner = createInMemoryChatSessionStore();
+    const ownerOnly: ChatSessionStore = {
+      ...inner,
+      // A custom store that predates chat binding: owner check only.
+      async getOrCreateSession(c, args) {
+        const existing = await inner.loadSession(c, args.sessionId);
+        if (existing) {
+          if (existing.userId !== args.userId) throw c.errors.notFound('Session not found');
+          return existing;
+        }
+        return inner.getOrCreateSession(c, args);
+      },
+    };
+    const billing = defineChat({ name: 'billing', access: {}, instructions: ['x'] });
+    const help = defineChat({ name: 'help', access: {}, instructions: ['x'] });
+
+    await runTurn(ctx, billing, 'first', ownerOnly);
+    const reused = await runTurn(ctx, help, 'second', ownerOnly);
+    const failed = reused.find((e) => e.type === 'turn.failed');
+    expect(failed?.type === 'turn.failed' && failed.message).toBe('Session not found');
   });
 
   it('refuses confirmations when no atomic tier backs the injected store', async () => {

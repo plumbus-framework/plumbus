@@ -1,5 +1,4 @@
-import type { ExecutionContext } from '@plumbus/core';
-import type { ConditionalUpdateResult } from '@plumbus/core';
+import type { ConditionalUpdateResult, ExecutionContext } from '@plumbus/core';
 import { chatSessionRepo } from '../internal/chat-repos.js';
 import type { ChatPendingActionV2 } from '../session/pending-action-v2.js';
 import {
@@ -39,14 +38,25 @@ export type LivePendingCheck =
  *  - status 'confirming', stale/expired → atomically terminalize, continue
  *  - status 'pending', not expired      → chat.pending_action_exists (409)
  *  - status 'pending', expired          → atomically terminalize (pending→expired), continue
+ * With `scope`, a session that is missing, another user's, or another chat's
+ * reports `{ blocked: false }` before any pending row is read.
  */
 export async function checkLivePending(
   ctx: ExecutionContext,
   sessionId: string,
+  scope?: { userId: string; chatName: string },
 ): Promise<LivePendingCheck> {
+  const sessions = chatSessionRepo(ctx);
+  // Ownership first: a session that is not the caller's (or belongs to another
+  // chat) looks exactly like one with no pending action.
+  if (scope) {
+    const owned = await sessions.findById(sessionId);
+    if (!owned || owned.userId !== scope.userId || owned.chatName !== scope.chatName) {
+      return { blocked: false };
+    }
+  }
   const repo = pendingRepo(ctx);
   const rows = await repo.findMany({ sessionId });
-  const sessions = chatSessionRepo(ctx);
   const loadSessionLease = async () => {
     const sessionRow = await sessions.findById(sessionId);
     return sessionRow ?? { leaseToken: null, leaseExpiresAt: null };

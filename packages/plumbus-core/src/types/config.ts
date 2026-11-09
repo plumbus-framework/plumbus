@@ -12,6 +12,13 @@ export interface DatabaseConfig {
   user: string;
   password: string;
   ssl?: boolean;
+  /**
+   * Pass `ssl` to the PostgreSQL driver (0.8.5+, default false). In 0.8.x the
+   * configured `ssl` is NOT applied unless this is true, so existing plaintext
+   * deployments keep working; a one-time warning is logged when `ssl` is set
+   * without enforcement. Env: `DATABASE_SSL_ENFORCE=true`.
+   */
+  sslEnforce?: boolean;
   poolSize?: number;
 }
 

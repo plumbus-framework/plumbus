@@ -1,3 +1,5 @@
+export { VOICE_CSRF_COOKIE_NAME, VOICE_CSRF_HEADER_NAME } from '../security/csrf-names.js';
+
 export interface WebSpeechRecognizerEvent {
   type: 'partial' | 'final' | 'error';
   text?: string;

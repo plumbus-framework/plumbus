@@ -81,6 +81,7 @@ interface DatabaseConfig {
   user: string;
   password: string;
   ssl?: boolean;
+  sslEnforce?: boolean; // 0.8.5+, default false — see below
   poolSize?: number;
 }
 ```
@@ -94,8 +95,11 @@ DB_NAME=myapp              # aliases: DATABASE_NAME, PGDATABASE
 DB_USER=postgres           # aliases: DATABASE_USER, PGUSER
 DB_PASSWORD=secret         # aliases: DATABASE_PASSWORD, PGPASSWORD
 DATABASE_SSL=false         # read when DATABASE_SSL=true
+DATABASE_SSL_ENFORCE=false # 0.8.5+: true = actually connect over TLS (see below)
 DATABASE_POOL_SIZE=10
 ```
+
+**TLS (0.8.x):** `ssl` defaults to `true` in production (or `DATABASE_SSL=true`), but before 0.8.5 it was never handed to the PostgreSQL driver, so connections were plaintext. To keep existing deployments on non-TLS Postgres working, 0.8.x still does **not** apply `ssl` unless you opt in with `DATABASE_SSL_ENFORCE=true` (or `database.sslEnforce: true`). With it, `ssl: true` makes postgres.js negotiate TLS and verify the server certificate (add a private CA with `NODE_EXTRA_CA_CERTS`); this applies to the server/worker pool and to `plumbus migrate`, `seed` and `run`. When `ssl` is set without enforcement, Plumbus logs a one-time warning at connect that the connection is not using TLS.
 
 ## Runtime Role
 
@@ -470,7 +474,7 @@ interface ServerConfig {
   logger?: LoggerService;
   host?: string;           // Default: "0.0.0.0"
   port?: number;           // Default: 3000
-  trustProxy?: boolean | string | string[] | number;
+  trustProxy?: boolean | string | string[] | number; // number = hop count: Fastify 5.12+ trusts no proxy for it (warning logged); use addresses/CIDRs or true
   jobQueue?: EventQueue;
   metrics?: PlumbusMetrics;
   onRoutesRegistered?: (app, routeConfig) => void;

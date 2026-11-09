@@ -1,7 +1,7 @@
-import { errorToHttpResponse } from '@plumbus/core/errors';
 import { createRequire } from 'node:module';
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import type { RequestInfo as McpRequestInfo } from '@modelcontextprotocol/sdk/types.js';
 import {
   CallToolRequestSchema,
   CancelTaskRequestSchema,
@@ -12,25 +12,25 @@ import {
   ListToolsRequestSchema,
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
-import type { RequestInfo as McpRequestInfo } from '@modelcontextprotocol/sdk/types.js';
 import {
-  JobExecutionSource,
-  evaluateAccess,
-  createExecutionContext,
-  dispatchQueuedJob,
-  executeCapability,
-  getCanonicalCapabilityName,
   type AuthContext,
   type CapabilityContract,
+  createExecutionContext,
+  dispatchQueuedJob,
   type ExecutionContext,
+  evaluateAccess,
+  executeCapability,
+  getCanonicalCapabilityName,
+  JobExecutionSource,
 } from '@plumbus/core';
+import { errorToHttpResponse } from '@plumbus/core/errors';
 import { buildMcpManifest, isMcpExposed } from '@plumbus/core/mcp';
 import {
   createTask,
   getByIdScoped,
+  type McpTaskRow,
   markStatus,
   recordProgress,
-  type McpTaskRow,
 } from './tasks/task-store.js';
 import type { McpServerConfig } from './types.js';
 
@@ -54,6 +54,81 @@ const PACKAGE_VERSION: string = (() => {
  * to the Server object) — tracked as a follow-up; do NOT change in this plan.
  */
 const taskAbortRegistry = new Map<string, AbortController>();
+
+/**
+ * Maps taskId → the MCP session (Streamable HTTP `mcp-session-id`) that created it.
+ *
+ * Only stateful HTTP sessions have an id; stdio, in-memory and stateless HTTP tasks
+ * are never bound and keep the user + tenant ownership check alone. The binding
+ * lives in memory on purpose: sessions themselves are per-process (one transport
+ * per session in `registerMcpOnFastify`), so the binding has exactly the lifetime
+ * of the thing it protects, and the app-owned `McpTask` table needs no migration.
+ * When a session closes its bindings are released and its tasks fall back to the
+ * user + tenant check (so a reconnecting client can still collect its results).
+ */
+const taskSessionBindings = new Map<string, string>();
+const sessionTaskIds = new Map<string, Set<string>>();
+
+function bindTaskToSession(taskId: string, sessionId: string | undefined): void {
+  if (!sessionId) return;
+  taskSessionBindings.set(taskId, sessionId);
+  let ids = sessionTaskIds.get(sessionId);
+  if (!ids) {
+    ids = new Set();
+    sessionTaskIds.set(sessionId, ids);
+  }
+  ids.add(taskId);
+}
+
+/** @internal Release every task binding held by a closed MCP session. */
+export function releaseMcpSessionTasks(sessionId: string): void {
+  const ids = sessionTaskIds.get(sessionId);
+  if (!ids) return;
+  for (const id of ids) {
+    if (taskSessionBindings.get(id) === sessionId) taskSessionBindings.delete(id);
+  }
+  sessionTaskIds.delete(sessionId);
+}
+
+/** A task bound to a session is visible only from that session. */
+function isTaskVisibleToSession(taskId: string, sessionId: string | undefined): boolean {
+  const bound = taskSessionBindings.get(taskId);
+  return bound === undefined || bound === sessionId;
+}
+
+/**
+ * Default ceiling on array elements + object members in one `tools/call`
+ * `arguments` payload (GHSA-46jr-4wx8-v453). Far above anything a model can
+ * emit in a single tool call; stops pathological payloads before validation.
+ */
+export const DEFAULT_MAX_TOOL_INPUT_ELEMENTS = 100_000;
+
+function resolveMaxToolInputElements(value: number | undefined): number | undefined {
+  if (value === undefined) return DEFAULT_MAX_TOOL_INPUT_ELEMENTS;
+  if (value === Number.POSITIVE_INFINITY) return undefined;
+  if (typeof value !== 'number' || Number.isNaN(value) || value < 1) {
+    throw new RangeError(
+      `maxToolInputElements must be a number of at least 1, or Infinity, got ${String(value)}`,
+    );
+  }
+  return value;
+}
+
+/** Counts array elements and object members, stopping once the total passes `max`. */
+function countToolInputElements(value: unknown, max: number): number {
+  let count = 0;
+  const stack: unknown[] = [value];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (node === null || typeof node !== 'object') continue;
+    const children = Array.isArray(node) ? node : Object.values(node as Record<string, unknown>);
+    for (const child of children) {
+      if (++count > max) return count;
+      if (child !== null && typeof child === 'object') stack.push(child);
+    }
+  }
+  return count;
+}
 
 export interface CreateMcpServerOptions {
   name?: string;
@@ -92,6 +167,7 @@ function capabilityResultToToolResponse(result: Awaited<ReturnType<typeof execut
 
 type McpExtra = {
   signal?: AbortSignal;
+  sessionId?: string;
   authInfo?: AuthInfo;
   requestInfo?: McpRequestInfo;
 };
@@ -140,6 +216,20 @@ function taskRowToWire(task: McpTaskRow): {
   };
 }
 
+/** Load a task the calling session may see; tasks of other sessions read as missing. */
+async function getVisibleTask(
+  ctx: ExecutionContext,
+  taskId: string,
+  extra: McpExtra,
+): Promise<McpTaskRow> {
+  if (!isTaskVisibleToSession(taskId, extra.sessionId)) {
+    throw new McpError(ErrorCode.InvalidRequest, 'task.not_found');
+  }
+  const task = await getByIdScoped(ctx, taskId);
+  if (!task) throw new McpError(ErrorCode.InvalidRequest, 'task.not_found');
+  return task;
+}
+
 function assertTaskOwnership(task: McpTaskRow, auth: AuthContext): void {
   if (
     task.userId !== auth.userId ||
@@ -154,6 +244,7 @@ export function createMcpServer(
   config: McpServerConfig,
   options: CreateMcpServerOptions = {},
 ): Server {
+  const maxToolInputElements = resolveMaxToolInputElements(config.maxToolInputElements);
   const server = new Server(
     { name: options.name ?? 'plumbus-mcp', version: options.version ?? PACKAGE_VERSION },
     {
@@ -190,6 +281,16 @@ export function createMcpServer(
         ],
         isError: true,
       };
+    }
+
+    if (
+      maxToolInputElements !== undefined &&
+      countToolInputElements(request.params.arguments, maxToolInputElements) > maxToolInputElements
+    ) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        `Invalid arguments for tool ${toolName}: arguments contain more than the maximum of ${maxToolInputElements} elements`,
+      );
     }
 
     const bypassTenantScope = cap.access?.tenantScoped === false;
@@ -237,6 +338,7 @@ export function createMcpServer(
       const taskId = crypto.randomUUID();
       const abortController = new AbortController();
       taskAbortRegistry.set(taskId, abortController);
+      bindTaskToSession(taskId, (extra as McpExtra).sessionId);
 
       const task = await createTask(taskCtx, {
         id: taskId,
@@ -453,16 +555,14 @@ export function createMcpServer(
 
   server.setRequestHandler(GetTaskRequestSchema, async (request, extra) => {
     const { ctx, authContext } = await resolveCtx(config, extra as McpExtra, { taskAccess: true });
-    const task = await getByIdScoped(ctx, request.params.taskId);
-    if (!task) throw new McpError(ErrorCode.InvalidRequest, 'task.not_found');
+    const task = await getVisibleTask(ctx, request.params.taskId, extra as McpExtra);
     assertTaskOwnership(task, authContext);
     return taskRowToWire(task);
   });
 
   server.setRequestHandler(GetTaskPayloadRequestSchema, async (request, extra) => {
     const { ctx, authContext } = await resolveCtx(config, extra as McpExtra, { taskAccess: true });
-    const task = await getByIdScoped(ctx, request.params.taskId);
-    if (!task) throw new McpError(ErrorCode.InvalidRequest, 'task.not_found');
+    const task = await getVisibleTask(ctx, request.params.taskId, extra as McpExtra);
     assertTaskOwnership(task, authContext);
     if (task.status !== 'completed') {
       throw new McpError(ErrorCode.InvalidRequest, `task.not_completed: status is ${task.status}`);
@@ -472,8 +572,7 @@ export function createMcpServer(
 
   server.setRequestHandler(CancelTaskRequestSchema, async (request, extra) => {
     const { ctx, authContext } = await resolveCtx(config, extra as McpExtra, { taskAccess: true });
-    const task = await getByIdScoped(ctx, request.params.taskId);
-    if (!task) throw new McpError(ErrorCode.InvalidRequest, 'task.not_found');
+    const task = await getVisibleTask(ctx, request.params.taskId, extra as McpExtra);
     assertTaskOwnership(task, authContext);
     if (task.status === 'working') {
       await markStatus(ctx, task.id, 'cancelled');
@@ -501,6 +600,7 @@ export function createMcpServer(
     return {
       tasks: rows
         .filter((row) => (row.tenantId ?? undefined) === (authContext.tenantId ?? undefined))
+        .filter((row) => isTaskVisibleToSession(row.id, (extra as McpExtra).sessionId))
         .map(taskRowToWire),
     };
   });

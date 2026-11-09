@@ -1,6 +1,5 @@
-import { describe, expect, it } from '@plumbus/core/testing';
-import { createTestContext } from '@plumbus/core/testing';
-import { appendTurn, aggregateForBudget, createSession, getOrCreateSession } from '../service.js';
+import { createTestContext, describe, expect, it } from '@plumbus/core/testing';
+import { aggregateForBudget, appendTurn, createSession, getOrCreateSession } from '../service.js';
 
 describe('session service', () => {
   it('createSession round-trips', async () => {
@@ -113,6 +112,36 @@ describe('session service', () => {
         locale: 'en',
       }),
     ).rejects.toMatchObject({ code: 'notFound' });
+  });
+
+  it('getOrCreateSession rejects the same user from a different chat', async () => {
+    const ctx = createTestContext();
+    const session = await createSession(ctx, {
+      chatName: 'billing',
+      userId: 'user-a',
+      audience: 'user',
+      locale: 'en',
+    });
+
+    await expect(
+      getOrCreateSession(ctx, {
+        sessionId: session.id,
+        chatName: 'help',
+        userId: 'user-a',
+        audience: 'user',
+        locale: 'en',
+      }),
+    ).rejects.toMatchObject({ code: 'notFound' });
+
+    // The owning chat still resumes it.
+    const same = await getOrCreateSession(ctx, {
+      sessionId: session.id,
+      chatName: 'billing',
+      userId: 'user-a',
+      audience: 'user',
+      locale: 'en',
+    });
+    expect(same.id).toBe(session.id);
   });
 
   it('aggregateForBudget sums', async () => {

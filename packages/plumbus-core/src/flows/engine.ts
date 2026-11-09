@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import { parseDurationToMs, resolveRetryPolicy, retryDelay } from '../config/index.js';
 import { FlowCancelledError, LeaseLostError } from '../errors/index.js';
+import { createStructuredLogger } from '../observability/metrics.js';
 import type { EventQueue } from '../events/queue.js';
 import type { AuditService } from '../types/audit.js';
 import type {
@@ -107,6 +108,33 @@ export interface FlowEngineConfig {
    * land in the same `[plumbus:worker]` stream as everything else.
    */
   logger?: LoggerService;
+  /**
+   * Opt-in (default `false`): when enabled, caller-facing `ctx.flows.resume`,
+   * `ctx.flows.cancel` and `ctx.flows.status` only act on executions started
+   * by the same actor in the same tenant. Callers holding the `system` role
+   * (worker and other internal paths) are exempt. Other callers get the same
+   * "not found" error as for an unknown execution id.
+   *
+   * When omitted, the `PLUMBUS_FLOW_ENFORCE_OWNERSHIP=true` environment
+   * variable enables it. Cross-tenant access is always rejected, regardless
+   * of this option.
+   */
+  enforceExecutionOwnership?: boolean;
+}
+
+/**
+ * Tenant scope for {@link createFlowEngine} `resumeWaitingByEvent`. Only
+ * executions whose stored tenant equals `tenantId` are resumed; `null` means
+ * "tenantless executions only".
+ */
+export interface FlowEventResumeScope {
+  tenantId: string | null;
+}
+
+/** Stored owner of a flow execution, used by the caller-facing flow service. */
+export interface FlowExecutionOwner {
+  actor: string;
+  tenantId: string | null;
 }
 
 interface FlowExecutionRow {
@@ -186,6 +214,16 @@ export function createFlowEngine(config: FlowEngineConfig) {
   const logger = config.logger;
   const onFlowStepEnqueue = config.onFlowStepEnqueue;
   const onFlowDelayedSchedule = config.onFlowDelayedSchedule;
+  const enforceExecutionOwnership =
+    config.enforceExecutionOwnership ?? process.env.PLUMBUS_FLOW_ENFORCE_OWNERSHIP === 'true';
+  const warnedKeys = new Set<string>();
+
+  /** Log a warning once per engine instance (security-relevant legacy paths). */
+  function warnOnce(key: string, message: string, metadata?: Record<string, unknown>): void {
+    if (warnedKeys.has(key)) return;
+    warnedKeys.add(key);
+    (logger ?? createStructuredLogger({ component: 'flows' })).warn(message, metadata);
+  }
 
   async function maybeEnqueueFlowStep(
     executionId: string,
@@ -883,6 +921,15 @@ export function createFlowEngine(config: FlowEngineConfig) {
     signal?: unknown,
     expectedWaitToken?: string | null,
   ): Promise<void> {
+    return resumeExecution(executionId, signal, expectedWaitToken);
+  }
+
+  async function resumeExecution(
+    executionId: string,
+    signal: unknown,
+    expectedWaitToken: string | null | undefined,
+    expectedTenant?: FlowEventResumeScope,
+  ): Promise<void> {
     const rows = await db
       .select()
       .from(flowExecutionsTable)
@@ -894,6 +941,8 @@ export function createFlowEngine(config: FlowEngineConfig) {
 
     if (expectedWaitToken !== undefined && row.leaseToken !== expectedWaitToken)
       throw new LeaseLostError('Flow wait changed before signal delivery', { executionId });
+    if (expectedTenant && (row.tenantId ?? null) !== expectedTenant.tenantId)
+      throw new LeaseLostError('Flow tenant does not match the resuming event', { executionId });
     if (row.status !== FlowStatus.Waiting) {
       throw new Error(`Cannot resume flow "${executionId}" — current status is "${row.status}"`);
     }
@@ -932,6 +981,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
           row.leaseToken
             ? eq(flowExecutionsTable.leaseToken, row.leaseToken)
             : isNull(flowExecutionsTable.leaseToken),
+          expectedTenant ? tenantPredicate(expectedTenant.tenantId) : undefined,
         ),
       );
     if (getRowsAffected(resumed) === 0)
@@ -940,12 +990,37 @@ export function createFlowEngine(config: FlowEngineConfig) {
     await maybeEnqueueFlowStep(executionId, row.correlationId);
   }
 
+  function tenantPredicate(tenantId: string | null) {
+    return tenantId === null
+      ? isNull(flowExecutionsTable.tenantId)
+      : eq(flowExecutionsTable.tenantId, tenantId);
+  }
+
   /**
-   * Resume all flows waiting on a specific event type.
-   * Uses FOR UPDATE SKIP LOCKED to prevent duplicate resumes across workers.
+   * Resume flows waiting on a specific event type.
+   *
+   * With a `scope`, only executions in that tenant are selected and the
+   * guarded update re-checks the tenant; `{ tenantId: null }` resumes only
+   * tenantless executions. The event trigger always passes the event's
+   * tenant, so an event never resumes another tenant's execution.
+   *
+   * Without a `scope` (legacy direct engine callers) every tenant's waiting
+   * executions are resumed, and a one-time warning is logged.
+   *
    * Returns execution IDs resumed.
    */
-  async function resumeWaitingByEvent(eventType: string, signal?: unknown): Promise<string[]> {
+  async function resumeWaitingByEvent(
+    eventType: string,
+    signal?: unknown,
+    scope?: FlowEventResumeScope,
+  ): Promise<string[]> {
+    if (!scope) {
+      warnOnce(
+        'flow.resumeWaitingByEvent.unscoped',
+        'resumeWaitingByEvent() called without a tenant scope: waiting executions of every tenant are resumed. Pass { tenantId } to limit it to one tenant.',
+        { eventType },
+      );
+    }
     const waiting = await db
       .select({ id: flowExecutionsTable.id, leaseToken: flowExecutionsTable.leaseToken })
       .from(flowExecutionsTable)
@@ -953,12 +1028,13 @@ export function createFlowEngine(config: FlowEngineConfig) {
         and(
           eq(flowExecutionsTable.status, FlowStatus.Waiting),
           eq(flowExecutionsTable.waitingForEvent, eventType),
+          scope ? tenantPredicate(scope.tenantId) : undefined,
         ),
       );
     const resumed: string[] = [];
     for (const row of waiting) {
       try {
-        await resume(row.id, signal, row.leaseToken);
+        await resumeExecution(row.id, signal, row.leaseToken, scope);
         resumed.push(row.id);
       } catch (error) {
         if (!(error instanceof LeaseLostError)) throw error;
@@ -1064,6 +1140,20 @@ export function createFlowEngine(config: FlowEngineConfig) {
     if (!row) throw new Error(`Flow execution "${executionId}" not found`);
 
     return { id: row.id, flowName: row.flowName, status: row.status };
+  }
+
+  /**
+   * Read the stored actor and tenant of an execution (undefined when the id
+   * is unknown). Used by the caller-facing flow service for access checks.
+   */
+  async function getExecutionOwner(executionId: string): Promise<FlowExecutionOwner | undefined> {
+    const rows = await db
+      .select({ actor: flowExecutionsTable.actor, tenantId: flowExecutionsTable.tenantId })
+      .from(flowExecutionsTable)
+      .where(eq(flowExecutionsTable.id, executionId))
+      .limit(1);
+    const row = rows[0] as FlowExecutionOwner | undefined;
+    return row ? { actor: row.actor, tenantId: row.tenantId ?? null } : undefined;
   }
 
   // ── Internal helpers ──
@@ -1251,6 +1341,11 @@ export function createFlowEngine(config: FlowEngineConfig) {
     cancel,
     status,
     markFailedFromRunner,
+    getExecutionOwner,
+    warnOnce,
+    get enforceExecutionOwnership() {
+      return enforceExecutionOwnership;
+    },
     get workerId() {
       return workerId;
     },

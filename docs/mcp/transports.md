@@ -83,6 +83,8 @@ onRoutesRegistered(async (app, routeConfig) => {
     discoveryPath: '/mcp/discovery', // default
     stateless: true,               // default — no session affinity
     requireDiscoveryAuth: false,   // default — discovery is unauthenticated
+    // maxRequestBodySize: 1_048_576, // optional — route bodyLimit + SDK transport limit
+    // sessionIdleTimeoutMs: 1_800_000, // optional, stateful mode only
   });
 });
 ```
@@ -91,8 +93,21 @@ onRoutesRegistered(async (app, routeConfig) => {
 |---|---|---|
 | `path` | `'/mcp'` | The Streamable HTTP endpoint. Accepts all HTTP methods (the transport multiplexes). |
 | `discoveryPath` | `'/mcp/discovery'` | `GET` returns `{ manifest, auth }`. Agents typically fetch this first. |
-| `stateless` | `true` | When `true`, every request is independent. Set `false` to enable per-session resumability — the transport assigns a UUID session id. |
+| `stateless` | `true` | When `true`, every request is served by a fresh MCP server + transport (the SDK refuses to reuse a stateless transport). Set `false` for sessions: each `initialize` creates its own server + transport under a UUID session id. |
 | `requireDiscoveryAuth` | `false` | When `true`, the discovery route requires a valid Bearer token. Turn this on if the tool *list* itself is sensitive (e.g. you don't want third parties enumerating capability descriptions). |
+| `maxRequestBodySize` | unset | Bytes. When set, used as the MCP route's Fastify `bodyLimit` (413 above it) and as the SDK transport's `maxRequestBodySize`. When unset, the Fastify instance `bodyLimit` applies (Fastify default 1 MiB). |
+| `sessionIdleTimeoutMs` | unset (off) | Stateful mode only. Closes a session after this long with no request or stream open; the client then gets `404 Session not found` and re-initializes. Set it on servers reachable by many clients so abandoned sessions are released. |
+
+### Sessions (stateful mode)
+
+With `stateless: false`, a session belongs to the user + tenant that sent `initialize`. A request carrying that `mcp-session-id` from any other user or tenant gets `404 Session not found` — it cannot open the session's SSE stream, send on it, or `DELETE` it. `DELETE` (or `app.close()`) closes the session's server and transport. Sessions live in process memory, so multi-instance deployments need session affinity.
+
+Tasks created in a session are visible only from that session — see [Tasks and jobs](./tasks-and-jobs.md#ownership).
+
+### Limits
+
+- **Tool arguments:** `McpServerConfig.maxToolInputElements` (default `100_000`, exported as `DEFAULT_MAX_TOOL_INPUT_ELEMENTS`) caps the combined number of array elements and object members in one `tools/call` `arguments` payload. Larger payloads get JSON-RPC `InvalidParams` before validation or execution. `Infinity` disables the check. Applies to every transport.
+- **Request body:** see `maxRequestBodySize` above. Fastify's body limit always applies.
 
 ### Per-tool-call observability — `onMcpToolCall`
 

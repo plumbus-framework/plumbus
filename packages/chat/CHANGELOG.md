@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.2 — 2026-11-09
+
+- **Security release.** See [the 0.8.5 security upgrade notes](../../docs/upgrading-0.8.5-security.md) for every opt-in and warning.
+- **Cookie auth without browser checks:** `registerChatRoutes` warns at registration when `authCookieNames` is set without both `csrfSecret` and `externalBaseUrl`, because cookie-authenticated `/turn` and `/confirm` are then not checked for Origin or CSRF. New opt-in `requireBrowserSecurity: true` makes it a startup error.
+- **Sessions are bound to their chat:** reusing a session id from another chat fails as `Session not found`, instead of loading the other chat's history.
+- **Pending actions:** the pre-turn pending-action check resolves the session by id, caller and chat first. Another user's or another chat's session reports no pending action, so its action id and expiry are no longer returned. `ChatConversationStore.inspectSession` takes an optional `{ owner, chatName }` third argument, which custom stores should honor.
+- **Errors:** `turn.failed` (`chat.turn_error`, `chat.resume_failed`) no longer carries raw internal, provider or database error text. Only caller-facing `PlumbusError` messages pass through. Everything else is sent as "The chat turn could not be completed" and logged with `ctx.logger.error`.
+
 ## 0.3.1 — 2026-11-02
 
 - **Requires `@plumbus/core` 0.8.3 or later** (peer `">=0.8.3 <0.9.0"`, was `0.8.x`): this release imports `@plumbus/core/sdk`, which core 0.8.2 does not have. Upgrade core together with this package.

@@ -227,7 +227,7 @@ Poll status via the additive HTTP endpoint:
 GET /api/jobs/:jobId
 ```
 
-Returns `401` without auth, `403` if the caller is not the job owner (or admin), `404` if missing. Response shape:
+Returns `401` without auth, `403` if the caller is not the job owner (or `admin`/`system`), `404` if missing. Tenant isolation (0.8.5+): a caller whose token has a `tenantId` only sees jobs of that tenant, whatever their role; jobs of another tenant answer `404` exactly like a missing job. A caller without a `tenantId` sees tenant jobs only with the `admin` or `system` role (platform staff); a tenant job's owner without a `tenantId` gets `404`. Response shape:
 
 ```json
 {

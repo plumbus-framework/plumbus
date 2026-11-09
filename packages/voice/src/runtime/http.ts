@@ -8,7 +8,7 @@ import {
 } from '@plumbus/core/sdk';
 import { z } from '@plumbus/core/zod';
 import websocket from '@fastify/websocket';
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import {
   createSTTProvider,
   createTTSProvider,
@@ -25,7 +25,17 @@ import {
   type AttachWebSocketTransportArgs,
 } from '../providers/transport/websocket-transport.js';
 import type { TransportProvider } from '../providers/base/transport-provider.js';
-import { mintVoiceSessionToken, verifyVoiceSessionToken } from '../security/session-token.js';
+import {
+  ConsumedVoiceTokenStore,
+  mintVoiceSessionToken,
+  verifyVoiceSessionToken,
+} from '../security/session-token.js';
+import {
+  assertValidExternalBaseUrl,
+  guardVoiceBrowserRequest,
+  resolveVoiceRequestCredential,
+} from '../security/browser-guard.js';
+import { warnOnce } from '../internal/warn-once.js';
 import { checkWebSocketOrigin } from '../security/ws-origin.js';
 import type { RegisterVoiceRoutesOpts, VoiceBeforeSessionResult } from '../types/http.js';
 import type { VoiceDefinition } from '../types/voice.js';
@@ -161,6 +171,12 @@ export function registerVoiceRoutes(
       ErrorCode.DependencyViolation,
       'Voice session token secret must have at least 32 non-padding characters',
     );
+  assertValidExternalBaseUrl(opts.externalBaseUrl);
+  if (needsWebsocketPlugin && (opts.websocketOriginAllowlist ?? []).length === 0)
+    warnOnce(
+      'voice.ws-origin-allowlist-empty',
+      '[plumbus:voice] websocketOriginAllowlist is empty, so voice websocket handshakes from any (or no) Origin are accepted. Set websocketOriginAllowlist to your app origins.',
+    );
   const canNestRegister = typeof app.register === 'function';
 
   if (!needsWebsocketPlugin || !canNestRegister) {
@@ -191,6 +207,7 @@ function registerVoiceRoutesOnApp(
     return cachedRegistry;
   };
   const cookieNames = opts.authCookieNames ?? [];
+  const consumedTokens = opts.singleUseSessionTokens ? new ConsumedVoiceTokenStore() : undefined;
 
   registerVoiceCatalogRoutes(app, routeConfig, voices, { ...opts, resolveRegistry });
 
@@ -198,7 +215,11 @@ function registerVoiceRoutesOnApp(
     const voiceName = voice.name;
 
     app.post(`/api/voice/${voiceName}/session`, async (req, reply) => {
-      const authResult = await authenticateVoiceRequest(req, routeConfig, cookieNames, voice);
+      const authResult = await authenticateVoiceRequest(req, routeConfig, cookieNames, voice, {
+        reply,
+        opts,
+        mutation: true,
+      });
       if (!authResult.ok) {
         return reply.status(authResult.status).send(authResult.body);
       }
@@ -268,7 +289,7 @@ function registerVoiceRoutesOnApp(
         },
       });
 
-      const wsUrl = buildWebSocketUrl(req, voiceName);
+      const wsUrl = buildWebSocketUrl(req, voiceName, opts.externalBaseUrl);
       const body = {
         wsUrl,
         sessionToken,
@@ -282,7 +303,11 @@ function registerVoiceRoutesOnApp(
     });
 
     app.post(`/api/voice/${voiceName}/token`, async (req, reply) => {
-      const authResult = await authenticateVoiceRequest(req, routeConfig, cookieNames, voice);
+      const authResult = await authenticateVoiceRequest(req, routeConfig, cookieNames, voice, {
+        reply,
+        opts,
+        mutation: true,
+      });
       if (!authResult.ok) {
         return reply.status(authResult.status).send(authResult.body);
       }
@@ -386,7 +411,11 @@ function registerVoiceRoutesOnApp(
     });
 
     app.get(`/api/voice/${voiceName}/health`, async (req, reply) => {
-      const authResult = await authenticateVoiceRequest(req, routeConfig, cookieNames, voice);
+      const authResult = await authenticateVoiceRequest(req, routeConfig, cookieNames, voice, {
+        reply,
+        opts,
+        mutation: false,
+      });
       if (!authResult.ok) {
         return reply.status(authResult.status).send(authResult.body);
       }
@@ -408,7 +437,11 @@ function registerVoiceRoutesOnApp(
 
     if (opts.enableDebugEventStream) {
       app.get(`/api/voice/${voiceName}/debug/events`, async (req, reply) => {
-        const authResult = await authenticateVoiceRequest(req, routeConfig, cookieNames, voice);
+        const authResult = await authenticateVoiceRequest(req, routeConfig, cookieNames, voice, {
+          reply: undefined,
+          opts,
+          mutation: false,
+        });
         if (!authResult.ok) {
           return reply.status(authResult.status).send(authResult.body);
         }
@@ -438,6 +471,7 @@ function registerVoiceRoutesOnApp(
         routeConfig,
         opts,
         resolveRegistry,
+        consumedTokens,
       });
     });
   }
@@ -454,6 +488,7 @@ async function handleVoiceWebSocket(
     routeConfig: RouteGeneratorConfig;
     opts: RegisterVoiceRoutesOpts;
     resolveRegistry: () => Promise<VoiceProviderRegistry>;
+    consumedTokens?: ConsumedVoiceTokenStore;
   },
 ): Promise<void> {
   const originCheck = checkWebSocketOrigin(req.headers.origin, {
@@ -471,7 +506,7 @@ async function handleVoiceWebSocket(
     return;
   }
 
-  const sessionToken = extractSessionToken(req);
+  const sessionToken = extractSessionToken(req, !args.opts.rejectQuerySessionToken);
   if (!sessionToken) {
     socket.send(
       JSON.stringify({
@@ -491,7 +526,16 @@ async function handleVoiceWebSocket(
     issuer: args.opts.sessionTokenIssuer,
   });
 
-  if (!verified || verified.claims.voiceName !== args.voiceName) {
+  if (
+    !verified ||
+    verified.claims.voiceName !== args.voiceName ||
+    (args.consumedTokens &&
+      (!verified.tokenId ||
+        !args.consumedTokens.consume(
+          verified.tokenId,
+          verified.expiresAt?.getTime() ?? Date.now() + 5 * 60_000,
+        )))
+  ) {
     socket.send(
       JSON.stringify({
         type: 'error',
@@ -642,6 +686,7 @@ async function authenticateVoiceRequest(
   routeConfig: RouteGeneratorConfig,
   cookieNames: string[],
   voice: VoiceDefinition,
+  guard: { reply: FastifyReply | undefined; opts: RegisterVoiceRoutesOpts; mutation: boolean },
 ): Promise<
   | {
       ok: true;
@@ -650,10 +695,17 @@ async function authenticateVoiceRequest(
     }
   | { ok: false; status: number; body: unknown }
 > {
-  const token = resolveAuthToken(req, cookieNames);
-  const auth = await routeConfig.authAdapter.authenticate(token);
+  const credential = resolveVoiceRequestCredential(req, cookieNames);
+  const auth = await routeConfig.authAdapter.authenticate(credential.token);
   if (!auth) {
     return { ok: false, status: 401, body: { error: 'Unauthorized' } };
+  }
+
+  const browser = guardVoiceBrowserRequest(req, guard.reply, auth, credential.source, guard.opts, {
+    mutation: guard.mutation,
+  });
+  if (!browser.ok) {
+    return browser;
   }
 
   const authz = evaluateAccess(voice.access, auth);
@@ -671,26 +723,6 @@ async function authenticateVoiceRequest(
   deps.request = { sourceIp: req.ip, userAgent: req.headers['user-agent'] };
   const ctx = createExecutionContext(deps);
   return { ok: true, ctx, auth };
-}
-
-function resolveAuthToken(req: FastifyRequest, cookieNames: string[]): string | undefined {
-  const headerToken = req.headers.authorization;
-  if (headerToken) return headerToken;
-
-  const cookieHeader = req.headers.cookie;
-  if (!cookieHeader) return undefined;
-
-  for (const cookieName of cookieNames) {
-    for (const part of cookieHeader.split(';')) {
-      const eq = part.indexOf('=');
-      if (eq < 0) continue;
-      const key = part.slice(0, eq).trim();
-      if (key !== cookieName) continue;
-      return `Bearer ${decodeURIComponent(part.slice(eq + 1).trim())}`;
-    }
-  }
-
-  return undefined;
 }
 
 function resolveSessionTokenSecret(
@@ -712,7 +744,20 @@ function resolveSessionTokenSecret(
   );
 }
 
-function buildWebSocketUrl(req: FastifyRequest, voiceName: string): string {
+function buildWebSocketUrl(
+  req: FastifyRequest,
+  voiceName: string,
+  externalBaseUrl: string | undefined,
+): string {
+  if (externalBaseUrl) {
+    const base = new URL(externalBaseUrl);
+    const protocol = base.protocol === 'https:' ? 'wss' : 'ws';
+    return `${protocol}://${base.host}/api/voice/${voiceName}/stream`;
+  }
+  warnOnce(
+    'voice.ws-url-from-request-headers',
+    '[plumbus:voice] Voice wsUrl is built from the request Host / X-Forwarded-Proto headers. Set externalBaseUrl on registerVoiceRoutes options to build it from your public URL instead.',
+  );
   const host = req.headers.host ?? 'localhost';
   const forwardedProto = req.headers['x-forwarded-proto'];
   const isSecure =
@@ -722,7 +767,7 @@ function buildWebSocketUrl(req: FastifyRequest, voiceName: string): string {
   return `${protocol}://${host}/api/voice/${voiceName}/stream`;
 }
 
-function extractSessionToken(req: FastifyRequest): string | undefined {
+function extractSessionToken(req: FastifyRequest, allowQuery: boolean): string | undefined {
   const protocolHeader = req.headers['sec-websocket-protocol'];
   const protocols =
     typeof protocolHeader === 'string'
@@ -735,6 +780,9 @@ function extractSessionToken(req: FastifyRequest): string | undefined {
     }
   }
 
+  if (!allowQuery) {
+    return undefined;
+  }
   const query = req.query as { sessionToken?: string };
   if (typeof query.sessionToken === 'string' && query.sessionToken.length > 0) {
     return query.sessionToken;

@@ -13,6 +13,7 @@ import { info, resolvePath, success, warn, writeFile } from '../utils.js';
 interface ApiFinding {
   code: string;
   message: string;
+  severity?: 'error' | 'warning';
 }
 
 interface ApiDiffEntry {
@@ -25,16 +26,34 @@ interface GovernanceSignal {
   description: string;
 }
 
-/** Pure exit-code policy for `plumbus api validate` (testable without process.exit). */
+/** Security findings that count as errors (warning-only findings never fail the command). */
+export function blockingSecurityFindings(
+  securityFindings: readonly ApiFinding[],
+): readonly ApiFinding[] {
+  return securityFindings.filter((finding) => finding.severity !== 'warning');
+}
+
+/**
+ * Pure exit-code policy for `plumbus api validate` (testable without process.exit).
+ *
+ * Security findings fail the command only with `failOnSecurity` (`--fail-on-security`) in 0.8.x,
+ * and then only those that are not `severity: 'warning'`.
+ */
 export function apiValidateShouldFail(
   hardFindings: readonly unknown[],
   governanceSignals: readonly GovernanceSignal[],
-  opts: { failOnGovernance?: boolean },
+  opts: { failOnGovernance?: boolean; failOnSecurity?: boolean },
+  securityFindings: readonly ApiFinding[] = [],
 ): boolean {
   if (hardFindings.length > 0) return true;
   if (opts.failOnGovernance && governanceSignals.length > 0) return true;
+  if (opts.failOnSecurity && blockingSecurityFindings(securityFindings).length > 0) return true;
   return false;
 }
+
+/** Line printed when security findings exist but do not affect the exit code. */
+export const API_VALIDATE_SECURITY_ADVISORY_NOTICE =
+  'Security findings do not fail `plumbus api validate` in 0.8 — pass --fail-on-security to exit 1 on them.';
 
 /** Local view of @plumbus/api runtime (optional peer — dynamic import only). */
 interface ApiRuntimeModule {
@@ -50,7 +69,10 @@ interface ApiRuntimeModule {
     manifest: ApiFinding[];
     policy: ApiFinding[];
     pathParams: ApiFinding[];
+    /** Present in @plumbus/api releases that validate `security` config. */
+    security?: ApiFinding[];
     fixtures: ApiFinding[];
+    ok?: boolean;
   }>;
   generateOpenApi: (
     capabilities: import('../../types/capability.js').CapabilityContract[],
@@ -134,46 +156,84 @@ export function registerApiCommand(program: Command): void {
       '--fail-on-governance',
       'Exit with failure when advisory governance signals are present (default: advisory only)',
     )
-    .action(async (opts: { manifest?: string; json?: boolean; failOnGovernance?: boolean }) => {
-      const { api, manifest, capabilities, appRoot } = await loadManifestAndCaps(opts.manifest);
-      const result = await api.validateApiContract(manifest, capabilities, appRoot);
+    .option(
+      '--fail-on-security',
+      'Exit with failure when API security findings of error severity are present (default: reported only)',
+    )
+    .action(
+      async (opts: {
+        manifest?: string;
+        json?: boolean;
+        failOnGovernance?: boolean;
+        failOnSecurity?: boolean;
+      }) => {
+        const { api, manifest, capabilities, appRoot } = await loadManifestAndCaps(opts.manifest);
+        const result = await api.validateApiContract(manifest, capabilities, appRoot);
 
-      const engine = createGovernanceRuleEngine();
-      engine.registerMany(apiRules);
-      const gov = engine.evaluate({
-        capabilities,
-        entities: [],
-        flows: [],
-        events: [],
-        prompts: [],
-      });
+        const engine = createGovernanceRuleEngine();
+        engine.registerMany(apiRules);
+        const gov = engine.evaluate({
+          capabilities,
+          entities: [],
+          flows: [],
+          events: [],
+          prompts: [],
+        });
 
-      const allFindings = [
-        ...result.manifest,
-        ...result.policy,
-        ...result.pathParams,
-        ...result.fixtures,
-      ];
-      const govSignals = gov.effective;
+        const allFindings = [
+          ...result.manifest,
+          ...result.policy,
+          ...result.pathParams,
+          ...result.fixtures,
+        ];
+        const govSignals = gov.effective;
+        const securityFindings = result.security ?? [];
+        const securityNoticeNeeded =
+          !opts.failOnSecurity && blockingSecurityFindings(securityFindings).length > 0;
 
-      if (opts.json) {
-        console.log(JSON.stringify({ ...result, governance: govSignals }, null, 2));
-      } else {
-        for (const f of allFindings) {
-          warn(`[${f.code}] ${f.message}`);
+        if (opts.json) {
+          console.log(
+            JSON.stringify(
+              {
+                ...result,
+                security: securityFindings,
+                governance: govSignals,
+                securityFailsCommand: opts.failOnSecurity === true,
+              },
+              null,
+              2,
+            ),
+          );
+          // stderr keeps stdout parseable JSON.
+          if (securityNoticeNeeded) console.error(API_VALIDATE_SECURITY_ADVISORY_NOTICE);
+        } else {
+          for (const f of allFindings) {
+            warn(`[${f.code}] ${f.message}`);
+          }
+          for (const f of securityFindings) {
+            warn(`[${f.code}]${f.severity === 'warning' ? ' (warning)' : ''} ${f.message}`);
+          }
+          for (const s of govSignals) {
+            warn(`[${s.rule}] ${s.description}`);
+          }
+          if (securityNoticeNeeded) {
+            info(API_VALIDATE_SECURITY_ADVISORY_NOTICE);
+          }
         }
-        for (const s of govSignals) {
-          warn(`[${s.rule}] ${s.description}`);
-        }
-      }
 
-      if (
-        apiValidateShouldFail(allFindings, govSignals, { failOnGovernance: opts.failOnGovernance })
-      ) {
-        process.exit(1);
-      }
-      success('API contract validation passed');
-    });
+        if (
+          apiValidateShouldFail(
+            allFindings,
+            govSignals,
+            { failOnGovernance: opts.failOnGovernance, failOnSecurity: opts.failOnSecurity },
+            securityFindings,
+          )
+        ) {
+          process.exit(1);
+        }
+        success('API contract validation passed');
+      },
+    );
 
   const generate = apiCmd.command('generate').description('Generate API artifacts');
 

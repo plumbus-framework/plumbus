@@ -9,6 +9,7 @@ import {
   type RouteGeneratorConfig,
 } from '@plumbus/core';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { ApiManifestError } from '../errors.js';
 import { apiVersionFromManifest, joinApiPath } from '../manifest/api-version.js';
 import { requiredApiScopes } from '../manifest/scopes.js';
 import { buildDefaultManifest } from '../manifest/default-manifest.js';
@@ -59,7 +60,68 @@ export interface RegisterApiRoutesOpts {
   allowQueryIntent?: boolean;
   /** App root for resolving test fixtures. Default process.cwd(). */
   appRoot?: string;
+  /**
+   * Store for `Idempotency-Key` claims. Default: a process-local in-memory store (24h TTL,
+   * 10 000 entries). It is not shared across instances and is lost on restart; pass a
+   * durable shared store in multi-instance production deployments.
+   */
   idempotencyStore?: IdempotencyStore;
+  /**
+   * Refuse to register `action` capabilities exposed over `GET` (throws `ApiManifestError`
+   * with code `api.register.action-over-get`). Default false: such routes are registered
+   * and a warning is logged, because cookie CSRF protection does not cover `GET`.
+   */
+  rejectActionsOverGet?: boolean;
+}
+
+let inMemoryIdempotencyProductionWarned = false;
+
+function isProductionEnvironment(): boolean {
+  const env = process.env.PLUMBUS_ENV || process.env.NODE_ENV;
+  return env === 'production';
+}
+
+/** Test hook: reset the one-time in-memory idempotency production warning. */
+export function resetIdempotencyWarningForTests(): void {
+  inMemoryIdempotencyProductionWarned = false;
+}
+
+function warnInMemoryIdempotencyInProduction(app: FastifyInstance, operationIds: string[]): void {
+  if (inMemoryIdempotencyProductionWarned || !isProductionEnvironment()) {
+    return;
+  }
+  inMemoryIdempotencyProductionWarned = true;
+  app.log.warn(
+    { operationIds },
+    '[@plumbus/api] Idempotency-Key routes use the default in-memory idempotency store in production. ' +
+      'Records are process-local and lost on restart, so duplicate requests can execute twice across ' +
+      'restarts or instances. Pass a shared durable store: registerApiRoutes(app, routeConfig, ' +
+      'capabilities, { idempotencyStore }).',
+  );
+}
+
+function checkActionsOverGet(
+  app: FastifyInstance,
+  routes: { capability: string; operationId: string; path: string }[],
+  reject: boolean,
+): void {
+  if (routes.length === 0) {
+    return;
+  }
+  const names = routes.map((r) => `GET ${r.path} (${r.capability}, ${r.operationId})`);
+  if (reject) {
+    throw new ApiManifestError(
+      `Action capabilities must not be exposed via GET (rejectActionsOverGet): ${names.join('; ')}`,
+      'api.register.action-over-get',
+    );
+  }
+  app.log.warn(
+    { routes: names },
+    '[@plumbus/api] Action capabilities are exposed via GET. Cookie CSRF protection only covers ' +
+      'POST/PUT/PATCH/DELETE, so a cross-site link or image can trigger these actions with the ' +
+      "visitor's session cookie. Expose actions with POST/PATCH/PUT/DELETE, or pass " +
+      '`rejectActionsOverGet: true` to registerApiRoutes to refuse them.',
+  );
 }
 
 function findManifestEntry(
@@ -180,15 +242,33 @@ export function registerApiRoutes(
   const idempotencyStore = opts?.idempotencyStore ?? createInMemoryIdempotencyStore();
   const apiVersion = apiVersionFromManifest(manifest);
 
-  for (const cap of capabilities) {
-    if (!isApiExposed(cap)) {
-      continue;
+  const routes = capabilities.filter(isApiExposed).map((cap) => {
+    const resolved = resolveExposure(cap, findManifestEntry(manifest, cap));
+    return { cap, resolved, fullPath: joinApiPath(manifest.basePath, resolved.path) };
+  });
+
+  checkActionsOverGet(
+    app,
+    routes
+      .filter((r) => r.resolved.method === 'GET' && r.cap.kind === 'action')
+      .map((r) => ({
+        capability: `${r.cap.domain}.${r.cap.name}`,
+        operationId: r.resolved.operationId,
+        path: r.fullPath,
+      })),
+    opts?.rejectActionsOverGet === true,
+  );
+
+  if (opts?.idempotencyStore === undefined) {
+    const idempotentOps = routes
+      .filter((r) => r.resolved.idempotency?.required === true)
+      .map((r) => r.resolved.operationId);
+    if (idempotentOps.length > 0) {
+      warnInMemoryIdempotencyInProduction(app, idempotentOps);
     }
+  }
 
-    const entry = findManifestEntry(manifest, cap);
-    const resolved = resolveExposure(cap, entry);
-    const fullPath = joinApiPath(manifest.basePath, resolved.path);
-
+  for (const { cap, resolved, fullPath } of routes) {
     const handler = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
       const requestId = crypto.randomUUID();
 

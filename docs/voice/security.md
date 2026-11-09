@@ -70,6 +70,26 @@ Production rule of thumb:
 - Upload size is capped by `min(opts.maxSampleBytes, capabilities.maxSampleBytes)`.
 - S7 still applies: session/token payloads must never include vendor secrets or raw clone samples.
 
+## Hardening options (voice 0.6.2)
+
+All of these are opt-in; leaving them unset keeps the 0.6.1 behaviour and logs a one-time warning where noted.
+
+| Option | On | Default | Effect |
+|---|---|---|---|
+| `externalBaseUrl` | `registerVoiceRoutes`, `registerVoiceCloneRoutes` | unset | Public app URL (`https://app.example.com`). With `csrfSecret`, enables browser checks below. On `registerVoiceRoutes` it also builds `/session`'s `wsUrl` from this URL (`http`→`ws`, `https`→`wss`) instead of `Host` / `X-Forwarded-Proto`. Must be an absolute http(s) URL (checked at registration). Without it, `wsUrl` is still header-derived and a one-time warning is logged. |
+| `csrfSecret` | both | unset | With `externalBaseUrl`, cookie-authenticated writes (`POST /session`, `POST /token`, every non-GET clone route) need an exact `Origin` match and, once the browser holds the `plumbus_voice_csrf` cookie, the same value echoed in the `x-plumbus-voice-csrf` header (same model as `@plumbus/chat`). The first write before the cookie exists passes on the Origin match. Authorization-header requests and GET routes are unaffected. Cookie auth without both options logs a one-time warning. Names are exported as `VOICE_CSRF_COOKIE_NAME` / `VOICE_CSRF_HEADER_NAME` (also from `@plumbus/voice/client`). |
+| `rejectQuerySessionToken` | `registerVoiceRoutes` | `false` | Websocket handshakes must send the token as `Sec-WebSocket-Protocol: voice-session.<token>`; `?sessionToken=` is rejected. |
+| `singleUseSessionTokens` | `registerVoiceRoutes` | `false` | Each handshake token (its `jti`) is accepted once until it expires. The record is a bounded in-process store (10,000 ids; expired ids pruned first, then oldest evicted), so with several API replicas a token can be redeemed once per replica. Tokens minted by voice < 0.6.2 have no `jti` and are rejected while this is on. |
+
+An empty `websocketOriginAllowlist` still accepts every (or no) `Origin`, and now logs a one-time warning.
+
+**LiveKit browser clients and `csrfSecret`:** `createLiveKitVoiceSession` (`@plumbus/voice-livekit/client`, 0.3.x) does not echo the `x-plumbus-voice-csrf` header. If you turn on `csrfSecret` and the browser authenticates `/token` with a cookie, the first call passes on the Origin match and later calls get `403 voice.origin_invalid`. Authenticate those calls with `authHeader` (Authorization header, which the CSRF check does not apply to), or leave `csrfSecret` off for LiveKit-only apps until voice-livekit sends the header.
+
+Always-on in 0.6.2:
+
+- Clone uploads (`POST .../clones`, `POST .../synthesize-reference`) are counted while streaming and stop as soon as `min(opts.maxSampleBytes, capabilities.maxSampleBytes)` is exceeded, returning the same `400 voice.clone.sample_too_large`. The limit (+1 byte) is also passed to `request.file()` / `request.parts()` as `limits.fileSize`. `synthesize-reference` rejects an unknown or non-reference provider before reading the upload.
+- Clients get generic messages for clone vendor failures (`error` code kept, no vendor text or `metadata`), `afterCloneCreate` failures, and voice-turn runtime failures (`voice.runtime_error`, message `Voice turn failed`). Details are logged server-side with `console.error`.
+
 ## Testing expectations
 
 At minimum, test:

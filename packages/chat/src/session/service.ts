@@ -37,12 +37,26 @@ export async function loadSession(
 }
 
 /**
+ * A stored session serves a turn only for the user AND the chat it was created
+ * for. A session id reused across chat definitions would otherwise load one
+ * chat's history (instructions, tool results, summaries) into another chat.
+ */
+export function sessionMatches(
+  row: Pick<ChatSessionRow, 'userId' | 'chatName'>,
+  args: { userId: string; chatName: string },
+): boolean {
+  return row.userId === args.userId && row.chatName === args.chatName;
+}
+
+/**
  * Look up a session by id; if it doesn't exist, create one with that exact id
  * using the caller-supplied identity. Used by `runChatTurn` when `saveToDb:
  * true` and the client generated the sessionId itself (no separate bootstrap
  * step). Concurrent first-turns racing the same sessionId resolve via the
  * primary-key constraint: the loser's create throws, and the catch re-loads
- * to return the winner's row.
+ * to return the winner's row. A row owned by another user or created for
+ * another chat raises `ctx.errors.notFound`, exactly like a missing row would
+ * to that caller.
  */
 export async function getOrCreateSession(
   ctx: ExecutionContext,
@@ -57,7 +71,7 @@ export async function getOrCreateSession(
 ): Promise<ChatSessionRow> {
   const existing = await loadSession(ctx, args.sessionId);
   if (existing) {
-    if (existing.userId !== args.userId) {
+    if (!sessionMatches(existing, args)) {
       throw ctx.errors.notFound('Session not found', { sessionId: args.sessionId });
     }
     return existing;
@@ -86,7 +100,7 @@ export async function getOrCreateSession(
     // because loadSession would also throw.
     const after = await loadSession(ctx, args.sessionId);
     if (after) {
-      if (after.userId !== args.userId) {
+      if (!sessionMatches(after, args)) {
         throw ctx.errors.notFound('Session not found', { sessionId: args.sessionId });
       }
       return after;

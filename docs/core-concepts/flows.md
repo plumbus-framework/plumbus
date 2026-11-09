@@ -151,6 +151,14 @@ Pauses until a specific event is received:
 }
 ```
 
+The event resumes only executions in the **same tenant** as the event (the
+tenant of the caller that emitted it). A tenantless event (emitted with no
+tenant in its auth context) resumes only tenantless executions; it never
+resumes a tenant's execution, and a tenant's event never resumes a tenantless
+one. Since core 0.8.5. Direct calls to the engine's
+`resumeWaitingByEvent(eventType, signal)` without the third `{ tenantId }`
+argument keep the old all-tenant behaviour and log a one-time warning.
+
 ### Delay Step
 
 Pauses for a fixed duration:
@@ -361,6 +369,27 @@ Plumbus uses fenced database transitions for horizontal scale. Execution and ext
 **`LeaseLostError`.** Thrown from `runNext` (and from `ctx.flows.heartbeat()`) when the lease has moved to another worker. If you handle it, do not write to the execution or emit events — the current lease holder is authoritative and will own the commit. In practice, workers bubble this error up to the poll loop and move on to the next row.
 
 See [configuration](../sdk-reference/configuration.md#flow-lease-tuning) for the `flowLeaseDurationMs`, `flowHeartbeatIntervalMs`, and `flowClaimBatchSize` knobs.
+
+## Resume, cancel and status access
+
+`ctx.flows.resume()`, `ctx.flows.cancel()` and `ctx.flows.status()` check the
+caller against the stored execution (core 0.8.5+):
+
+- A caller with a tenant cannot reach another tenant's execution. The call
+  fails with the same `Flow execution "<id>" not found` error as an unknown id,
+  so foreign ids are not confirmed.
+- By default, another actor in the same tenant (for example an approver
+  resuming someone else's flow) is still allowed; the first such call logs a
+  one-time warning.
+- **Opt-in owner check:** set `enforceExecutionOwnership: true` on
+  `createFlowEngine()`, or `PLUMBUS_FLOW_ENFORCE_OWNERSHIP=true` in the API
+  and worker environment (default off). Then only the actor that started the
+  execution, in the same tenant, may resume, cancel or read its status; others
+  get the not-found error. Leave it off if your app resumes flows on behalf of
+  a different user (for example an approver resuming a requester's flow).
+- Callers with the `system` role are exempt from the owner check; with no
+  tenant (worker, scheduler and other internal paths) they are not checked at
+  all.
 
 ## Cancellation
 

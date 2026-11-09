@@ -56,7 +56,7 @@ await registerApiRoutes(app, routeConfig, capabilities, {
 });
 ```
 
-**Production:** supply a durable `IdempotencyStore` with TTL for multi-instance deployments. The in-memory default never evicts entries without `idempotency.ttl`, and does not survive restarts.
+**Production:** supply a durable `IdempotencyStore` with TTL for multi-instance deployments. The in-memory default is process-local and does not survive restarts. Completed records expire after `idempotency.ttl`, or after `defaultTtlMs` (24h) when the route sets no TTL. The store keeps at most `maxEntries` (10 000) entries and evicts the oldest completed records first. In-flight claims are never evicted. Override with `createInMemoryIdempotencyStore({ defaultTtlMs, maxEntries })`; `Number.POSITIVE_INFINITY` turns either limit off. When `PLUMBUS_ENV` (or `NODE_ENV`) is `production` and any route requires idempotency without an `idempotencyStore` option, `registerApiRoutes` logs one warning through `app.log`.
 
 **Semantics:**
 
