@@ -301,7 +301,12 @@ export async function* runVoiceTurn(
     if (args.abortSignal?.aborted) {
       return;
     }
-    const message = error instanceof Error ? error.message : 'Unknown voice runtime error';
+    // Raw error text can carry vendor responses or internals; log it, send a generic message.
+    console.error('[plumbus:voice] voice turn failed', {
+      sessionId: args.sessionId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    const message = 'Voice turn failed';
     yield* emit(args, createErrorEvent('voice.runtime_error', message));
     yield* emit(
       args,

@@ -33,6 +33,29 @@ export interface RegisterVoiceRoutesOpts {
   sessionTokenSecret?: string;
   sessionTokenIssuer?: string;
   sessionTokenTtlSeconds?: number;
+  /**
+   * Public origin of the app (e.g. `https://app.example.com`). Together with
+   * `csrfSecret` it enables Origin + CSRF checks on cookie-authenticated writes
+   * (same model as `@plumbus/chat`). When set, `/session` also builds `wsUrl` from it (http→ws, https→wss) instead of request `Host` / `X-Forwarded-Proto` headers. Default: unset.
+   */
+  externalBaseUrl?: string;
+  /**
+   * HMAC secret for principal-bound CSRF tokens (cookie `plumbus_voice_csrf`,
+   * echoed in header `x-plumbus-voice-csrf`). Enforcement is on only when both
+   * `csrfSecret` and `externalBaseUrl` are set. Default: unset.
+   */
+  csrfSecret?: string;
+  /**
+   * Reject `?sessionToken=` on the websocket handshake; only the
+   * `Sec-WebSocket-Protocol: voice-session.<token>` form is accepted. Default: false.
+   */
+  rejectQuerySessionToken?: boolean;
+  /**
+   * Accept each websocket handshake token once (its `jti` is recorded in a bounded
+   * in-process store until it expires). Per process: with several replicas a token
+   * can be redeemed once per replica. Default: false.
+   */
+  singleUseSessionTokens?: boolean;
   registry?: import('../providers/registry.js').VoiceProviderRegistry;
   /** Optional lazy registry resolver used by HTTP routes when `registry` is omitted. */
   resolveRegistry?: () => Promise<import('../providers/registry.js').VoiceProviderRegistry>;
@@ -93,4 +116,16 @@ export interface RegisterVoiceCloneRoutesOpts {
   /** App DB list of clones owned by the principal. */
   listOwnedClones: (args: { providerId: string; auth: VoiceCloneAuth }) => Promise<ClonedVoice[]>;
   maxSampleBytes?: number;
+  /**
+   * Public origin of the app (e.g. `https://app.example.com`). Together with
+   * `csrfSecret` it enables Origin + CSRF checks on cookie-authenticated writes
+   * (same model as `@plumbus/chat`). Default: unset.
+   */
+  externalBaseUrl?: string;
+  /**
+   * HMAC secret for principal-bound CSRF tokens (cookie `plumbus_voice_csrf`,
+   * echoed in header `x-plumbus-voice-csrf`). Enforcement is on only when both
+   * `csrfSecret` and `externalBaseUrl` are set. Default: unset.
+   */
+  csrfSecret?: string;
 }

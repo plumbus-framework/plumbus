@@ -378,6 +378,12 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
         })
       : denyAllAuthAdapter);
 
+  if (typeof trustProxy === 'number') {
+    logger.warn(
+      `trustProxy is a hop count (${trustProxy}). Fastify 5.12+ ignores hop counts and trusts no proxy, so X-Forwarded-* headers are not used. Set trustProxy (or TRUST_PROXY) to the proxy addresses/CIDRs, or true.`,
+    );
+  }
+
   // Fastify instance
   const app = createFastify({
     logger:

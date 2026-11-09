@@ -48,6 +48,11 @@ describe('FlowTriggerHandler', () => {
     expect(started[0].auth.userId).toBe('user-1');
     expect(started[0].opts.triggerEventId).toBe('evt-1');
     expect(started[0].opts.correlationId).toBe('corr-1');
+    expect(engine.resumeWaitingByEvent).toHaveBeenCalledWith(
+      'order.created',
+      { orderId: 'abc' },
+      { tenantId: 'tenant-1' },
+    );
   });
 
   it('returns 0 when no flows match', async () => {
@@ -71,6 +76,8 @@ describe('FlowTriggerHandler', () => {
     const executionIds = await handler.handleEvent(envelope);
     expect(executionIds).toEqual([]);
     expect(engine.start).not.toHaveBeenCalled();
+    // Tenantless events resume only tenantless executions.
+    expect(engine.resumeWaitingByEvent).toHaveBeenCalledWith('no.match', {}, { tenantId: null });
   });
 
   it('starts multiple flows when multiple match', async () => {

@@ -170,6 +170,7 @@ export type {
   IdempotencyStoreOptions,
   IdempotencySweepOptions,
   IdempotentExecutionOutcome,
+  InMemoryIdempotencyStoreOptions,
   RouteGeneratorConfig,
 } from './api/index.js';
 // ── API (HTTP route generation) ──
@@ -180,6 +181,8 @@ export {
   capabilityHttpMethod,
   createDatabaseIdempotencyStore,
   createInMemoryIdempotencyStore,
+  DEFAULT_IN_MEMORY_IDEMPOTENCY_MAX_ENTRIES,
+  DEFAULT_IN_MEMORY_IDEMPOTENCY_TTL_MS,
   executeIdempotently,
   hashPayload,
   IdempotencyAbortedError,

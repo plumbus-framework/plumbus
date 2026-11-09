@@ -58,7 +58,7 @@ Partners call `GET /api/v1/refunds/{refundId}` (when `basePath` is `/api/v1`). T
 | Kind | API exposure | Notes |
 |---|---|---|
 | `query` | Allowed | Typically mapped to `GET` with query parameters for non-path input fields. |
-| `action` | Allowed | Typically `POST`, `PATCH`, `PUT`, or `DELETE`. |
+| `action` | Allowed | Use `POST`, `PATCH`, `PUT`, or `DELETE`. An action over `GET` is not covered by cookie CSRF checks: `registerApiRoutes()` logs a warning for it, and `rejectActionsOverGet: true` refuses it (see [structure-policy](./structure-policy.md#rule-mutation-over-get)). |
 | `eventHandler` | **Rejected** | `eventHandler cannot be exposed via API` |
 | `job` | **Rejected** | `job cannot be exposed via API` — jobs use async convention routes with `202` semantics; they are not part of the partner contract layer. |
 
@@ -77,7 +77,7 @@ All fields are defined on `ApiExposureConfig` in `@plumbus/core` and validated b
 | `path` | Yes | Route-relative path with `{param}` tokens (e.g. `/refunds/{refundId}`). |
 | `stability` | No | `experimental`, `beta`, `stable`, `deprecated`, or `internal`. `deprecated` sets OpenAPI `deprecated: true`. |
 | `auth.scopes` | No | OAuth scopes documented and enforced at runtime. |
-| `idempotency` | No | `{ required, header, ttl? }` for mutating operations. |
+| `idempotency` | No | `{ required, header, ttl? }` for mutating operations. Without `ttl`, the default in-memory store keeps records for 24h (`createInMemoryIdempotencyStore({ defaultTtlMs })`); pass a durable shared `idempotencyStore` to `registerApiRoutes()` in multi-instance production. |
 | `test` | No | Test-intent configuration (see [test-intent](./test-intent.md)). |
 | `docs` | No | `summary`, `description`, `tags` overrides for OpenAPI/Markdown. |
 | `deprecation` | No | `sunset`, `replacement` operationId for deprecated operations. |

@@ -26,6 +26,8 @@ export type {
 export {
   buildIdempotencyStoreKey,
   createInMemoryIdempotencyStore,
+  DEFAULT_IN_MEMORY_IDEMPOTENCY_MAX_ENTRIES,
+  DEFAULT_IN_MEMORY_IDEMPOTENCY_TTL_MS,
   hashPayload,
   IdempotencyAbortedError,
   isAnonymousIdempotencyPrincipal,
@@ -56,4 +58,5 @@ export type {
   IdempotencyRecord,
   IdempotencyStore,
   IdempotencyStoreOptions,
+  InMemoryIdempotencyStoreOptions,
 } from './idempotency.js';

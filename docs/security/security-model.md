@@ -168,6 +168,9 @@ const adapter = createOidcAdapter({
   audience: "my-client-id", // expected client ID / API audience
   // jwksUri: "...",       // optional — defaults from OIDC discovery
   // jwksCacheTtl: 3600,   // optional
+  // clockSkewSeconds: 60, // optional — tolerance for nbf / iat (0.8.5+)
+  // requireExp: true,     // optional, default false — reject tokens without numeric exp (0.8.5+)
+  // logger,               // optional — receives one-time security warnings
 });
 ```
 
@@ -178,6 +181,8 @@ The adapter:
 - Retrieves JWKS public keys from the provider's `jwks_uri`
 - Verifies RS256/ES256 token signatures using the matching `kid`
 - Validates `iss`, `aud`, and `exp` claims
+- Rejects tokens whose `nbf` or `iat` lies more than `clockSkewSeconds` (default 60) in the future (0.8.5+)
+- Accepts tokens without a numeric `exp` by default (0.8 compatibility) and logs a one-time warning; set `requireExp: true` to reject them
 - Maps standard OIDC claims (`sub`, `email`, `roles`) to `AuthContext`
 
 Use this adapter for **stateless bearer** traffic (API clients, MCP, optional `createAuthRuntime({ bearer })` coexistence). It does **not** implement browser login redirects or session cookies.

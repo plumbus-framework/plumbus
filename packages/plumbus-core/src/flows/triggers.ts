@@ -7,7 +7,8 @@ import type { FlowRegistry } from './registry.js';
 /**
  * Creates event-to-flow trigger integration.
  * When an event arrives, checks if any registered flows have a matching trigger
- * and starts new flow executions with the event payload as input.
+ * and starts new flow executions with the event payload as input. Executions
+ * waiting on the event type are resumed only within the event's tenant.
  */
 export function createFlowTriggerHandler(config: {
   registry: FlowRegistry;
@@ -40,7 +41,12 @@ export function createFlowTriggerHandler(config: {
       executionIds.push(exec.id);
     }
 
-    const resumedIds = await engine.resumeWaitingByEvent(envelope.eventType, envelope.payload);
+    // Resume only executions in the event's own tenant. A tenantless event
+    // resumes only tenantless executions, and a tenant event never resumes
+    // tenantless ones or another tenant's.
+    const resumedIds = await engine.resumeWaitingByEvent(envelope.eventType, envelope.payload, {
+      tenantId: envelope.tenantId ?? null,
+    });
     return [...executionIds, ...resumedIds];
   }
 

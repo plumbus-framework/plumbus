@@ -167,7 +167,7 @@ This package doesn't re-implement validation, access policy, or audit — they a
 | `McpServerConfig`, `McpToolCallInfo` | Server config + observability payload shapes. |
 | `startStdioServer({ server })` | Run an MCP server on stdio. |
 | `startHttpServer({ config, port, host })` | Standalone Fastify + Streamable HTTP MCP server. |
-| `registerMcpOnFastify(app, config, mcpOptions?)` | Mount on existing Fastify (`path`, `discoveryPath`, `stateless`, `requireDiscoveryAuth`). |
+| `registerMcpOnFastify(app, config, mcpOptions?)` | Mount on existing Fastify (`path`, `discoveryPath`, `stateless`, `requireDiscoveryAuth`, `maxRequestBodySize`, `sessionIdleTimeoutMs`). Stateless mode serves each request with a fresh server + transport; stateful mode keeps one per session, bound to the user + tenant that initialized it (0.7.1+). |
 | `createMcpAuthAdapter({ agents, envToken? })` | `AuthAdapter` mapping bearer tokens → `AuthContext` with `provider: 'mcp'`. |
 | `resolveMcpAgentToken(header, agents, envToken)` | Direct token-resolution helper. |
 | `parseBearerToken(header)` | Extract the bearer value from an `Authorization` header. |

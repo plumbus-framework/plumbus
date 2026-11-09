@@ -4,6 +4,8 @@ import {
   CreateUserPoolCommand,
   type CreateUserPoolCommandOutput,
   DeleteUserPoolCommand,
+  DescribeUserPoolClientCommand,
+  type DescribeUserPoolClientCommandOutput,
   DescribeUserPoolCommand,
   type DescribeUserPoolCommandOutput,
   GetUserPoolMfaConfigCommand,
@@ -12,8 +14,10 @@ import {
   type ListUserPoolClientsCommandOutput,
   ListUserPoolsCommand,
   type ListUserPoolsCommandOutput,
-  type UpdateUserPoolCommandInput,
+  UpdateUserPoolClientCommand,
   UpdateUserPoolCommand,
+  type UpdateUserPoolCommandInput,
+  type UserPoolClientType,
   type UserPoolType,
 } from '@aws-sdk/client-cognito-identity-provider';
 import {
@@ -34,6 +38,15 @@ export interface AttestedUserPoolSpec {
   triggerArn: string;
   /** App client name. Default: the pool name. */
   clientName?: string;
+  /**
+   * When a same-named app client already exists with weaker security settings than the ones
+   * this package creates (other auth flows, no token revocation, user-existence errors, longer
+   * token lifetimes), rewrite it to those settings. Default `false`: the drift is only reported
+   * (warning + `clientDrift`), because rewriting replaces every client setting, including any
+   * callback URLs or OAuth settings added by hand. A client secret cannot be removed by an
+   * update; that drift is always only reported.
+   */
+  reconcileClient?: boolean;
 }
 
 export interface EnsuredAttestedUserPool {
@@ -42,6 +55,17 @@ export interface EnsuredAttestedUserPool {
   issuer: string;
   /** True when this call created the pool. */
   created: boolean;
+  /**
+   * Present only when an existing app client's security settings differ from the attested ones:
+   * one entry per setting. With `reconcileClient: true` the fixable ones were rewritten.
+   */
+  clientDrift?: string[];
+}
+
+/** Options for {@link createCognitoPoolAdministration}. */
+export interface CognitoPoolAdministrationOptions extends CognitoConnectionOptions {
+  /** Receives drift warnings. Default: `console.warn`. */
+  logger?: { warn(message: string): void };
 }
 
 /** A pool's MFA policy as Cognito reports it. */
@@ -122,6 +146,59 @@ function drifted(pool: UserPoolType, spec: AttestedUserPoolSpec): boolean {
   );
 }
 
+/** The app client settings every attested pool's client has (create and reconcile). */
+function attestedClientSettings(clientName: string) {
+  return {
+    ClientName: clientName,
+    ExplicitAuthFlows: ['ALLOW_CUSTOM_AUTH' as const, 'ALLOW_REFRESH_TOKEN_AUTH' as const],
+    EnableTokenRevocation: true,
+    PreventUserExistenceErrors: 'ENABLED' as const,
+    AccessTokenValidity: 5,
+    IdTokenValidity: 5,
+    RefreshTokenValidity: 60,
+    TokenValidityUnits: { ...TOKEN_MINUTES },
+    ReadAttributes: ['email', 'email_verified'],
+    WriteAttributes: [],
+  };
+}
+
+const UNIT_MINUTES: Record<string, number> = { seconds: 1 / 60, minutes: 1, hours: 60, days: 1440 };
+
+/** Cognito's defaults when a client omits a validity or its unit. */
+function validityMinutes(
+  value: number | undefined,
+  unit: string | undefined,
+  defaultValue: number,
+  defaultUnit: string,
+): number {
+  return (value ?? defaultValue) * (UNIT_MINUTES[unit ?? defaultUnit] ?? 1);
+}
+
+/** Lists the ways an existing client is weaker than the attested settings. */
+export function attestedClientDrift(client: UserPoolClientType): string[] {
+  const drift: string[] = [];
+  if (client.ClientSecret)
+    drift.push('client has a secret (cannot be removed; recreate the client)');
+  const flows = [...(client.ExplicitAuthFlows ?? [])].sort();
+  if (flows.join(',') !== 'ALLOW_CUSTOM_AUTH,ALLOW_REFRESH_TOKEN_AUTH') {
+    drift.push(`auth flows are ${flows.join(', ') || 'none'}`);
+  }
+  if (client.EnableTokenRevocation !== true) drift.push('token revocation is off');
+  if (client.PreventUserExistenceErrors !== 'ENABLED')
+    drift.push('user-existence errors are not prevented');
+  const units = client.TokenValidityUnits ?? {};
+  if (validityMinutes(client.AccessTokenValidity, units.AccessToken, 60, 'minutes') > 5) {
+    drift.push('access tokens live longer than 5 minutes');
+  }
+  if (validityMinutes(client.IdTokenValidity, units.IdToken, 60, 'minutes') > 5) {
+    drift.push('ID tokens live longer than 5 minutes');
+  }
+  if (validityMinutes(client.RefreshTokenValidity, units.RefreshToken, 30, 'days') > 60) {
+    drift.push('refresh tokens live longer than 60 minutes');
+  }
+  return drift;
+}
+
 function assertSpec(spec: AttestedUserPoolSpec): void {
   if (!spec.name || spec.name.length > 128)
     throw new TypeError('pool name must be 1-128 characters');
@@ -132,9 +209,11 @@ function assertSpec(spec: AttestedUserPoolSpec): void {
 
 /** Creates, reconciles and deletes attested user pools. Needs pool-administration IAM rights. */
 export function createCognitoPoolAdministration(
-  options: CognitoConnectionOptions,
+  options: CognitoPoolAdministrationOptions,
 ): CognitoPoolAdministration {
   const { send } = openCognitoConnection(options);
+  const warn = (message: string) =>
+    options.logger ? options.logger.warn(message) : console.warn(`[plumbus] ${message}`);
   const issuerFor = (userPoolId: string) =>
     cognitoUserPoolIssuer(userPoolId, { endpoint: options.endpoint });
 
@@ -184,7 +263,43 @@ export function createCognitoPoolAdministration(
     return owned[0] ?? null;
   }
 
-  async function ensureClient(userPoolId: string, clientName: string): Promise<string> {
+  /** Reports (and with `reconcile`, rewrites) an existing client's security drift. */
+  async function checkClient(
+    userPoolId: string,
+    clientId: string,
+    clientName: string,
+    reconcile: boolean,
+  ): Promise<string[]> {
+    const output = await send<DescribeUserPoolClientCommandOutput>(
+      new DescribeUserPoolClientCommand({ UserPoolId: userPoolId, ClientId: clientId }),
+    );
+    const drift = output.UserPoolClient ? attestedClientDrift(output.UserPoolClient) : [];
+    if (drift.length === 0) return drift;
+    const fixable = drift.some((entry) => !entry.startsWith('client has a secret'));
+    if (reconcile && fixable) {
+      await send(
+        new UpdateUserPoolClientCommand({
+          UserPoolId: userPoolId,
+          ClientId: clientId,
+          ...attestedClientSettings(clientName),
+        }),
+      );
+      warn(
+        `Cognito app client ${clientName} (${clientId}) in ${userPoolId} had weaker security settings and was reconciled: ${drift.join('; ')}.`,
+      );
+    } else {
+      warn(
+        `Cognito app client ${clientName} (${clientId}) in ${userPoolId} has weaker security settings than @plumbus/auth-cognito creates: ${drift.join('; ')}. Pass reconcileClient: true to ensureAttestedUserPool to rewrite it (this replaces every client setting), or fix it in Cognito.`,
+      );
+    }
+    return drift;
+  }
+
+  async function ensureClient(
+    userPoolId: string,
+    clientName: string,
+    reconcile: boolean,
+  ): Promise<{ clientId: string; drift: string[] }> {
     let next: string | undefined;
     do {
       const page = await send<ListUserPoolClientsCommandOutput>(
@@ -195,23 +310,17 @@ export function createCognitoPoolAdministration(
         }),
       );
       const found = page.UserPoolClients?.find((client) => client.ClientName === clientName);
-      if (found?.ClientId) return found.ClientId;
+      if (found?.ClientId) {
+        const drift = await checkClient(userPoolId, found.ClientId, clientName, reconcile);
+        return { clientId: found.ClientId, drift };
+      }
       next = page.NextToken;
     } while (next);
     const created = await send<CreateUserPoolClientCommandOutput>(
       new CreateUserPoolClientCommand({
         UserPoolId: userPoolId,
-        ClientName: clientName,
         GenerateSecret: false,
-        ExplicitAuthFlows: ['ALLOW_CUSTOM_AUTH', 'ALLOW_REFRESH_TOKEN_AUTH'],
-        EnableTokenRevocation: true,
-        PreventUserExistenceErrors: 'ENABLED',
-        AccessTokenValidity: 5,
-        IdTokenValidity: 5,
-        RefreshTokenValidity: 60,
-        TokenValidityUnits: { ...TOKEN_MINUTES },
-        ReadAttributes: ['email', 'email_verified'],
-        WriteAttributes: [],
+        ...attestedClientSettings(clientName),
       }),
     );
     const clientId = created.UserPoolClient?.ClientId;
@@ -221,7 +330,7 @@ export function createCognitoPoolAdministration(
         'Cognito created an app client without an id',
       );
     }
-    return clientId;
+    return { clientId, drift: [] };
   }
 
   async function ensureAttestedUserPool(
@@ -252,8 +361,18 @@ export function createCognitoPoolAdministration(
         'Cognito created a user pool without an id',
       );
     }
-    const clientId = await ensureClient(userPoolId, spec.clientName ?? spec.name);
-    return { userPoolId, clientId, issuer: issuerFor(userPoolId), created };
+    const { clientId, drift } = await ensureClient(
+      userPoolId,
+      spec.clientName ?? spec.name,
+      spec.reconcileClient === true,
+    );
+    return {
+      userPoolId,
+      clientId,
+      issuer: issuerFor(userPoolId),
+      created,
+      ...(drift.length > 0 ? { clientDrift: drift } : {}),
+    };
   }
 
   async function deleteUserPool(input: {

@@ -142,7 +142,7 @@ Two working setups:
 
 - **localhost (default, single machine).** Run cognitox with the default issuer
   (`http://localhost:9229`) and the app on the same host — no config needed.
-- **Another host (e.g. a LAN box).** Start cognitox with
+- **Another host (e.g. a LAN box).** Set `HOST=0.0.0.0` (the server listens on 127.0.0.1 by default), start cognitox with
   `COGNITOX_ISSUER_BASE_URL=http://<that-host>:9229` so the advertised issuer is
   reachable, then set `COGNITOX_URL` to the same address (in `.env` or the shell).
 
@@ -160,6 +160,7 @@ insecure OIDC endpoints).
 | `COGNITO_USER_POOL_ID` | *(auto)* | Use a specific pool; unset ⇒ find/create by `COGNITO_POOL_NAME` |
 | `COGNITO_POOL_NAME` | `plumbus-auth-cognito-smoke` | Pool name to find/create when no id is given |
 | `PORT` | `3000` | Port for `serve.mjs` |
+| `HOST` | `127.0.0.1` | Listen address for `serve.mjs`. The demo's admin buttons (disable user, simulate outage) have no auth, so keep it on loopback; set `0.0.0.0` only on a machine nobody else can reach |
 | `EXTERNAL_BASE_URL` | `http://localhost:{PORT}` | Public base URL (drives the callback URL) |
 | `ALLOWED_IDPS` | `COGNITO,Google` | Hosted-UI `identity_provider` allowlist |
 | `SMOKE_USERNAME` / `SMOKE_PASSWORD` | `smoke@example.com` / `SmokeTest123!` | Seeded login user |

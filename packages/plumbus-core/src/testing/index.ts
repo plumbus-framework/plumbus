@@ -8,7 +8,8 @@
 export type { Browser, BrowserContext, Page, Route } from 'playwright';
 // ── Playwright Re-export ──
 // Consumer apps get playwright through the framework — no separate install needed.
-export { chromium, firefox, webkit } from 'playwright';
+// Loaded on first use, so unit tests that never open a browser don't pay for it.
+export { chromium, firefox, webkit } from './playwright.js';
 // ── Vitest Re-export ──
 // Consumer apps get vitest through the framework — no separate install needed.
 // Test files: import { describe, it, expect } from "@plumbus/core/testing";

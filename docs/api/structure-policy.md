@@ -105,6 +105,8 @@ expose:
 
 Note: `job` capabilities cannot be API-exposed at all (`defineCapability` rejects them). This rule is defensive for manifest entries that might reference invalid projections.
 
+**Runtime check (without a policy block):** `registerApiRoutes()` also checks every route it mounts, including inline-only exposure with no manifest. Cookie CSRF protection from `@plumbus/auth` covers only `POST`/`PUT`/`PATCH`/`DELETE`, so an `action` over `GET` can be triggered cross-site with the visitor's session cookie. By default the route is still registered and `app.log.warn` names each such route. Pass `registerApiRoutes(app, routeConfig, capabilities, { rejectActionsOverGet: true })` to make registration throw `ApiManifestError` with code `api.register.action-over-get` instead.
+
 ---
 
 ## Rule: GET with body (`get-with-body`)

@@ -39,7 +39,7 @@ function resolveTransport(config?: AuthHelperConfig): AuthTransport {
   if (!transportWarningEmitted) {
     transportWarningEmitted = true;
     console.warn(
-      '[@plumbus/ui] Auth transport omitted; defaulting to bearer (deprecated). Pass transport: "session" or transport: "bearer" explicitly.',
+      '[@plumbus/ui] Auth transport omitted; defaulting to bearer (deprecated). Bearer keeps the token in localStorage, where any XSS in the app can read and replay it. Pass transport: "session" (HttpOnly cookie via @plumbus/auth) or transport: "bearer" explicitly.',
     );
   }
   return 'bearer';
@@ -113,7 +113,10 @@ export interface AuthConfig {
 export function generateTokenUtils(config?: AuthHelperConfig): string {
   const key = config?.tokenKey ?? 'plumbus_auth_token';
 
-  return `const TOKEN_KEY = "${key}";
+  return `// Bearer transport keeps the token in localStorage: any script running on this origin
+// (including an XSS) can read and replay it until it expires. Prefer the session transport
+// (HttpOnly cookie via @plumbus/auth) for browser apps: plumbus ui generate --auth-transport session
+const TOKEN_KEY = "${key}";
 
 export function getStoredToken(): string | null {
   if (typeof window === "undefined") return null;

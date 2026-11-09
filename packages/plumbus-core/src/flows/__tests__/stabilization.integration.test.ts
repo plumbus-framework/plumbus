@@ -19,6 +19,8 @@ import { eq } from 'drizzle-orm';
 import { defineFlow } from '../../define/defineFlow.js';
 import { LeaseLostError } from '../../errors/index.js';
 import { createFlowEngine } from '../engine.js';
+import { createFlowService } from '../flow-service.js';
+import { createFlowTriggerHandler } from '../triggers.js';
 import { FlowRegistry } from '../registry.js';
 import {
   flowExecutionsTable,
@@ -185,6 +187,71 @@ describe('flow persistence invariants', () => {
     const [current] = await pg.db.select().from(flowExecutionsTable);
     expect(current?.status).toBe('waiting');
     expect(current?.state).toEqual({ first: true });
+  });
+  it('event-driven resume stays inside the event tenant (two tenants + tenantless)', async () => {
+    const { engine, registry } = setup({
+      steps: [
+        { name: 'wait', type: 'wait', event: 'wake' },
+        { name: 'done', type: 'capability' },
+      ],
+    });
+    const tenantA = { ...auth, userId: 'a', tenantId: 'tenant-a' };
+    const tenantB = { ...auth, userId: 'b', tenantId: 'tenant-b' };
+    const systemAuth = { userId: 's', roles: ['system'], scopes: [], provider: 'worker' };
+    const a = await engine.start('test', {}, tenantA);
+    const b = await engine.start('test', {}, tenantB);
+    const none = await engine.start('test', {}, systemAuth);
+    for (const id of [a.id, b.id, none.id]) await engine.runNext(id, context());
+    const trigger = createFlowTriggerHandler({ registry, engine });
+    const envelope = {
+      id: '00000000-0000-4000-8000-000000000001',
+      eventType: 'wake',
+      version: '1',
+      occurredAt: new Date(),
+      actor: 'b',
+      correlationId: 'c',
+      payload: { forged: true },
+    };
+
+    expect(await trigger.handleEvent({ ...envelope, tenantId: 'tenant-b' })).toEqual([b.id]);
+    const statusOf = async (id: string) =>
+      (await pg.db.select().from(flowExecutionsTable).where(eq(flowExecutionsTable.id, id)))[0];
+    expect((await statusOf(a.id))?.status).toBe('waiting');
+    expect((await statusOf(none.id))?.status).toBe('waiting');
+    expect((await statusOf(b.id))?.state).toEqual({ forged: true });
+
+    expect(await trigger.handleEvent(envelope)).toEqual([none.id]);
+    expect((await statusOf(a.id))?.status).toBe('waiting');
+    expect((await statusOf(a.id))?.state).not.toEqual({ forged: true });
+  });
+  it('ctx.flows resume/cancel/status reject another tenant and, opt-in, another actor', async () => {
+    const { engine } = setup({ steps: [{ name: 'wait', type: 'wait', event: 'wake' }] });
+    const owner = { ...auth, userId: 'a', tenantId: 'tenant-a' };
+    const execution = await engine.start('test', {}, owner);
+    await engine.runNext(execution.id, context());
+    const foreign = createFlowService(engine, { ...auth, userId: 'b', tenantId: 'tenant-b' });
+    await expect(foreign.status(execution.id)).rejects.toThrow('not found');
+    await expect(foreign.resume(execution.id, { forged: true })).rejects.toThrow('not found');
+    await expect(foreign.cancel(execution.id)).rejects.toThrow('not found');
+
+    const strict = createFlowEngine({
+      db: pg.db,
+      registry: setup().registry,
+      workerId: 'B',
+      logger,
+      enforceExecutionOwnership: true,
+      stepDeps: {
+        executeCapability: async () => ({ success: true }),
+        evaluateCondition: () => true,
+      },
+    });
+    const colleague = createFlowService(strict, { ...owner, userId: 'a2' });
+    await expect(colleague.cancel(execution.id)).rejects.toThrow('not found');
+    const [row] = await pg.db.select().from(flowExecutionsTable);
+    expect(row?.status).toBe('waiting');
+    await createFlowService(strict, owner).cancel(execution.id);
+    const [after] = await pg.db.select().from(flowExecutionsTable);
+    expect(after?.status).toBe('cancelled');
   });
   it('records the exhausted attempt and automatic dead-letter snapshot', async () => {
     const { engine } = setup({ retry: { maxAttempts: 1 } }, async () => ({

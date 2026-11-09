@@ -1,15 +1,15 @@
 import type { AuthContext } from '@plumbus/core';
 import type { ChatPendingActionV2 } from '../session/pending-action-v2.js';
-import {
-  reapStaleConfirmingRowInPlace,
-  sessionLeaseForConfirmingRow,
-} from './confirming-reaper.js';
 import type {
   AcquireSessionMutationResult,
   ChatConversationStore,
   ChatTurnWrite,
   ClaimPendingResult,
 } from './chat-conversation-store.js';
+import {
+  reapStaleConfirmingRowInPlace,
+  sessionLeaseForConfirmingRow,
+} from './confirming-reaper.js';
 
 interface MemSession {
   id: string;
@@ -192,7 +192,13 @@ export function createInMemoryChatConversationStore(seed: {
       return { committedRevision };
     },
 
-    async inspectSession(sessionId, now) {
+    async inspectSession(sessionId, now, scope) {
+      if (scope) {
+        const owned = sessions.get(sessionId);
+        if (!owned || owned.userId !== scope.owner.userId || owned.chatName !== scope.chatName) {
+          return { pending: 'none' };
+        }
+      }
       const nowMs = new Date(now).getTime();
       const loadSessionLease = () => {
         const sessionRow = sessions.get(sessionId);

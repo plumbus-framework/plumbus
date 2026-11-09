@@ -269,6 +269,8 @@ describe("Project page", () => {
 });
 ```
 
+From core 0.8.4, Playwright loads the first time a test uses `chromium`, `firefox` or `webkit`, so unit tests that import `@plumbus/core/testing` without opening a browser don't pay for it.
+
 The framework scaffolds page descriptors:
 
 ```ts

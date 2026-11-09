@@ -11,7 +11,7 @@ import {
   type RouteGeneratorConfig,
 } from '@plumbus/core/sdk';
 import { createExecutionContext } from '@plumbus/core/runtime';
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import {
   assertCloneSampleWithinLimit,
   createVoiceCloneProvider,
@@ -20,6 +20,11 @@ import {
 import { createProviderRegistry, type VoiceProviderRegistry } from '../providers/registry.js';
 import type { ClonedVoice } from '../types/clone.js';
 import type { RegisterVoiceCloneRoutesOpts, VoiceCloneAuth } from '../types/http.js';
+import {
+  assertValidExternalBaseUrl,
+  guardVoiceBrowserRequest,
+  resolveVoiceRequestCredential,
+} from '../security/browser-guard.js';
 
 /**
  * Ownership-aware HTTP surface for persisted voice clones + optional instant-reference preview.
@@ -30,6 +35,7 @@ export function registerVoiceCloneRoutes(
   routeConfig: RouteGeneratorConfig,
   opts: RegisterVoiceCloneRoutesOpts,
 ): void {
+  assertValidExternalBaseUrl(opts.externalBaseUrl);
   let cachedRegistry: VoiceProviderRegistry | undefined = opts.registry;
   const resolveRegistry = async (): Promise<VoiceProviderRegistry> => {
     if (opts.resolveRegistry) {
@@ -44,7 +50,14 @@ export function registerVoiceCloneRoutes(
   const cookieNames = opts.authCookieNames ?? [];
 
   app.post('/api/voice/providers/:providerId/clones', async (req, reply) => {
-    const authResult = await authenticateCloneRequest(req, routeConfig, cookieNames, opts.access);
+    const authResult = await authenticateCloneRequest(
+      req,
+      reply,
+      routeConfig,
+      cookieNames,
+      opts.access,
+      opts,
+    );
     if (!authResult.ok) {
       return reply.status(authResult.status).send(authResult.body);
     }
@@ -57,7 +70,21 @@ export function registerVoiceCloneRoutes(
       registry,
     });
 
-    const upload = await readMultipartAudio(req, 'file');
+    let upload: MultipartAudioResult;
+    try {
+      upload = await readMultipartAudio(
+        req,
+        'file',
+        cloneSampleLimit(clone.capabilities.maxSampleBytes, opts.maxSampleBytes),
+      );
+    } catch (error) {
+      if (isSampleTooLarge(error)) {
+        return reply
+          .status(400)
+          .send({ error: 'voice.clone.sample_too_large', message: error.message });
+      }
+      throw error;
+    }
     const fields = upload.fields;
     const name = readRequiredString(fields, 'name');
     const gender = readOptionalGender(fields);
@@ -109,12 +136,14 @@ export function registerVoiceCloneRoutes(
       } catch {
         // best-effort rollback
       }
+      console.error('[plumbus:voice] afterCloneCreate failed; vendor clone rolled back', {
+        providerId,
+        voiceId: created.id,
+        error: persistError instanceof Error ? persistError.message : String(persistError),
+      });
       return reply.status(500).send({
         error: 'voice.clone.persist_failed',
-        message:
-          persistError instanceof Error
-            ? persistError.message
-            : 'Failed to persist clone ownership mapping',
+        message: 'Failed to persist clone ownership mapping',
       });
     }
 
@@ -122,7 +151,14 @@ export function registerVoiceCloneRoutes(
   });
 
   app.get('/api/voice/providers/:providerId/clones', async (req, reply) => {
-    const authResult = await authenticateCloneRequest(req, routeConfig, cookieNames, opts.access);
+    const authResult = await authenticateCloneRequest(
+      req,
+      reply,
+      routeConfig,
+      cookieNames,
+      opts.access,
+      opts,
+    );
     if (!authResult.ok) {
       return reply.status(authResult.status).send(authResult.body);
     }
@@ -132,7 +168,14 @@ export function registerVoiceCloneRoutes(
   });
 
   app.get('/api/voice/providers/:providerId/clones/:id', async (req, reply) => {
-    const authResult = await authenticateCloneRequest(req, routeConfig, cookieNames, opts.access);
+    const authResult = await authenticateCloneRequest(
+      req,
+      reply,
+      routeConfig,
+      cookieNames,
+      opts.access,
+      opts,
+    );
     if (!authResult.ok) {
       return reply.status(authResult.status).send(authResult.body);
     }
@@ -157,7 +200,14 @@ export function registerVoiceCloneRoutes(
   });
 
   app.delete('/api/voice/providers/:providerId/clones/:id', async (req, reply) => {
-    const authResult = await authenticateCloneRequest(req, routeConfig, cookieNames, opts.access);
+    const authResult = await authenticateCloneRequest(
+      req,
+      reply,
+      routeConfig,
+      cookieNames,
+      opts.access,
+      opts,
+    );
     if (!authResult.ok) {
       return reply.status(authResult.status).send(authResult.body);
     }
@@ -180,7 +230,14 @@ export function registerVoiceCloneRoutes(
   });
 
   app.post('/api/voice/providers/:providerId/clones/:id/wait', async (req, reply) => {
-    const authResult = await authenticateCloneRequest(req, routeConfig, cookieNames, opts.access);
+    const authResult = await authenticateCloneRequest(
+      req,
+      reply,
+      routeConfig,
+      cookieNames,
+      opts.access,
+      opts,
+    );
     if (!authResult.ok) {
       return reply.status(authResult.status).send(authResult.body);
     }
@@ -208,7 +265,14 @@ export function registerVoiceCloneRoutes(
   });
 
   app.post('/api/voice/providers/:providerId/clones/:id/recompute', async (req, reply) => {
-    const authResult = await authenticateCloneRequest(req, routeConfig, cookieNames, opts.access);
+    const authResult = await authenticateCloneRequest(
+      req,
+      reply,
+      routeConfig,
+      cookieNames,
+      opts.access,
+      opts,
+    );
     if (!authResult.ok) {
       return reply.status(authResult.status).send(authResult.body);
     }
@@ -243,36 +307,53 @@ export function registerVoiceCloneRoutes(
     app.post('/api/voice/providers/:providerId/synthesize-reference', async (req, reply) => {
       const authResult = await authenticateCloneRequest(
         req,
+        reply,
         routeConfig,
         cookieNames,
         referenceAccess,
+        opts,
       );
       if (!authResult.ok) {
         return reply.status(authResult.status).send(authResult.body);
       }
       const providerId = readProviderId(req);
-      const upload = await readMultipartAudio(req, 'file');
+      const registry = await resolveRegistry();
+      const registration = registry.tts.get(providerId);
+      if (!registration?.clone?.synthesizeWithVoiceReference) {
+        // Fail before reading the upload: synthesis would reject this provider anyway.
+        const unsupported = registration
+          ? new PlumbusError(
+              ErrorCode.Validation,
+              `Voice tts provider "${providerId}" does not support instant voice-reference synthesis`,
+              { providerId },
+            )
+          : new PlumbusError(
+              ErrorCode.NotFound,
+              `Voice tts provider "${providerId}" is not registered`,
+              { providerId, kind: 'tts' },
+            );
+        return reply
+          .status(mapVendorErrorStatus(unsupported))
+          .send(mapVendorErrorBody(unsupported));
+      }
+      let upload: MultipartAudioResult;
+      try {
+        upload = await readMultipartAudio(
+          req,
+          'file',
+          cloneSampleLimit(registration.clone.capabilities.maxSampleBytes, opts.maxSampleBytes),
+        );
+      } catch (error) {
+        if (isSampleTooLarge(error)) {
+          return reply
+            .status(400)
+            .send({ error: 'voice.clone.sample_too_large', message: error.message });
+        }
+        throw error;
+      }
       const text = readRequiredString(upload.fields, 'text');
       const locale = readOptionalString(upload.fields, 'locale');
       const model = readOptionalString(upload.fields, 'model');
-      const registry = await resolveRegistry();
-      const registration = registry.tts.get(providerId);
-      if (registration?.clone) {
-        try {
-          assertCloneSampleWithinLimit(
-            upload.audio,
-            registration.clone.capabilities,
-            opts.maxSampleBytes,
-          );
-        } catch (error) {
-          if (error instanceof PlumbusError) {
-            return reply
-              .status(400)
-              .send({ error: 'voice.clone.sample_too_large', message: error.message });
-          }
-          throw error;
-        }
-      }
       const dependencies = routeConfig.createDependencies(authResult.auth);
       const costCtx = dependencies.ai ? createExecutionContext(dependencies) : undefined;
       const costModel =
@@ -345,14 +426,22 @@ async function assertOwnsClone(
 
 async function authenticateCloneRequest(
   req: FastifyRequest,
+  reply: FastifyReply,
   routeConfig: RouteGeneratorConfig,
   cookieNames: string[],
   access: RegisterVoiceCloneRoutesOpts['access'],
+  opts: RegisterVoiceCloneRoutesOpts,
 ): Promise<{ ok: true; auth: VoiceCloneAuth } | { ok: false; status: number; body: unknown }> {
-  const token = resolveAuthToken(req, cookieNames);
-  const auth = await routeConfig.authAdapter.authenticate(token);
+  const credential = resolveVoiceRequestCredential(req, cookieNames);
+  const auth = await routeConfig.authAdapter.authenticate(credential.token);
   if (!auth) {
     return { ok: false, status: 401, body: { error: 'Unauthorized' } };
+  }
+  const browser = guardVoiceBrowserRequest(req, reply, auth, credential.source, opts, {
+    mutation: req.method !== 'GET' && req.method !== 'HEAD',
+  });
+  if (!browser.ok) {
+    return browser;
   }
   const authz = evaluateAccess(access, auth);
   if (!authz.allowed) {
@@ -365,25 +454,6 @@ async function authenticateCloneRequest(
     };
   }
   return { ok: true, auth };
-}
-
-function resolveAuthToken(req: FastifyRequest, cookieNames: string[]): string | undefined {
-  const headerToken = req.headers.authorization;
-  if (headerToken) return headerToken;
-
-  const cookieHeader = req.headers.cookie;
-  if (!cookieHeader) return undefined;
-
-  for (const cookieName of cookieNames) {
-    for (const part of cookieHeader.split(';')) {
-      const eq = part.indexOf('=');
-      if (eq < 0) continue;
-      const key = part.slice(0, eq).trim();
-      if (key !== cookieName) continue;
-      return `Bearer ${decodeURIComponent(part.slice(eq + 1).trim())}`;
-    }
-  }
-  return undefined;
 }
 
 function readProviderId(req: FastifyRequest): string {
@@ -410,40 +480,112 @@ interface MultipartAudioResult {
   fields: Record<string, string>;
 }
 
+type MultipartLimitsOptions = { limits: { fileSize: number } } | undefined;
+
+/** Same limit `assertCloneSampleWithinLimit` applies: the smaller of provider cap and route override. */
+function cloneSampleLimit(providerMax: number, routeOverride: number | undefined): number {
+  return Math.min(routeOverride ?? Number.POSITIVE_INFINITY, providerMax);
+}
+
+const SAMPLE_TOO_LARGE = Symbol('voice.clone.sample_too_large');
+
+function sampleTooLargeError(limit: number, byteLength: number): PlumbusError {
+  const error = new PlumbusError(
+    ErrorCode.Validation,
+    `Voice clone sample exceeds maxSampleBytes (${limit})`,
+    { byteLength, maxSampleBytes: limit },
+  );
+  (error as unknown as Record<symbol, boolean>)[SAMPLE_TOO_LARGE] = true;
+  return error;
+}
+
+function isSampleTooLarge(error: unknown): error is PlumbusError {
+  return (
+    error instanceof PlumbusError &&
+    (error as unknown as Record<symbol, boolean>)[SAMPLE_TOO_LARGE] === true
+  );
+}
+
+/** `@fastify/multipart` raises this when its own `limits.fileSize` is exceeded. */
+function isMultipartFileTooLarge(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { code?: unknown }).code === 'FST_REQ_FILE_TOO_LARGE'
+  );
+}
+
+/**
+ * Read a file stream chunk by chunk, aborting as soon as more than `limit` bytes
+ * arrive. Leaving the `for await` early destroys the stream, so the rest of the
+ * upload is never buffered.
+ */
+async function readBoundedStream(
+  stream: AsyncIterable<Buffer | Uint8Array> & { truncated?: boolean },
+  limit: number,
+): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  try {
+    for await (const chunk of stream) {
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      total += buf.byteLength;
+      if (total > limit) {
+        throw sampleTooLargeError(limit, total);
+      }
+      chunks.push(buf);
+    }
+  } catch (error) {
+    if (isMultipartFileTooLarge(error)) throw sampleTooLargeError(limit, total);
+    throw error;
+  }
+  // A plugin configured not to throw on its size limit truncates silently instead.
+  if (stream.truncated === true) throw sampleTooLargeError(limit, total);
+  return Buffer.concat(chunks, total);
+}
+
 async function readMultipartAudio(
   req: FastifyRequest,
   fileField: string,
+  maxBytes: number,
 ): Promise<MultipartAudioResult> {
   const request = req as FastifyRequest & {
-    file?: () => Promise<
+    file?: (options?: MultipartLimitsOptions) => Promise<
       | {
-          file: AsyncIterable<Buffer>;
+          file: AsyncIterable<Buffer> & { truncated?: boolean };
           filename: string;
           mimetype: string;
           fields: Record<string, { value?: string } | undefined>;
         }
       | undefined
     >;
-    parts?: () => AsyncIterable<{
+    parts?: (options?: MultipartLimitsOptions) => AsyncIterable<{
       type: string;
       fieldname: string;
       value?: string;
       filename?: string;
       mimetype?: string;
       toBuffer?: () => Promise<Buffer>;
-      file?: AsyncIterable<Buffer>;
+      file?: AsyncIterable<Buffer> & { truncated?: boolean; resume?: () => void };
     }>;
   };
+  // One byte over the cap, so the plugin stops the stream right after our own check fires.
+  const limitsOptions: MultipartLimitsOptions = Number.isFinite(maxBytes)
+    ? { limits: { fileSize: maxBytes + 1 } }
+    : undefined;
 
   if (typeof request.file === 'function') {
-    const file = await request.file();
+    let file: Awaited<ReturnType<NonNullable<typeof request.file>>>;
+    try {
+      file = await request.file(limitsOptions);
+    } catch (error) {
+      if (isMultipartFileTooLarge(error)) throw sampleTooLargeError(maxBytes, maxBytes + 1);
+      throw error;
+    }
     if (!file) {
       throw new PlumbusError(ErrorCode.Validation, `Multipart field "${fileField}" is required`);
     }
-    const chunks: Buffer[] = [];
-    for await (const chunk of file.file) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    }
+    const audio = await readBoundedStream(file.file, maxBytes);
     const fields: Record<string, string> = {};
     for (const [key, entry] of Object.entries(file.fields ?? {})) {
       if (entry && typeof entry.value === 'string') {
@@ -451,7 +593,7 @@ async function readMultipartAudio(
       }
     }
     return {
-      audio: Buffer.concat(chunks),
+      audio,
       filename: file.filename || 'sample.wav',
       mimeType: file.mimetype,
       fields,
@@ -463,22 +605,28 @@ async function readMultipartAudio(
     let audio: Buffer | undefined;
     let filename = 'sample.wav';
     let mimeType: string | undefined;
-    for await (const part of request.parts()) {
-      if (part.type === 'file' && part.fieldname === fileField) {
-        if (typeof part.toBuffer === 'function') {
-          audio = await part.toBuffer();
-        } else if (part.file) {
-          const chunks: Buffer[] = [];
-          for await (const chunk of part.file) {
-            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    try {
+      for await (const part of request.parts(limitsOptions)) {
+        if (part.type === 'file' && part.fieldname === fileField) {
+          if (part.file) {
+            audio = await readBoundedStream(part.file, maxBytes);
+          } else if (typeof part.toBuffer === 'function') {
+            // Non-streaming shims only; @fastify/multipart always provides part.file.
+            audio = await part.toBuffer();
+            if (audio.byteLength > maxBytes) throw sampleTooLargeError(maxBytes, audio.byteLength);
           }
-          audio = Buffer.concat(chunks);
+          filename = part.filename || filename;
+          mimeType = part.mimetype;
+        } else if (part.type === 'file') {
+          // Discard other files without buffering them.
+          part.file?.resume?.();
+        } else if (typeof part.value === 'string') {
+          fields[part.fieldname] = part.value;
         }
-        filename = part.filename || filename;
-        mimeType = part.mimetype;
-      } else if (part.type !== 'file' && typeof part.value === 'string') {
-        fields[part.fieldname] = part.value;
       }
+    } catch (error) {
+      if (isMultipartFileTooLarge(error)) throw sampleTooLargeError(maxBytes, maxBytes + 1);
+      throw error;
     }
     if (!audio) {
       throw new PlumbusError(ErrorCode.Validation, `Multipart field "${fileField}" is required`);
@@ -527,12 +675,24 @@ function mapVendorErrorStatus(error: unknown): number {
   return 500;
 }
 
+const GENERIC_CLONE_ERROR_MESSAGES: Record<number, string> = {
+  400: 'Voice clone request was rejected',
+  404: 'Voice clone resource was not found',
+  500: 'Voice clone provider request failed',
+};
+
+/** Client-safe body: keeps the error code, never vendor text or Plumbus metadata. */
 function mapVendorErrorBody(error: unknown): unknown {
-  if (error instanceof PlumbusError) {
-    return { error: error.code, message: error.message, metadata: error.metadata };
-  }
+  const status = mapVendorErrorStatus(error);
+  const code = error instanceof PlumbusError ? error.code : 'voice.clone.vendor_error';
+  console.error('[plumbus:voice] voice clone request failed', {
+    code,
+    status,
+    error: error instanceof Error ? error.message : String(error),
+    ...(error instanceof PlumbusError && error.metadata ? { metadata: error.metadata } : {}),
+  });
   return {
-    error: 'voice.clone.vendor_error',
-    message: error instanceof Error ? error.message : String(error),
+    error: code,
+    message: GENERIC_CLONE_ERROR_MESSAGES[status] ?? GENERIC_CLONE_ERROR_MESSAGES[500],
   };
 }

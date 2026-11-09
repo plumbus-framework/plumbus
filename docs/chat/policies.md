@@ -284,6 +284,18 @@ start are emitted as a terminal `turn.failed` SSE event (SSE-terminal). The `409
 | `410 Gone` | `chat.action_expired` |
 | SSE-terminal (`turn.failed` event) | `chat.resume_failed` (post-confirm resume failure); `chat.turn_aborted`; `chat.tool_failed`; and `chat.tool_round_limit` as a non-fatal `notice` |
 
+The pre-turn `409` (`chat.session_busy` / `chat.pending_action_exists`) is only returned
+for a session that belongs to the caller and to this chat; any other session id reports
+no pending action and the turn then fails as `Session not found`.
+
+**Error messages on `turn.failed` (chat 0.3.2+).** For `chat.turn_error` and
+`chat.resume_failed`, the `message` is the error's own text only for a `PlumbusError`
+with a caller-facing code (`validation`, `notFound`, `conflict`, `unauthorized`, …;
+`forbidden` becomes `Access denied`). Any other error — provider/vendor failures,
+database errors, `ctx.errors.internal`, plain `Error`s from app code — is sent as
+`The chat turn could not be completed`, and the full message and stack are logged with
+`ctx.logger.error('chat turn failed', …)`. The `code` is unchanged.
+
 ## Flow tools (`toolCalling.autoStartFlows`) and the confirm/auto asymmetry
 
 When tool calling is enabled, two kinds of things can be exposed to the model as

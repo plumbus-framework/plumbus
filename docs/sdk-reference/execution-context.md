@@ -290,6 +290,11 @@ handler: async (ctx, input) => {
 }
 ```
 
+`status`, `resume` and `cancel` reject executions from another tenant with a
+not-found error; the opt-in `enforceExecutionOwnership` engine option
+(`PLUMBUS_FLOW_ENFORCE_OWNERSHIP=true`) restricts them to the starting actor.
+See [Flows → Resume, cancel and status access](../core-concepts/flows.md#resume-cancel-and-status-access).
+
 ---
 
 ## ctx.ai

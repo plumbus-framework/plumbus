@@ -737,7 +737,7 @@ plumbus certify policy gdpr --json
 Partner API contract tooling. Requires `@plumbus/api` installed (`pnpm add @plumbus/api`). Uses `api.yaml` in the project root by default (`--manifest` overrides).
 
 ```bash
-plumbus api validate [--manifest <path>] [--json] [--fail-on-governance]
+plumbus api validate [--manifest <path>] [--json] [--fail-on-governance] [--fail-on-security]
 plumbus api generate openapi --out <file> [--format json|yaml] [--manifest <path>]
 plumbus api generate docs --out <dir> [--manifest <path>]
 plumbus api diff --against <file> [--manifest <path>] [--json]
@@ -746,11 +746,13 @@ plumbus api test-fixtures validate [--json]
 
 | Subcommand | Exit code | Description |
 |------------|-----------|-------------|
-| `validate` | 1 on findings | Manifest, policy, path params, fixtures, and advisory API governance |
+| `validate` | 1 on findings | Manifest, policy, path params, fixtures, security config, and advisory API governance |
 | `generate openapi` | — | Write OpenAPI JSON or YAML |
 | `generate docs` | — | Write Markdown API docs |
 | `diff` | 1 on breaking changes | Compare current OpenAPI to a published spec |
 | `test-fixtures validate` | 1 on findings | Validate fixture files against capability schemas |
+
+`validate` always prints security-config findings (`manifest.security.*`) and includes them under `security` in `--json` output. In 0.8.x they do **not** affect the exit code unless you pass `--fail-on-security` (exit 1 on error-severity security findings; `severity: "warning"` findings never fail). Without the flag, a notice says so (on stderr with `--json`), and the JSON carries `securityFailsCommand: false` — so `ok: false` with exit code 0 means only security findings were found. `--fail-on-governance` makes advisory governance signals fail the same way.
 
 ---
 

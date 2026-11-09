@@ -177,7 +177,7 @@ Convention routes (`/api/{domain}/{kebab-name}`) continue to exist unless you ch
 
 | Export | Purpose |
 |---|---|
-| `registerApiRoutes(app, routeConfig, capabilities, opts?)` | Mount partner API routes on Fastify. Opts: `manifest`, `allowQueryIntent`, `appRoot`, `idempotencyStore`. |
+| `registerApiRoutes(app, routeConfig, capabilities, opts?)` | Mount partner API routes on Fastify. Opts: `manifest`, `allowQueryIntent`, `appRoot`, `idempotencyStore`, `rejectActionsOverGet`. |
 | `parseManifest`, `validateManifest`, `resolveExposure`, `buildDefaultManifest` | Manifest load, validation, and exposure resolution. |
 | `validatePathParams` | Path-template ↔ input-field mapping checks. |
 | `generateOpenApi`, `serializeOpenApiDocument`, `parseOpenApiDocument`, `zodToOpenApiSchema` | OpenAPI generation (3.0.3 default, 3.1.0 opt-in) and serialization. |
@@ -186,7 +186,7 @@ Convention routes (`/api/{domain}/{kebab-name}`) continue to exist unless you ch
 | `validateApiContract` | Combined manifest, policy, path-param, and fixture validation. |
 | `validatePolicy`, `validateTestFixtures` | Structure-policy and test-fixture validation. |
 | `buildSuccessEnvelope`, `mapCoreError`, `mapUnknownError`, … | Partner response envelope helpers. |
-| `createInMemoryIdempotencyStore`, `parseIdempotencyTtl`, `IdempotencyAbortedError` | Idempotency store for dev/tests; supply a durable store in production. |
+| `createInMemoryIdempotencyStore({ defaultTtlMs?, maxEntries? })`, `parseIdempotencyTtl`, `IdempotencyAbortedError` | Bounded in-memory idempotency store for dev/tests (24h default TTL, 10 000 entries); supply a durable store in production. |
 | `ApiManifestError` | Structured manifest parse/validation errors. |
 
 ## CLI
@@ -208,7 +208,8 @@ All commands accept `--manifest <path>` (default `./api.yaml`) and `--json` wher
 - **`exposeAs: ['api']` is required.** There is no `api.expose` boolean. `kind: 'eventHandler'` capabilities cannot be API-exposed.
 - **`api.auth.scopes` are enforced at runtime** (union with `access.scopes` when both are set). Missing scopes return `403 missing_scope`.
 - **Path parameters must map to input fields.** `{refundId}` in the route must exist on the capability `input` schema. Duplicates in the same path are rejected.
-- **Default idempotency store is in-memory.** Fine for dev and single-instance tests; production multi-instance deployments need a durable `idempotencyStore` with TTL.
+- **Default idempotency store is in-memory.** Fine for dev and single-instance tests; production multi-instance deployments need a durable `idempotencyStore` with TTL. Records expire after 24h by default and the store is capped at 10 000 entries (oldest completed evicted first). In production (`PLUMBUS_ENV`/`NODE_ENV` = `production`) a one-time `app.log` warning is logged when idempotent routes use the default store.
+- **Actions over `GET` are unsafe with cookie sessions.** CSRF checks cover only `POST`/`PUT`/`PATCH`/`DELETE`. `registerApiRoutes` warns for every `action` exposed via `GET`; pass `rejectActionsOverGet: true` to refuse them at registration.
 - **`plumbus generate` OpenAPI ≠ partner OpenAPI.** The thin convention spec from `plumbus generate` is for app-internal use; `plumbus api generate openapi` is the canonical partner contract.
 - **The OpenAPI document version stays 3.0.3 unless you ask for 3.1.0.** Upgrading `@plumbus/api` never moves a published baseline's dialect. Moving to `--openapi-version 3.1.0` changes the document, not the wire contract: `plumbus api diff` reports it as a non-breaking `changed-openapi-version` and still exits `0`. Consumers that generate clients from the spec need 3.1-capable tooling — see [`docs/api/compatibility.md`](../../docs/api/compatibility.md#cross-version-diff).
 - **Public capabilities + test intent is forbidden.** `plumbus api validate` flags `policy.public-test-forbidden` when `access.public: true` enables test fixtures.

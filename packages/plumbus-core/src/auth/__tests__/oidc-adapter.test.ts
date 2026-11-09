@@ -320,3 +320,68 @@ it('bounds concurrent random-kid misses to one JWKS fetch', async () => {
   expect(results.every((result) => result === null)).toBe(true);
   expect(fetchFn).toHaveBeenCalledTimes(1);
 });
+
+describe('createOidcAdapter temporal claims', () => {
+  const nowSec = () => Math.floor(Date.now() / 1000);
+  const adapterWith = (extra: Record<string, unknown> = {}) =>
+    createOidcAdapter({ issuer: ISSUER, audience: AUDIENCE, fetchFn: mockFetch(), ...extra });
+
+  it('rejects a token whose nbf is in the future beyond the default 60 s skew', async () => {
+    const token = signRsaJwt(validPayload({ nbf: nowSec() + 120 }));
+    expect(await adapterWith().authenticate(`Bearer ${token}`)).toBeNull();
+  });
+
+  it('accepts a token whose nbf is within the clock-skew tolerance', async () => {
+    const token = signRsaJwt(validPayload({ nbf: nowSec() + 30 }));
+    expect(await adapterWith().authenticate(`Bearer ${token}`)).not.toBeNull();
+  });
+
+  it('rejects a token issued in the future (iat) beyond the skew', async () => {
+    const token = signRsaJwt(validPayload({ iat: nowSec() + 120 }));
+    expect(await adapterWith().authenticate(`Bearer ${token}`)).toBeNull();
+  });
+
+  it('honours a custom clockSkewSeconds', async () => {
+    const token = signRsaJwt(validPayload({ nbf: nowSec() + 120 }));
+    expect(
+      await adapterWith({ clockSkewSeconds: 300 }).authenticate(`Bearer ${token}`),
+    ).not.toBeNull();
+    const strict = signRsaJwt(validPayload({ iat: nowSec() + 10 }));
+    expect(await adapterWith({ clockSkewSeconds: 0 }).authenticate(`Bearer ${strict}`)).toBeNull();
+  });
+
+  it('accepts a token without exp by default and warns once', async () => {
+    const warn = vi.fn();
+    const adapter = adapterWith({ logger: { warn } });
+    const token = signRsaJwt(validPayload({ exp: undefined }));
+    expect(await adapter.authenticate(`Bearer ${token}`)).not.toBeNull();
+    expect(await adapter.authenticate(`Bearer ${token}`)).not.toBeNull();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain('requireExp');
+  });
+
+  it('accepts a non-numeric exp by default and warns', async () => {
+    const warn = vi.fn();
+    const token = signRsaJwt(validPayload({ exp: 'never' }));
+    expect(await adapterWith({ logger: { warn } }).authenticate(`Bearer ${token}`)).not.toBeNull();
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not warn for tokens with a numeric exp', async () => {
+    const warn = vi.fn();
+    const token = signRsaJwt(validPayload());
+    expect(await adapterWith({ logger: { warn } }).authenticate(`Bearer ${token}`)).not.toBeNull();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('rejects missing or non-numeric exp when requireExp is true', async () => {
+    const warn = vi.fn();
+    const adapter = adapterWith({ requireExp: true, logger: { warn } });
+    const missing = signRsaJwt(validPayload({ exp: undefined }));
+    const textual = signRsaJwt(validPayload({ exp: 'never' }));
+    expect(await adapter.authenticate(`Bearer ${missing}`)).toBeNull();
+    expect(await adapter.authenticate(`Bearer ${textual}`)).toBeNull();
+    expect(await adapter.authenticate(`Bearer ${signRsaJwt(validPayload())}`)).not.toBeNull();
+    expect(warn).not.toHaveBeenCalled();
+  });
+});

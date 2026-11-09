@@ -59,6 +59,8 @@ export interface McpServerConfig {
   }) => void | Promise<void>;
   requestTimeoutMs?: number;
   jobQueue?: EventQueue;
+  /** Max elements in `tools/call` arguments (mcp 0.7.1+). Default 100 000; `Infinity` disables. */
+  maxToolInputElements?: number;
 }
 
 export declare function createMcpJobCompletionSync(
@@ -90,6 +92,8 @@ export interface StartHttpServerOptions {
   port: number;
   host?: string;
   mcpPath?: string;
+  /** MCP route body limit and SDK transport limit, in bytes (mcp 0.7.1+). */
+  maxRequestBodySize?: number;
 }
 
 export declare function startHttpServer(
@@ -101,6 +105,10 @@ export interface RegisterMcpOnFastifyOptions {
   discoveryPath?: string;
   stateless?: boolean;
   requireDiscoveryAuth?: boolean;
+  /** MCP route body limit and SDK transport limit, in bytes (mcp 0.7.1+). */
+  maxRequestBodySize?: number;
+  /** Stateful mode: close sessions idle this long (mcp 0.7.1+). Default off. */
+  sessionIdleTimeoutMs?: number;
 }
 
 export declare function registerMcpOnFastify(

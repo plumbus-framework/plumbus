@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
 import { createTestContext } from '@plumbus/core/testing';
+import { describe, expect, it } from 'vitest';
+import { chatPendingActionRepo } from '../../internal/chat-repos.js';
 import type {
   ChatPendingActionV2,
   ChatToolResumePayloadV1,
@@ -7,8 +8,8 @@ import type {
 import { createSession } from '../../session/service.js';
 import {
   assertChatStorageSupported,
-  createChatConversationStore,
   type ChatTurnWrite,
+  createChatConversationStore,
 } from '../chat-conversation-store.js';
 
 function minimalResume(overrides: Partial<ChatToolResumePayloadV1> = {}): ChatToolResumePayloadV1 {
@@ -318,5 +319,40 @@ describe('createChatConversationStore', () => {
         metadata: expect.objectContaining({ code: 'chat.storage_unsupported' }),
       }),
     );
+  });
+
+  it("inspectSession with a scope hides pending actions of sessions that are not the caller's", async () => {
+    const ctx = createTestContext();
+    const session = await createSession(ctx, {
+      chatName: 'help',
+      userId: 'owner',
+      audience: 'user',
+      locale: 'en',
+    });
+    await chatPendingActionRepo(ctx).create(pendingRow(session.id));
+    const store = createChatConversationStore(ctx);
+    const now = new Date().toISOString();
+    const owner = { userId: 'owner', roles: [], scopes: [], provider: 'test' };
+    const stranger = { userId: 'stranger', roles: [], scopes: [], provider: 'test' };
+
+    // Owner + chat match: the live pending is reported.
+    expect(await store.inspectSession(session.id, now, { owner, chatName: 'help' })).toMatchObject({
+      pending: 'pending',
+      actionId: pendingRow(session.id).id,
+    });
+    // Another user, or the same user from another chat: looks like no pending action.
+    expect(
+      await store.inspectSession(session.id, now, { owner: stranger, chatName: 'help' }),
+    ).toEqual({ pending: 'none' });
+    expect(await store.inspectSession(session.id, now, { owner, chatName: 'billing' })).toEqual({
+      pending: 'none',
+    });
+    // Unknown session id.
+    expect(
+      await store.inspectSession('00000000-0000-4000-8000-0000000009ff', now, {
+        owner,
+        chatName: 'help',
+      }),
+    ).toEqual({ pending: 'none' });
   });
 });

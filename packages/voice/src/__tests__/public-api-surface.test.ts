@@ -14,6 +14,8 @@ const EXPECTED_INDEX_EXPORTS = [
   'NoiseCancellationEngine',
   'NoiseCancellationModel',
   'NoiseCancellationPlacement',
+  'VOICE_CSRF_COOKIE_NAME',
+  'VOICE_CSRF_HEADER_NAME',
   'VOICE_TURN_SUPERSEDED_REASON',
   'VoiceSessionController',
   'applyDeliveryToneToText',
@@ -82,6 +84,8 @@ const EXPECTED_WORKER_EXPORTS = [
 ] as const;
 
 const EXPECTED_CLIENT_EXPORTS = [
+  'VOICE_CSRF_COOKIE_NAME',
+  'VOICE_CSRF_HEADER_NAME',
   'createBrowserSpeechSynthesizer',
   'createWebSpeechRecognizer',
   'isWebSpeechAvailable',
