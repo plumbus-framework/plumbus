@@ -505,11 +505,14 @@ plumbus ui generate [options]
 | `--include-jsdoc` | `boolean` | `false` | Emit JSDoc comments in generated modules |
 | `--split-locale-bundles` | `boolean` | `false` | Emit per-locale message bundles under `i18n/locales/` (default: single `i18n/messages.ts`) |
 | `--server-locale-cookie` | `boolean` | `false` | Resolve locale from the `plumbus-ui-locale` cookie in `i18n/request.ts` (dynamic rendering; not compatible with `output: 'export'`) |
+| `--server-messages` | `boolean` | `false` | Keep message catalogs out of the browser bundle: the root layout passes the active locale's catalog as `initialMessages`; other locales load when the reader switches (implies `--split-locale-bundles`). Core 0.8.5+, `@plumbus/ui` 0.9.1+ |
+| `--split-client` | `boolean` | `false` | One module per endpoint (`lib/client/*.ts`) and per hook (`hooks/generated/*.ts`) behind the same `lib/client.ts` / `hooks/hooks.ts` imports; the folders are marked side-effect free, so a page bundles only what it calls. Core 0.8.5+, `@plumbus/ui` 0.9.1+ |
+| `--dedupe-queries` | `boolean` | `false` | Concurrent identical GET calls share one request; each caller gets its own copy. Calls with an `AbortSignal` are never shared, and any POST makes later GETs go to the server. Core 0.8.5+, `@plumbus/ui` 0.9.1+ |
 | `--skip-locale-parity` | `boolean` | `false` | Skip translation coverage check before generating i18n (warns and continues; not recommended for CI) |
 | `--json` | `boolean` | `false` | Output in JSON format |
 
 Generates:
-- `lib/client.ts` — typed capability clients and flow triggers
+- `lib/client.ts` — typed capability clients and flow triggers (with `--split-client`: a barrel over `lib/client/*.ts`)
 - `hooks/hooks.ts` — React hooks for capability invocation
 - `lib/auth.ts` — frontend auth helpers
 - `lib/form-hints.ts` — extracted form metadata from capability schemas

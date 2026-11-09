@@ -156,6 +156,18 @@ When translation definitions exist, `plumbus ui generate` produces:
 
 By default, all locales are merged into a single `i18n/messages.ts`. For large catalogs, pass `--split-locale-bundles` to `plumbus ui generate` to emit one bundle per locale under `i18n/locales/` plus a thin aggregator — the runtime API is unchanged.
 
+Either way, the generated client provider imports every catalog, so every page ships every language. To keep catalogs out of the browser bundle, generate with `--server-messages` (core 0.8.5+, `@plumbus/ui` 0.9.1+) and pass the active locale's catalog from the root layout, which is a Server Component:
+
+```tsx
+import { defaultLocale } from "@/i18n/config";
+import { messages } from "@/i18n/messages";
+import { TranslationProvider } from "@/i18n/provider";
+
+<TranslationProvider initialLocale={locale} initialMessages={messages[locale ?? defaultLocale]}>
+```
+
+The page then carries one locale's catalog as data, and another locale's bundle loads when the reader switches. Client code must not import `i18n/messages` (or `i18n/locales/*`) statically, or that bundle comes back. `i18n/config.ts` no longer imports zod (`localeSchema` and `rtlLocaleSchema` are re-exported from a side-effect-free module), so checking a locale doesn't bundle zod either.
+
 Before emitting i18n modules, `plumbus ui generate` runs the same coverage check as `plumbus translation status` (non-empty values vs default-locale key totals). Incomplete locales **fail the command** (`exit 1`). Pass `--skip-locale-parity` to warn and continue (not recommended for CI).
 
 ### Using in Components
