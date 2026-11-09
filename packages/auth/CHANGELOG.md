@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0-beta.2 — 2026-11-09 — opt-in returnTo on login error redirects
 
 - **Opt-in `errorReturnToParam`.** When set (for example `errorReturnToParam: 'next'`), a failed callback redirects to `errorPath` with the login's validated `returnTo` in that query parameter, beside `code` and `requestId`, so the error page's «try again» can return to the screen the person asked for. It covers a cancel or provider error at the provider (the abandoned login transaction is consumed to read its `returnTo`, only when the `state` matches this browser's binding) and failures after the code exchange (identity refused, token or userinfo errors). Off by default; the parameter must be a plain name and not `code` or `requestId`. The value is the same local path that `startLogin` already validated.
 

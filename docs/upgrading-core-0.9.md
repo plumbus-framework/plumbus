@@ -12,7 +12,9 @@ Prepared for repository release `v0.9.0-beta.9` under npm dist-tag `plumbus-next
 Packages: `@plumbus/core` **0.9.0-beta.9**, `@plumbus/api` **0.4.0-beta.5**,
 `@plumbus/ui` **0.10.0-beta.3**, `@plumbus/auth-cognito` **0.4.0-beta.1**,
 `@plumbus/chat` **0.4.0-beta.3**, `@plumbus/mcp` **0.8.0-beta.2**, `@plumbus/voice`
-**0.7.0-beta.3**, `@plumbus/voice-livekit` **0.4.0-beta.3**. Chat, MCP, voice and voice-livekit
+**0.7.0-beta.3**, `@plumbus/voice-livekit` **0.4.0-beta.3**, `@plumbus/auth` **0.4.0-beta.2**
+(opt-in `errorReturnToParam`: a failed login callback redirects to `errorPath` with the
+login's validated `returnTo`). Chat, MCP, voice and voice-livekit
 now peer on core `>=0.9.0-beta.9 <0.10.0`, and voice-livekit on voice `>=0.7.0-beta.3 <0.8.0`:
 install the family together.
 
