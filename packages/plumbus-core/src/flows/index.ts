@@ -46,7 +46,7 @@ export { createFlowTriggerHandler } from './triggers.js';
 
 // ── Flow Scheduler ──
 export { computeNextRun, createFlowScheduler } from './scheduler.js';
-export type { SchedulerConfig } from './scheduler.js';
+export type { ReconcileSchedulesOptions, SchedulerConfig } from './scheduler.js';
 
 // ── ctx.flow Service ──
 export { createFlowService } from './flow-service.js';

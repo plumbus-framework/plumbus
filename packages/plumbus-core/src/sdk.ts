@@ -269,6 +269,7 @@ export { createExplanationTracker } from './explanation/index.js';
 export { field } from './fields/index.js';
 export type {
   FlowEngineConfig,
+  ReconcileSchedulesOptions,
   SchedulerConfig,
   StepExecutorDeps,
   StepHistoryEntry,
@@ -359,11 +360,13 @@ export { assertFlowLeaseColumns, createWorkerPool } from './worker/index.js';
 export type { VoiceRuntimeConfig } from './runtime/voice-runtime.js';
 export type {
   BuildWorkerAiServiceOptions,
+  DiscoverResourcesOptions,
   RegisterCapabilityConsumersOptions,
   ResolveRuntimeQueuesOptions,
   RuntimeCommand,
   RuntimeQueues,
   ServerExtensions,
+  StrictDiscoveryDirectory,
 } from './runtime/index.js';
 export {
   RuntimeRole,

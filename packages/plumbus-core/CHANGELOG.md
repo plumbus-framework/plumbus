@@ -1,5 +1,37 @@
 # @plumbus/core changelog
 
+## 0.8.6 — 2026-11-12
+
+Schedule reconciliation can no longer stop a schedule without anyone noticing ([#94](https://github.com/plumbus-framework/plumbus/issues/94)). No database migration. Existing calls keep working; the only check that is on by default affects apps with a flow module that already fails to import.
+
+### Fixed
+
+- **`plumbus flow schedule sync` no longer tombstones the schedule of a flow that failed to import.** Discovery used to skip any file under `app/flows/` that threw on import (a bad dependency, a configuration error at module scope). The flow dropped out of the registry, `sync --apply` marked its schedule `removed`, and the schedule stopped firing with no error. The command now loads flows strictly and fails with `Unable to load flow module: <file>`. The underlying error message is not printed, because module-scope errors can contain secrets; import the file directly to see it.
+
+### Added
+
+- **Approving removals:** `reconcileSchedules({ apply, expectedRevision, allowRemove })`. `allowRemove` is a list of flow names, or `true` for any. The CLI equivalent is `plumbus flow schedule sync --apply --expected-revision <revision> --allow-remove <flows>` (comma-separated, or `'*'` quoted so the shell does not expand it). A value other than `true` or an array of names is rejected.
+- **Opt-in refusal of unapproved removals:** `createFlowScheduler({ requireRemovalApproval: true })`, or `PLUMBUS_SCHEDULE_REQUIRE_REMOVAL_APPROVAL=true` when the option is omitted. An apply that would remove a schedule not covered by `allowRemove` then throws a `DataValidationError` that names the flows, and writes nothing.
+- **Strict discovery:** `discoverRuntimeResources({ strict })` takes the directories whose import failures throw instead of being skipped, e.g. `{ strict: ['flows'] }`. Without the option nothing changes, and `decisions/` stays strict as before.
+- New exported types: `ReconcileSchedulesOptions`, `DiscoverResourcesOptions`, `StrictDiscoveryDirectory`.
+
+### Changed
+
+- An apply that removes a schedule without approval still removes it, and now logs `Schedule reconciliation removed schedules without approval` with the flow names.
+- `plumbus flow schedule sync` prints each removal to stderr (`⚠ Would remove schedule: <flow>` in a preview, marked `(approved)` when `--allow-remove` covers it; `⚠ Removed schedule: <flow>` after an apply). Stdout is still only the JSON result.
+- Resource discovery also skips `*.spec.ts` / `*.spec.js` files and anything under a `__tests__/` directory, as it already skipped `*.test.*` and `.d.ts`. Test files cannot be imported outside the test runner.
+- `plumbus dev`, `plumbus start` and `plumbus worker` discover resources exactly as before; a flow module that fails to import is still skipped there.
+- Agent instructions (`instructions/flows.md`, `cli.md`, `stabilization.md`) explain the import failure, `--allow-remove`, the warning and the opt-in refusal, and tell agents to fix an incomplete registry rather than approve an unexpected removal.
+
+### Upgrade
+
+1. If `schedule sync` now fails with `Unable to load flow module`, fix that module, or rename it to `*.test.ts` / `*.spec.ts` or move it under `__tests__/` if it is a test. Before 0.8.6 a broken flow module's schedule would have been removed.
+2. Where your deployment removes schedules on purpose, add `--allow-remove <flows>` (or `allowRemove`) so the removal is explicit and logs no warning.
+3. Apps that embed instructions with inline agent wiring (`plumbus init --inline`) pick up the updated text after `plumbus init --patch --agent all`. Reference wiring reads it from `node_modules` and needs nothing.
+4. Optionally set `PLUMBUS_SCHEDULE_REQUIRE_REMOVAL_APPROVAL=true` (or `requireRemovalApproval: true`) to refuse unapproved removals instead of warning.
+
+See [CLI commands](../../docs/cli/commands.md#plumbus-flow-schedule-sync) and [flows](../../docs/core-concepts/flows.md).
+
 ## 0.8.5 — 2026-11-09
 
 - **Security release.** See [the 0.8.5 security upgrade notes](../../docs/upgrading-0.8.5-security.md) for every opt-in and warning.
