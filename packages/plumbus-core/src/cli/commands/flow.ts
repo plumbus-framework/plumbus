@@ -6,6 +6,8 @@ import {
 } from '../../flows/index.js';
 import { discoverRuntimeResources, buildStepDeps } from '../../runtime/bootstrap.js';
 import { CapabilityRegistry } from '../../execution/index.js';
+import type { ReconcileSchedulesOptions } from '../../flows/index.js';
+import type { DiscoveredResources, DiscoverResourcesOptions } from '../discover.js';
 // ── plumbus flow new ──
 // Scaffold a new flow
 
@@ -29,6 +31,43 @@ export function parseAllowRemove(value: string | undefined): readonly string[] |
     .split(',')
     .map((name) => name.trim())
     .filter((name) => name.length > 0);
+}
+
+type ReconcileResult = Awaited<
+  ReturnType<ReturnType<typeof createFlowScheduler>['reconcileSchedules']>
+>;
+
+export interface ScheduleSyncDeps {
+  discover: (options: DiscoverResourcesOptions) => Promise<DiscoveredResources>;
+  reconcile: (
+    resources: DiscoveredResources,
+    options: ReconcileSchedulesOptions,
+  ) => Promise<ReconcileResult>;
+  stdout?: (line: string) => void;
+  stderr?: (line: string) => void;
+}
+
+/**
+ * `plumbus flow schedule sync`: discover flows strictly (a module that fails to
+ * import would otherwise look like a removed schedule), reconcile, print the JSON
+ * result to stdout and each removal to stderr.
+ */
+export async function runScheduleSync(
+  options: ReconcileSchedulesOptions,
+  deps: ScheduleSyncDeps,
+): Promise<ReconcileResult> {
+  const stdout = deps.stdout ?? ((line: string) => console.log(line));
+  const stderr = deps.stderr ?? ((line: string) => console.error(line));
+  const resources = await deps.discover({ strict: ['flows'] });
+  const result = await deps.reconcile(resources, options);
+  stdout(JSON.stringify(result, null, 2));
+  for (const change of result.changes.filter((c) => c.action === 'remove'))
+    stderr(
+      result.applied
+        ? `⚠ Removed schedule: ${change.flowName}`
+        : `⚠ Would remove schedule: ${change.flowName} (approve with --allow-remove ${change.flowName})`,
+    );
+  return result;
 }
 
 export function registerFlowCommand(program: Command): void {
@@ -107,27 +146,23 @@ export function registerFlowCommand(program: Command): void {
       const config = await loadAppConfig();
       const connection = await resolveDatabaseConnection(config.database, {});
       try {
-        // Every flow module must load: a skipped module would look like a removed schedule.
-        const resources = await discoverRuntimeResources({ strict: ['flows'] });
-        const registry = new FlowRegistry();
-        for (const flow of resources.flows) registry.register(flow);
-        const capabilities = new CapabilityRegistry();
-        capabilities.registerAll(resources.capabilities);
-        const engine = createFlowEngine({
-          db: connection.db,
-          registry,
-          stepDeps: buildStepDeps(capabilities),
+        await runScheduleSync(options, {
+          discover: discoverRuntimeResources,
+          reconcile: (resources, reconcileOptions) => {
+            const registry = new FlowRegistry();
+            for (const flow of resources.flows) registry.register(flow);
+            const capabilities = new CapabilityRegistry();
+            capabilities.registerAll(resources.capabilities);
+            const engine = createFlowEngine({
+              db: connection.db,
+              registry,
+              stepDeps: buildStepDeps(capabilities),
+            });
+            return createFlowScheduler({ db: connection.db, registry, engine }).reconcileSchedules(
+              reconcileOptions,
+            );
+          },
         });
-        const scheduler = createFlowScheduler({ db: connection.db, registry, engine });
-        const result = await scheduler.reconcileSchedules(options);
-        console.log(JSON.stringify(result, null, 2));
-        // stderr, so stdout stays parseable JSON.
-        for (const change of result.changes.filter((c) => c.action === 'remove'))
-          console.error(
-            result.applied
-              ? `⚠ Removed schedule: ${change.flowName}`
-              : `⚠ Would remove schedule: ${change.flowName} (approve with --allow-remove ${change.flowName})`,
-          );
       } finally {
         await closeDatabaseConnection(connection);
       }

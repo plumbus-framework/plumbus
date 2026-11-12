@@ -21,8 +21,8 @@ export interface SchedulerConfig {
   /**
    * Opt-in (0.8.6+): `reconcileSchedules({ apply: true })` throws instead of
    * removing a schedule that `allowRemove` does not cover. When omitted,
-   * `PLUMBUS_SCHEDULE_REQUIRE_REMOVAL_APPROVAL=true` enables it. Off by default
-   * in 0.8.x, where unapproved removals still apply and log a warning.
+   * `PLUMBUS_SCHEDULE_REQUIRE_REMOVAL_APPROVAL=true` enables it. Off by default:
+   * unapproved removals still apply and log a warning.
    */
   requireRemovalApproval?: boolean;
 }
@@ -119,7 +119,8 @@ export function createFlowScheduler(config: SchedulerConfig) {
    * Previews always list removals.
    */
   async function reconcileSchedules(options: ReconcileSchedulesOptions = {}) {
-    return db.transaction(async (tx) => {
+    let unapprovedRemovals: string[] = [];
+    const result = await db.transaction(async (tx) => {
       await tx.execute(
         sql`SELECT pg_advisory_xact_lock(hashtext('plumbus:schedule-reconciliation'))`,
       );
@@ -157,10 +158,7 @@ export function createFlowScheduler(config: SchedulerConfig) {
             `Schedule reconciliation would remove ${unapproved.join(', ')}; these flows are not in the registry. Allow the removal explicitly (allowRemove / --allow-remove) or fix the registry`,
             { flowNames: unapproved, revision },
           );
-        logger.warn(
-          'Schedule reconciliation removed schedules without approval. Pass allowRemove (--allow-remove) for intended removals; set requireRemovalApproval (or PLUMBUS_SCHEDULE_REQUIRE_REMOVAL_APPROVAL=true) to refuse unapproved removals. This becomes the default in core 0.9.',
-          { flowNames: unapproved },
-        );
+        unapprovedRemovals = unapproved;
       }
       const changes: { flowName: string; action: string; previous?: unknown; next?: unknown }[] =
         [];
@@ -236,6 +234,13 @@ export function createFlowScheduler(config: SchedulerConfig) {
       }
       return { revision, changes, applied: options.apply === true };
     });
+    // Logged only after commit: a rolled-back apply removed nothing.
+    if (unapprovedRemovals.length > 0)
+      logger.warn(
+        'Schedule reconciliation removed schedules without approval. Pass allowRemove (--allow-remove) for intended removals; set requireRemovalApproval (or PLUMBUS_SCHEDULE_REQUIRE_REMOVAL_APPROVAL=true) to refuse unapproved removals.',
+        { flowNames: unapprovedRemovals },
+      );
+    return result;
   }
   async function runPoll(): Promise<number> {
     const wakes = await db.transaction(async (tx) => {

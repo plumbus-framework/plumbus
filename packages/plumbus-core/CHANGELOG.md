@@ -25,7 +25,7 @@ Schedule reconciliation can no longer stop a schedule without anyone noticing ([
 
 1. If `schedule sync` now fails with `Unable to load flow module`, fix that module. Before 0.8.6 its schedule would have been removed.
 2. Where your deployment removes schedules on purpose, add `--allow-remove <flows>` (or `allowRemove`) so the removal is explicit and logs no warning.
-3. Set `PLUMBUS_SCHEDULE_REQUIRE_REMOVAL_APPROVAL=true` (or `requireRemovalApproval: true`) to refuse unapproved removals now. **Core 0.9 makes this the default.**
+3. Optionally set `PLUMBUS_SCHEDULE_REQUIRE_REMOVAL_APPROVAL=true` (or `requireRemovalApproval: true`) to refuse unapproved removals instead of warning.
 
 See [CLI commands](../../docs/cli/commands.md#plumbus-flow-schedule-sync) and [flows](../../docs/core-concepts/flows.md).
 

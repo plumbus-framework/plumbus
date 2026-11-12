@@ -359,7 +359,7 @@ describe('durable scheduler', () => {
     await oldScheduler.syncSchedules();
     expect((await pg.db.select().from(flowSchedulesTable))[0]?.removed).toBe(true);
   });
-  it('applies an unapproved removal with a warning by default in 0.8.x', async () => {
+  it('applies an unapproved removal with a warning by default', async () => {
     const original = setup({ schedule: { cron: 'every:1h' } });
     await createFlowScheduler({ db: pg.db, ...original, logger }).syncSchedules();
     const warnings = vi.fn();
@@ -376,6 +376,36 @@ describe('durable scheduler', () => {
       expect.stringContaining('without approval'),
       expect.objectContaining({ flowNames: ['test'] }),
     );
+  });
+  it('does not warn about a removal when the apply rolls back', async () => {
+    const original = setup({ schedule: { cron: 'every:1h' } });
+    await createFlowScheduler({ db: pg.db, ...original, logger }).syncSchedules();
+    const warnings = vi.fn();
+    // Runs the reconciliation, then fails the transaction so it rolls back.
+    const failingCommit = {
+      transaction: (fn: (tx: unknown) => Promise<unknown>) =>
+        pg.db.transaction(async (tx) => {
+          await fn(tx);
+          throw new Error('commit failed');
+        }),
+    } as any;
+    const incomplete = createFlowScheduler({
+      db: failingCommit,
+      engine: original.engine,
+      registry: new FlowRegistry(),
+      logger: { ...logger, warn: warnings },
+    });
+    const preview = await createFlowScheduler({
+      db: pg.db,
+      engine: original.engine,
+      registry: new FlowRegistry(),
+      logger,
+    }).reconcileSchedules();
+    await expect(
+      incomplete.reconcileSchedules({ apply: true, expectedRevision: preview.revision }),
+    ).rejects.toThrow('commit failed');
+    expect(warnings).not.toHaveBeenCalled();
+    expect((await pg.db.select().from(flowSchedulesTable))[0]?.removed).toBe(false);
   });
   it('does not warn about approved removals', async () => {
     const original = setup({ schedule: { cron: 'every:1h' } });
