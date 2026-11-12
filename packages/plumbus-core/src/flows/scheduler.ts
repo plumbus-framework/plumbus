@@ -18,6 +18,13 @@ export interface SchedulerConfig {
   engine: ReturnType<typeof createFlowEngine>;
   logger?: LoggerService;
   pollIntervalMs?: number;
+  /**
+   * Opt-in (0.8.6+): `reconcileSchedules({ apply: true })` throws instead of
+   * removing a schedule that `allowRemove` does not cover. When omitted,
+   * `PLUMBUS_SCHEDULE_REQUIRE_REMOVAL_APPROVAL=true` enables it. Off by default
+   * in 0.8.x, where unapproved removals still apply and log a warning.
+   */
+  requireRemovalApproval?: boolean;
 }
 export interface ReconcileSchedulesOptions {
   /** Write the previewed changes. Requires `expectedRevision`. */
@@ -26,8 +33,9 @@ export interface ReconcileSchedulesOptions {
   expectedRevision?: string;
   /**
    * Flow names whose stored schedules an apply may mark removed, or `true` for any.
-   * Without it, an apply that would remove a schedule throws. Guards against an
-   * incomplete registry (a flow module that failed to load, a renamed export).
+   * Unapproved removals log a warning, or throw with the scheduler's
+   * `requireRemovalApproval`. Guards against an incomplete registry (a flow module
+   * that failed to load, a renamed export).
    */
   allowRemove?: readonly string[] | true;
 }
@@ -51,6 +59,9 @@ function definitionHash(flow: FlowDefinition) {
 
 export function createFlowScheduler(config: SchedulerConfig) {
   const { db, registry, engine, logger = console, pollIntervalMs = 60000 } = config;
+  const requireRemovalApproval =
+    config.requireRemovalApproval ??
+    process.env.PLUMBUS_SCHEDULE_REQUIRE_REMOVAL_APPROVAL === 'true';
   let timer: ReturnType<typeof setInterval> | undefined;
   let active: Promise<number> | undefined;
   let lastWarning = -Infinity;
@@ -103,8 +114,9 @@ export function createFlowScheduler(config: SchedulerConfig) {
   }
   /**
    * One deployment applies a complete manifest. Stale applications cannot overwrite it.
-   * An apply that would tombstone a stored schedule throws (naming the flows) unless
-   * `allowRemove` is `true` or lists every one of them. Previews always list removals.
+   * An apply that would tombstone a schedule not covered by `allowRemove` logs a
+   * warning naming the flows, or throws (writing nothing) with `requireRemovalApproval`.
+   * Previews always list removals.
    */
   async function reconcileSchedules(options: ReconcileSchedulesOptions = {}) {
     return db.transaction(async (tx) => {
@@ -139,11 +151,17 @@ export function createFlowScheduler(config: SchedulerConfig) {
           : removals
               .map((row) => row.flowName)
               .filter((name) => !(allowRemove ?? []).includes(name));
-      if (options.apply && unapproved.length > 0)
-        throw new DataValidationError(
-          `Schedule reconciliation would remove ${unapproved.join(', ')}; these flows are not in the registry. Allow the removal explicitly (allowRemove / --allow-remove) or fix the registry`,
-          { flowNames: unapproved, revision },
+      if (options.apply && unapproved.length > 0) {
+        if (requireRemovalApproval)
+          throw new DataValidationError(
+            `Schedule reconciliation would remove ${unapproved.join(', ')}; these flows are not in the registry. Allow the removal explicitly (allowRemove / --allow-remove) or fix the registry`,
+            { flowNames: unapproved, revision },
+          );
+        logger.warn(
+          'Schedule reconciliation removed schedules without approval. Pass allowRemove (--allow-remove) for intended removals; set requireRemovalApproval (or PLUMBUS_SCHEDULE_REQUIRE_REMOVAL_APPROVAL=true) to refuse unapproved removals. This becomes the default in core 0.9.',
+          { flowNames: unapproved },
         );
+      }
       const changes: { flowName: string; action: string; previous?: unknown; next?: unknown }[] =
         [];
       const now = await databaseTime(tx);

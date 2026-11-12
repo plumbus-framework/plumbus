@@ -126,7 +126,7 @@ export function registerFlowCommand(program: Command): void {
           console.error(
             result.applied
               ? `⚠ Removed schedule: ${change.flowName}`
-              : `⚠ Would remove schedule: ${change.flowName} (apply needs --allow-remove ${change.flowName})`,
+              : `⚠ Would remove schedule: ${change.flowName} (approve with --allow-remove ${change.flowName})`,
           );
       } finally {
         await closeDatabaseConnection(connection);

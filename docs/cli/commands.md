@@ -365,7 +365,8 @@ Preview additions, definition changes, removals, and the current revision using 
 Guards against an incomplete registry (0.8.6+):
 
 - Every module under `app/flows/` must import. A module that throws on import fails the command and names the file, instead of being skipped (its schedule would otherwise look removed).
-- `--apply` refuses to tombstone a schedule whose flow is not in the registry unless `--allow-remove` names it (or is `*`). The error names the flows and nothing is written. Preview and apply print each removal to stderr; stdout stays JSON.
+- Preview and apply print each removal to stderr; stdout stays JSON. Approve intended removals with `--allow-remove` (names or `*`).
+- In 0.8.x an unapproved removal still applies and logs a warning naming the flows. Set `PLUMBUS_SCHEDULE_REQUIRE_REMOVAL_APPROVAL=true` to make `--apply` refuse it instead: the error names the flows and nothing is written. Refusal becomes the default in core 0.9.
 
 #### `plumbus flow dead-letter list`
 
