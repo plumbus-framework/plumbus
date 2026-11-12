@@ -324,9 +324,18 @@ Flow commits are fenced by per-claim tokens, active status and lease validity. R
 
 ## Flow polling and lease ownership
 
-A polling worker claims one execution immediately before running it. It drains at most `flowClaimBatchSize` executions per cycle (default 50), acquiring each next lease only after the prior execution has completed its drain. Poll ticks do not overlap an active cycle, and shutdown prevents claiming further work. Thus a slow step cannot consume the lease time of rows prefetched behind it. Other workers can claim those still-pending rows normally; active-step heartbeats continue extending both tenant execution leases and authoritative spine hints. The engine's explicit `claimNext(batchSize)` API remains available to hosts that manage their own concurrency/lease lifecycle.
+A polling worker claims one execution immediately before running it. The runner has `flowConcurrency` slots (default 1; `workers.flowConcurrency` / `PLUMBUS_FLOW_CONCURRENCY`, core 0.9.0-beta.11+). Each slot drains at most `flowClaimBatchSize` executions (default 50) one after another, acquiring its next lease only after its prior execution has completed its drain, and claims that next execution at once rather than at the next poll. Slots are independent: a long flow holds one slot while the others keep claiming. A poll tick starts a slot only when one is free, and shutdown prevents claiming further work and waits (until the deadline) for every slot's running step. Thus a slow step cannot consume the lease time of rows prefetched behind it. Other workers can claim those still-pending rows normally; active-step heartbeats continue extending both tenant execution leases and authoritative spine hints. The engine's explicit `claimNext(batchSize)` API remains available to hosts that manage their own concurrency/lease lifecycle.
 
-See [flow lifecycle](execution-lifecycle.md) and [tenant data planes](../sdk-reference/tenant-data-planes.md). The worker integration regression uses two real polling pools and checks that queued work remains pending beyond multiple lease periods, a peer executes it once, and both hints retain attempt 1.
+```
+  poll tick ──> dead-letter sweep ──> start a free slot
+                                           │
+  slot 1: claim A ── drain A (long) ─────────────────────── claim D ...
+  slot 2: claim B ── drain B ── claim C ── drain C ── claim (none) ── end
+            │
+            └─ a slot that claims work starts the next free slot
+```
+
+See [flow lifecycle](execution-lifecycle.md), [flow runner concurrency](../sdk-reference/configuration.md#flow-runner-concurrency) and [tenant data planes](../sdk-reference/tenant-data-planes.md). The worker integration regression uses two real polling pools and checks that queued work remains pending beyond multiple lease periods, a peer executes it once, and both hints retain attempt 1; a second case runs a slow flow and two quick ones on one pool with `flowConcurrency: 2` and checks the quick ones complete while the slow one runs, each claimed once.
 
 ### Tenant flow delay correctness (0.9.0-beta.0)
 

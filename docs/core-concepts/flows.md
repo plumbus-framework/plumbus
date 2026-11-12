@@ -392,7 +392,9 @@ Plumbus uses fenced database transitions for horizontal scale. Execution and ext
 
 **`LeaseLostError`.** Thrown from `runNext` (and from `ctx.flows.heartbeat()`) when the lease has moved to another worker. If you handle it, do not write to the execution or emit events — the current lease holder is authoritative and will own the commit. In practice, workers bubble this error up to the poll loop and move on to the next row.
 
-See [configuration](../sdk-reference/configuration.md#flow-lease-tuning) for the `flowLeaseDurationMs`, `flowHeartbeatIntervalMs`, and `flowClaimBatchSize` knobs.
+**Concurrency in one worker.** By default a worker pool runs one flow execution at a time. `workers.flowConcurrency` (or `PLUMBUS_FLOW_CONCURRENCY`, core 0.9.0-beta.11+) gives the runner that many slots; each claims and drains its own execution under its own lease, so one long flow no longer holds back every other flow on that worker. See [flow runner concurrency](../sdk-reference/configuration.md#flow-runner-concurrency) before raising it.
+
+See [configuration](../sdk-reference/configuration.md#flow-lease-tuning) for the `flowLeaseDurationMs`, `flowHeartbeatIntervalMs`, `flowClaimBatchSize` and `flowConcurrency` knobs.
 
 ## Resume, cancel and status access
 

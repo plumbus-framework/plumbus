@@ -17,6 +17,8 @@ const port = positive.int().max(65535);
  * from env at boot is also refused from `config/app.config.*`.
  */
 const timeoutMs = positive.int().max(2_147_483_647);
+/** Upper bound on `workers.flowConcurrency`; each slot can hold database connections. */
+export const MAX_FLOW_CONCURRENCY = 256;
 const ai = z
   .object({
     provider: text,
@@ -128,6 +130,7 @@ export const configOverridesSchema = z
     workers: z
       .object({
         enableScheduler: z.boolean().optional(),
+        flowConcurrency: positive.int().max(MAX_FLOW_CONCURRENCY).optional(),
         eventDelivery: z
           .object({
             retry: retryPolicySchema.optional(),

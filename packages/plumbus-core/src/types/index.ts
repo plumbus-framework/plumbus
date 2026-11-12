@@ -46,6 +46,7 @@ export type {
   PlumbusConfig,
   PromptModelOverride,
   QueueConfig,
+  WorkersConfig,
 } from './config.js';
 // ── Context ──
 export type {

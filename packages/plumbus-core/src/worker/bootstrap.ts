@@ -10,6 +10,7 @@ import { resolveGovernedArtifactStore } from '../ai/governed-artifacts.js';
 import { hostApprovalRuntimeExtras } from '../approvals/host-runtime.js';
 import type { ApprovalService, AuthorizationProvider } from '../approvals/types.js';
 import { createAuditService } from '../audit/service.js';
+import { MAX_FLOW_CONCURRENCY } from '../config/overrides.js';
 import { resolveEncryptionKey } from '../data/field-encryption.js';
 import type { EntityRegistry } from '../data/registry.js';
 import { FRAMEWORK_SCHEMA, resolveFrameworkSchema } from '../data/schema-generator.js';
@@ -204,6 +205,22 @@ export async function assertFlowLeaseColumns(db: PostgresJsDatabase): Promise<vo
   }
 }
 
+// ── Flow runner concurrency ──
+
+/** Flow executions a pool runs at once when neither the pool option nor config sets it. */
+export const DEFAULT_FLOW_CONCURRENCY = 1;
+
+/** The pool's flow concurrency; a value that is not a whole number from 1 to 256 fails the pool. */
+function resolveFlowConcurrency(value: number | undefined): number {
+  if (value === undefined) return DEFAULT_FLOW_CONCURRENCY;
+  if (!Number.isSafeInteger(value) || value < 1 || value > MAX_FLOW_CONCURRENCY) {
+    throw new Error(
+      `flowConcurrency must be a whole number from 1 to ${MAX_FLOW_CONCURRENCY} (received ${String(value)})`,
+    );
+  }
+  return value;
+}
+
 // ── Worker Pool Config ──
 
 /**
@@ -319,8 +336,16 @@ export interface WorkerPoolConfig {
   flowLeaseDurationMs?: number;
   /** Heartbeat interval in milliseconds for extending flow leases. Default: leaseDurationMs / 3. */
   flowHeartbeatIntervalMs?: number;
-  /** Max executions to claim per poll cycle. Default: 50. */
+  /** Max executions each runner slot claims, one after another, before it waits for the next poll. Default: 50. */
   flowClaimBatchSize?: number;
+  /**
+   * Flow executions this pool runs at the same time. Each runner slot claims one execution
+   * (`claimNext(1)`), drains it, and claims the next straight away, independently of the other
+   * slots, so one long flow holds one slot while the others keep working. Default:
+   * `config.workers.flowConcurrency` (`PLUMBUS_FLOW_CONCURRENCY`), else `1`. A whole number
+   * from 1 to 256. The queue-driven flow step consumer is separate and not counted here.
+   */
+  flowConcurrency?: number;
   /**
    * How often the runner starts flows whose post-commit start never happened (a process died
    * between a capability's commit and its deferred `ctx.flows.start`): due rows of
@@ -433,10 +458,11 @@ export interface WorkerPoolConfig {
 
 export interface WorkerPoolStopOptions {
   /**
-   * Epoch milliseconds until which `stop()` waits for the flow step running now. The runner
-   * claims nothing new once stop begins and, after the running step, releases its execution
-   * for another worker instead of draining the next step. Omitted, `stop()` does not wait for
-   * a running step (it is abandoned when the host closes the database, and its lease expires).
+   * Epoch milliseconds until which `stop()` waits for the flow steps running now, in every
+   * runner slot. The runner claims nothing new once stop begins and, after each running step,
+   * releases that execution for another worker instead of draining its next step. Omitted,
+   * `stop()` does not wait for running steps (they are abandoned when the host closes the
+   * database, and their leases expire).
    */
   deadlineAt?: number;
 }
@@ -447,10 +473,12 @@ export interface WorkerPool {
   /** Graceful shutdown — stops all workers */
   stop(options?: WorkerPoolStopOptions): Promise<void>;
   /**
-   * True while the flow runner is inside a cycle — after `stop()`, a step that was still
-   * running at the deadline and was abandoned.
+   * True while the flow runner is inside a cycle or any runner slot is still draining an
+   * execution — after `stop()`, a step that was still running at the deadline and was abandoned.
    */
   readonly flowCycleInFlight?: boolean;
+  /** Ids of the flow executions the runner slots are draining now. */
+  readonly flowExecutionsInFlight?: readonly string[];
   /** Whether any worker is running */
   readonly isRunning: boolean;
   /** Flow engine instance (for tests and consumer registration). */
@@ -479,6 +507,9 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
   const jobsQueue = poolConfig.jobsQueue ?? queue;
   // Validated up front: a bad option fails the pool's construction, not a sweep an hour later.
   const retention = resolveFrameworkRetentionOptions(poolConfig.frameworkRetention);
+  const flowConcurrency = resolveFlowConcurrency(
+    poolConfig.flowConcurrency ?? poolConfig.config.workers?.flowConcurrency,
+  );
   const flowsQueue = poolConfig.flowsQueue ?? queue;
   const flowPollIntervalMs = poolConfig.queuesDurable
     ? Math.max(flowPollIntervalMsConfig, 30_000)
@@ -638,8 +669,13 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
 
   // Flow engine + scheduler
   const { createDataService } = poolConfig;
-  /** The data plane each execution in the current flow cycle runs against, keyed by execution id. */
-  const unitPlanes = new Map<string, PostgresJsDatabase>();
+  /**
+   * The data plane each execution a runner slot is draining runs against, keyed by execution id.
+   * Each claim stores its own entry object and removes only that entry, so a slot that finishes
+   * late never removes the entry of another slot that claimed the same execution after a lost
+   * lease.
+   */
+  const unitPlanes = new Map<string, { db: PostgresJsDatabase }>();
   const flowEngineConfig: FlowEngineConfig = {
     db,
     registry: flows,
@@ -707,7 +743,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     createContext: (auth, metadata) =>
       buildFlowRunnerContext(
         auth,
-        unitPlanes.get(metadata.flowId) ?? dataPlaneForAuth(auth),
+        unitPlanes.get(metadata.flowId)?.db ?? dataPlaneForAuth(auth),
         metadata,
       ),
     createDataService: createDataService ? (auth) => createDataService(auth) : undefined,
@@ -794,28 +830,38 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
   const scheduler = enableScheduler ? createFlowScheduler(schedulerConfig) : null;
   let flowRunnerTimer: ReturnType<typeof setInterval> | null = null;
 
-  let flowCycleRunning = false;
-  /** The flow cycle running now (claims and the steps it drains); stop() waits for it. */
-  let flowCycleInFlight: Promise<void> | null = null;
-  /** The execution the cycle is draining, for the shutdown log. */
-  let drainingExecutionId: string | null = null;
+  /**
+   * The poll tick running now: the pool dead-letter sweep, then a free runner slot. One at a
+   * time, so the sweep never runs beside itself.
+   */
+  let flowTickInFlight: Promise<void> | null = null;
+  /** Runner slots alive now; each claims and drains executions one after another. */
+  const flowSlots = new Set<Promise<void>>();
+  /** Executions the slots are draining, one entry per claim, in claim order, for the shutdown log. */
+  const drainingExecutions = new Set<{ executionId: string }>();
+  function drainingExecutionIds(): string[] {
+    return [...drainingExecutions].map((entry) => entry.executionId);
+  }
   function triggerFlowCycle(): void {
-    const cycle = runFlowCycle();
-    if (flowCycleInFlight) return;
-    flowCycleInFlight = cycle;
-    void cycle.finally(() => {
-      if (flowCycleInFlight === cycle) flowCycleInFlight = null;
+    // Every slot busy: nothing to claim for, so no sweep either (as when one cycle ran at a time).
+    if (!enableFlowRunner || !running || flowTickInFlight || flowSlots.size >= flowConcurrency) {
+      return;
+    }
+    const tick = runFlowTick().finally(() => {
+      if (flowTickInFlight === tick) flowTickInFlight = null;
     });
+    flowTickInFlight = tick;
   }
   /**
-   * The cycle's sweep or claim query in flight. stop() waits for it so the host can close the
-   * database right after; a step already running is left to finish on its own, as before.
+   * Sweep and claim queries in flight (one per slot at most, plus the tick's sweep). stop()
+   * waits for them so the host can close the database right after; a step already running is
+   * left to finish on its own unless stop() was given a deadline.
    */
-  let pollInFlight: Promise<unknown> | null = null;
+  const pollsInFlight = new Set<Promise<unknown>>();
   function polling<T>(work: Promise<T>): Promise<T> {
-    pollInFlight = work;
+    pollsInFlight.add(work);
     return work.finally(() => {
-      if (pollInFlight === work) pollInFlight = null;
+      pollsInFlight.delete(work);
     });
   }
   let lastTenantSweepAt = -Infinity;
@@ -1035,134 +1081,159 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     }
   }
 
-  async function runFlowCycle(): Promise<void> {
-    if (!enableFlowRunner || !running || flowCycleRunning) return;
-    flowCycleRunning = true;
+  function flowRunnerAuth(): AuthContext {
+    return { userId: 'system-flow-runner', roles: ['system'], scopes: [], provider: 'worker' };
+  }
+
+  async function runFlowTick(): Promise<void> {
     try {
       await polling(sweepPoolDeadLetters());
       startTenantSweepWhenDue();
-      // Lease only work that can start now. Prefetched rows otherwise wait behind
-      // long steps without a heartbeat, and another poll can reclaim them.
-      const cycleLimit = poolConfig.flowClaimBatchSize ?? 50;
-      for (let count = 0; count < cycleLimit && running; count += 1) {
-        const claimed = await polling(flowEngine.claimNext(1));
-        if (claimed.length === 0) break;
-
-        const systemAuth = {
-          userId: 'system-flow-runner',
-          roles: ['system'],
-          scopes: [],
-          provider: 'worker',
-        };
-
-        // Build a shared-plane context for this claim; the resolver path instead
-        // builds the context from the claimed tenant below.
-        const baseCtx = dataPlaneResolver ? undefined : buildFlowRunnerContext(systemAuth);
-
-        for (const row of claimed) {
-          // The claim's fencing token: every write the engine makes for this run carries it,
-          // and a runner that lost it can no longer finalize the execution.
-          const leaseToken = row.leaseToken ?? undefined;
-          try {
-            // Resolving inside the per-row try means an unknown or absent tenant
-            // fails this execution the same way a failing step does, instead of
-            // aborting the cycle for every other tenant in the batch.
-            // The unit's auth carries the row's tenant, so the repositories, audit and durable
-            // schema the context is wired with are the resolved plane's — not the pool's.
-            const unitTenantRef = resolveTenantRef({
-              ...systemAuth,
-              tenantId: claimedTenantRef(row),
-            });
-            const unitAuth = unitTenantRef
-              ? { ...systemAuth, tenantId: unitTenantRef }
-              : systemAuth;
-            const unitDb = baseCtx ? db : await resolveUnitDataPlane(unitTenantRef);
-            unitPlanes.set(row.id, unitDb);
-            const ctx = baseCtx ?? buildFlowRunnerContext(unitAuth, unitDb);
-            // Drain consecutive in-flow steps in a single tick.
-            //
-            // Why: claimNext() acquires a lease (status='running',
-            // lease_expires_at = now()+leaseDurationMs) for the whole flow
-            // execution row. runNext() runs ONE step and, on normal
-            // advancement (next sequential step, parallel completion, or
-            // conditional branch), updates currentStep but intentionally
-            // leaves status='running' and the lease intact. If we returned
-            // here after a single step, the row would sit idle until the
-            // lease expired (default 5 min) before claimNext() picked it up
-            // again — producing multi-minute "no errors, no progress" gaps
-            // between successive steps of the same flow execution.
-            //
-            // Looping while status === Running means the worker that holds
-            // the lease keeps running steps until the flow either Waits
-            // (event/delay), Completes, Fails, or is Cancelled. Heartbeats
-            // inside runNext extend the lease while a step is executing;
-            // between steps the lease is still valid because we never
-            // released it. A hard cap (`maxStepsPerCycle`) bounds the loop
-            // so a runaway conditional/loop in a flow can't monopolise the
-            // worker forever — when the cap is hit we break, the lease will
-            // expire normally and another claim cycle (or the same worker)
-            // will pick the row up.
-            //
-            // Once stop() has begun, the step running now finishes and the execution is
-            // released (lease expired now, spine hint ready) rather than drained further, so
-            // another worker continues it at once.
-            const maxStepsPerCycle = 1000;
-            let stepsRun = 0;
-            drainingExecutionId = row.id;
-            while (stepsRun < maxStepsPerCycle) {
-              const result = await flowEngine.runNext(row.id, ctx, leaseToken);
-              stepsRun += 1;
-              if (result.status !== FlowStatus.Running) {
-                break;
-              }
-              if (!running) {
-                await releaseForShutdown(row.id, leaseToken);
-                break;
-              }
-            }
-            if (stepsRun >= maxStepsPerCycle) {
-              logger.warn('Flow drain hit maxStepsPerCycle; releasing for next cycle', {
-                executionId: row.id,
-                workerId: flowEngine.workerId,
-                stepsRun,
-                maxStepsPerCycle,
-              });
-            }
-          } catch (err) {
-            // A missing definition is not a failure: the engine released the execution for a
-            // worker that has it, and already logged `definition-unavailable`.
-            if (!(err instanceof FlowDefinitionUnavailableError)) {
-              logger.error('Flow execution run failed', {
-                executionId: row.id,
-                workerId: flowEngine.workerId,
-                ...describeError(err),
-              });
-            }
-            // Finalize the row as failed so the next poll cycle doesn't re-claim
-            // it via the `status='running' AND lease_expires_at < now()`
-            // crash-recovery branch in claimNext and spin forever. The engine
-            // fences the write with this claim's token, so a runner whose lease
-            // was lost (or whose flow was cancelled) never fails another
-            // worker's execution.
-            try {
-              await flowEngine.markFailedFromRunner(row.id, err, leaseToken);
-            } catch (finalizeErr) {
-              logger.error('Failed to finalize flow execution after run error', {
-                executionId: row.id,
-                workerId: flowEngine.workerId,
-                ...describeError(finalizeErr),
-              });
-            }
-          } finally {
-            drainingExecutionId = null;
-            unitPlanes.delete(row.id);
-          }
-        }
-      }
+      startFlowSlot();
     } catch (err) {
       logger.error('Flow claim cycle failed', describeError(err));
+    }
+  }
+
+  /**
+   * Start one runner slot when the pool is running and a slot is free. Called by the poll tick
+   * and by a slot that just claimed work (more may be waiting), so busy periods fill every slot
+   * within a few claims while an idle pool still sends one claim query per poll.
+   */
+  function startFlowSlot(): void {
+    if (!enableFlowRunner || !running || flowSlots.size >= flowConcurrency) return;
+    const slot = runFlowSlot()
+      .catch((err) => logger.error('Flow claim cycle failed', describeError(err)))
+      .finally(() => {
+        flowSlots.delete(slot);
+      });
+    flowSlots.add(slot);
+  }
+
+  /**
+   * One runner slot: claim an execution, drain it, claim the next, up to `flowClaimBatchSize`
+   * claims, without waiting for the other slots or the poll interval. Ends when nothing is
+   * claimable, at the claim limit, or once stop() has begun.
+   */
+  async function runFlowSlot(): Promise<void> {
+    // Lease only work that can start now. Prefetched rows otherwise wait behind
+    // long steps without a heartbeat, and another poll can reclaim them.
+    const cycleLimit = poolConfig.flowClaimBatchSize ?? 50;
+    for (let count = 0; count < cycleLimit && running; count += 1) {
+      const claimed = await polling(flowEngine.claimNext(1));
+      if (claimed.length === 0) break;
+      startFlowSlot();
+      // Without a resolver the claim's rows share one context on the pool's plane; the
+      // resolver path builds each row's context from its claimed tenant.
+      const baseCtx = dataPlaneResolver ? undefined : buildFlowRunnerContext(flowRunnerAuth());
+      for (const row of claimed) await runClaimedExecution(row, baseCtx);
+    }
+  }
+
+  /** Drain one claimed execution; never throws (a failure finalizes the row as failed). */
+  async function runClaimedExecution(
+    row: Awaited<ReturnType<typeof flowEngine.claimNext>>[number],
+    baseCtx: import('../types/context.js').ExecutionContext | undefined,
+  ): Promise<void> {
+    const systemAuth = flowRunnerAuth();
+    // The claim's fencing token: every write the engine makes for this run carries it,
+    // and a runner that lost it can no longer finalize the execution.
+    const leaseToken = row.leaseToken ?? undefined;
+    // This claim's own entries: removed in `finally` only while they are still this claim's.
+    let unitPlane: { db: PostgresJsDatabase } | undefined;
+    const draining = { executionId: row.id };
+    drainingExecutions.add(draining);
+    try {
+      // Resolving inside the per-row try means an unknown or absent tenant
+      // fails this execution the same way a failing step does, instead of
+      // aborting the cycle for every other tenant in the batch.
+      // The unit's auth carries the row's tenant, so the repositories, audit and durable
+      // schema the context is wired with are the resolved plane's — not the pool's.
+      const unitTenantRef = resolveTenantRef({
+        ...systemAuth,
+        tenantId: claimedTenantRef(row),
+      });
+      const unitAuth = unitTenantRef ? { ...systemAuth, tenantId: unitTenantRef } : systemAuth;
+      const unitDb = baseCtx ? db : await resolveUnitDataPlane(unitTenantRef);
+      unitPlane = { db: unitDb };
+      unitPlanes.set(row.id, unitPlane);
+      const ctx = baseCtx ?? buildFlowRunnerContext(unitAuth, unitDb);
+      // Drain consecutive in-flow steps in a single tick.
+      //
+      // Why: claimNext() acquires a lease (status='running',
+      // lease_expires_at = now()+leaseDurationMs) for the whole flow
+      // execution row. runNext() runs ONE step and, on normal
+      // advancement (next sequential step, parallel completion, or
+      // conditional branch), updates currentStep but intentionally
+      // leaves status='running' and the lease intact. If we returned
+      // here after a single step, the row would sit idle until the
+      // lease expired (default 5 min) before claimNext() picked it up
+      // again — producing multi-minute "no errors, no progress" gaps
+      // between successive steps of the same flow execution.
+      //
+      // Looping while status === Running means the worker that holds
+      // the lease keeps running steps until the flow either Waits
+      // (event/delay), Completes, Fails, or is Cancelled. Heartbeats
+      // inside runNext extend the lease while a step is executing;
+      // between steps the lease is still valid because we never
+      // released it. A hard cap (`maxStepsPerCycle`) bounds the loop
+      // so a runaway conditional/loop in a flow can't monopolise the
+      // worker forever — when the cap is hit we break, the lease will
+      // expire normally and another claim cycle (or the same worker)
+      // will pick the row up.
+      //
+      // Once stop() has begun, the step running now finishes and the execution is
+      // released (lease expired now, spine hint ready) rather than drained further, so
+      // another worker continues it at once.
+      const maxStepsPerCycle = 1000;
+      let stepsRun = 0;
+      while (stepsRun < maxStepsPerCycle) {
+        const result = await flowEngine.runNext(row.id, ctx, leaseToken);
+        stepsRun += 1;
+        if (result.status !== FlowStatus.Running) {
+          break;
+        }
+        if (!running) {
+          await releaseForShutdown(row.id, leaseToken);
+          break;
+        }
+      }
+      if (stepsRun >= maxStepsPerCycle) {
+        logger.warn('Flow drain hit maxStepsPerCycle; releasing for next cycle', {
+          executionId: row.id,
+          workerId: flowEngine.workerId,
+          stepsRun,
+          maxStepsPerCycle,
+        });
+      }
+    } catch (err) {
+      // A missing definition is not a failure: the engine released the execution for a
+      // worker that has it, and already logged `definition-unavailable`.
+      if (!(err instanceof FlowDefinitionUnavailableError)) {
+        logger.error('Flow execution run failed', {
+          executionId: row.id,
+          workerId: flowEngine.workerId,
+          ...describeError(err),
+        });
+      }
+      // Finalize the row as failed so the next poll cycle doesn't re-claim
+      // it via the `status='running' AND lease_expires_at < now()`
+      // crash-recovery branch in claimNext and spin forever. The engine
+      // fences the write with this claim's token, so a runner whose lease
+      // was lost (or whose flow was cancelled) never fails another
+      // worker's execution.
+      try {
+        await flowEngine.markFailedFromRunner(row.id, err, leaseToken);
+      } catch (finalizeErr) {
+        logger.error('Failed to finalize flow execution after run error', {
+          executionId: row.id,
+          workerId: flowEngine.workerId,
+          ...describeError(finalizeErr),
+        });
+      }
     } finally {
-      flowCycleRunning = false;
+      drainingExecutions.delete(draining);
+      if (unitPlane && unitPlanes.get(row.id) === unitPlane) unitPlanes.delete(row.id);
     }
   }
 
@@ -1429,7 +1500,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
         flowRunnerTimer = null;
         if (intentRecoveryTimer) clearInterval(intentRecoveryTimer);
         intentRecoveryTimer = null;
-        await pollInFlight?.catch(() => undefined);
+        await Promise.all([...pollsInFlight].map((poll) => poll.catch(() => undefined)));
         // The tenant sweeps end at their next plane now that `running` is false.
         await tenantSweepInFlight?.catch(() => undefined);
         await intentRecoveryInFlight?.catch(() => undefined);
@@ -1438,14 +1509,21 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
         retentionTimer = null;
         retentionFirstRun = null;
         await retentionInFlight?.catch(() => undefined);
-        // The step running now gets until the deadline; the cycle claims nothing more.
-        const cycle = flowCycleInFlight;
-        if (cycle && options?.deadlineAt !== undefined) {
-          const finished = await settleBy(cycle, options.deadlineAt);
+        // Every slot's running step gets until the deadline; no slot claims anything more.
+        const inFlight = [...flowSlots, ...(flowTickInFlight ? [flowTickInFlight] : [])];
+        if (inFlight.length > 0 && options?.deadlineAt !== undefined) {
+          const executionIds = drainingExecutionIds();
+          if (executionIds.length > 0) {
+            logger.info('Worker stopping: waiting for the running flow steps', {
+              executionIds,
+              workerId: flowEngine.workerId,
+            });
+          }
+          const finished = await settleBy(Promise.all(inFlight), options.deadlineAt);
           if (!finished) {
             logger.warn(
-              'Flow step still running at the shutdown deadline; abandoned, its lease expires',
-              { executionId: drainingExecutionId, workerId: flowEngine.workerId },
+              'Flow steps still running at the shutdown deadline; abandoned, their leases expire',
+              { executionIds: drainingExecutionIds(), workerId: flowEngine.workerId },
             );
           }
         }
@@ -1498,7 +1576,11 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     },
 
     get flowCycleInFlight() {
-      return flowCycleInFlight !== null;
+      return flowTickInFlight !== null || flowSlots.size > 0;
+    },
+
+    get flowExecutionsInFlight() {
+      return drainingExecutionIds();
     },
   };
 }

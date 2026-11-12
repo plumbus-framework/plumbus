@@ -164,6 +164,16 @@ starting a new flow under the caller's identity.
 Core 0.7.0 rejects missing, malformed, or actor/tenant-inconsistent stored auth snapshots before a step executes. New snapshots omit session IDs and authentication timestamps. Do not recover legacy rows by injecting worker/system roles; follow [the security release checklist](./upgrading-security-release.md) with a verified initiating identity and a review of prior effects.
 
 
+## Worker concurrency
+
+A worker pool runs **one flow execution at a time** by default, so one long flow (many AI calls)
+delays every other flow on that worker until it ends. Set `workers.flowConcurrency` in
+`config/app.config.ts` (or `PLUMBUS_FLOW_CONCURRENCY`; core 0.9.0-beta.11+) to run that many
+executions at once; each runner slot claims and drains its own execution under its own lease.
+Keep it within what `aiProviderConcurrency` allows (an AI call over that limit is refused, not
+queued) and size `DATABASE_POOL_SIZE` for it. Do not build your own parallel runner or queue for
+this. See `PLUMBUS_FLOW_CONCURRENCY` and graceful shutdown in [deployment](./deployment.md).
+
 ## Cancellation, retries, and replay
 
 Retries persist their wake time and release the worker. Each successful step advancement resets the retry budget. Permanent failures are not retried: validation, authorization and dependency errors, a flow `budget` that runs out, and an AI budget stop (`budget-exhausted`) fail the execution immediately. Cancellation invalidates ownership and signals `ctx.signal`; it cannot undo an external effect. Make side effects idempotent.

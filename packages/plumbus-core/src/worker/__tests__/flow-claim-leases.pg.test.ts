@@ -110,4 +110,96 @@ describe('polling flow leases', () => {
     }
     await teardown();
   }, 20_000);
+
+  it('runs a short flow beside a slow one with flowConcurrency, each claimed once', async () => {
+    const harness = await createDurableTestHarness();
+    for (const ddl of flowExecutionsDdl()
+      .split(';')
+      .map((part) => part.trim())
+      .filter(Boolean))
+      await harness.spineDb.execute(sql.raw(ddl));
+    const flows = new FlowRegistry();
+    flows.register(
+      defineFlow({
+        name: 'lease-probe',
+        domain: 'testing',
+        input: z.object({ work: z.string() }),
+        steps: [{ name: 'only', type: FlowStepType.Capability, capability: 'testing.probe' }],
+      }),
+    );
+    let release = () => {};
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const calls: string[] = [];
+    const pool = createWorkerPool({
+      config: { environment: 'test', database: harness.admin } as PlumbusConfig,
+      db: harness.spineDb,
+      flows,
+      consumers: new ConsumerRegistry(),
+      queue: createInMemoryQueue(),
+      audit: { record: async () => {} },
+      dataPlaneResolver: createSingleDataPlaneResolver(harness.tenantDb, {
+        coreSchema: harness.coreSchema,
+      }),
+      frameworkSchema: harness.coreSchema,
+      enableScheduler: false,
+      enableDispatcher: false,
+      enableEventWorker: false,
+      flowPollIntervalMs: 20,
+      flowLeaseDurationMs: 2_000,
+      flowHeartbeatIntervalMs: 100,
+      flowConcurrency: 2,
+      logger: { debug() {}, info() {}, warn() {}, error() {} },
+      stepDeps: {
+        async executeCapability(_name, _ctx, input) {
+          const { work } = z.object({ work: z.string() }).parse(input);
+          calls.push(work);
+          if (work === 'slow') await blocked;
+          return { success: true, data: {} };
+        },
+        evaluateCondition: () => true,
+      },
+    });
+    const teardown = async () => {
+      release();
+      await pool.stop();
+      await harness.close();
+    };
+    try {
+      const auth = {
+        userId: 'tester',
+        roles: ['system'],
+        scopes: [],
+        provider: 'test',
+        tenantId: 'tenant-a',
+      };
+      const slow = await pool.flowEngine.start('lease-probe', { work: 'slow' }, auth);
+      const quick = await pool.flowEngine.start('lease-probe', { work: 'quick' }, auth);
+      const later = await pool.flowEngine.start('lease-probe', { work: 'later' }, auth);
+      await pool.start();
+      // Both quick flows finish on the second slot while the slow one holds the first.
+      await vi.waitFor(async () => {
+        expect((await pool.flowEngine.status(quick.id)).status).toBe('completed');
+        expect((await pool.flowEngine.status(later.id)).status).toBe('completed');
+      });
+      expect((await pool.flowEngine.status(slow.id)).status).toBe('running');
+      expect(pool.flowExecutionsInFlight).toEqual([slow.id]);
+      // Heartbeats keep the slow lease: nothing reclaims it while it runs.
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      release();
+      await vi.waitFor(async () => {
+        expect((await pool.flowEngine.status(slow.id)).status).toBe('completed');
+      });
+      expect([...calls].sort()).toEqual(['later', 'quick', 'slow']);
+      const attempts = await harness.spineDb.execute(
+        sql`SELECT attempt FROM opaque_dispatch ORDER BY execution_id`,
+      );
+      expect([...attempts]).toEqual([{ attempt: 1 }, { attempt: 1 }, { attempt: 1 }]);
+    } catch (error) {
+      await teardown().catch(() => undefined);
+      throw error;
+    }
+    await teardown();
+  }, 20_000);
 });

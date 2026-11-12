@@ -158,13 +158,26 @@ export interface ExecutionConfig {
   auditSuccessfulQueries?: boolean;
 }
 
+// ── Workers Config ──
+export interface WorkersConfig {
+  eventDelivery?: EventDeliveryOptions;
+  /** Start the flow scheduler (`PLUMBUS_ENABLE_SCHEDULER=false` turns it off). Default: `true`. */
+  enableScheduler?: boolean;
+  /**
+   * Flow executions one worker pool runs at the same time (`PLUMBUS_FLOW_CONCURRENCY`). Each
+   * runner slot claims one execution and drains it on its own, so a long flow holds one slot and
+   * the others keep claiming. Default: `1` (one execution at a time, as before this setting).
+   */
+  flowConcurrency?: number;
+}
+
 // ── Plumbus Config ──
 export interface PlumbusConfig {
   environment: Environment;
   database: DatabaseConfig;
   queue: QueueConfig;
   execution?: ExecutionConfig;
-  workers?: { eventDelivery?: EventDeliveryOptions; enableScheduler?: boolean };
+  workers?: WorkersConfig;
   mcp?: McpConfig;
   /** Single-provider AI config (legacy) */
   ai?: AIProviderConfig;

@@ -9,7 +9,7 @@ interface PlumbusConfig {
   environment: "development" | "staging" | "production";
   database: DatabaseConfig;
   queue: QueueConfig;
-  workers?: { enableScheduler?: boolean; eventDelivery?: EventDeliveryOptions };
+  workers?: { enableScheduler?: boolean; flowConcurrency?: number; eventDelivery?: EventDeliveryOptions };
   execution?: {
     /** Global kill switch for transactional outbox (default: true). Env: PLUMBUS_TRANSACTIONAL_OUTBOX=false */
     transactionalOutbox?: boolean;
@@ -163,6 +163,7 @@ Timing environment variables are `QUEUE_VISIBILITY_TIMEOUT_SEC`, `QUEUE_POLL_INT
 ```typescript
 workers: {
   enableScheduler: true, // PLUMBUS_ENABLE_SCHEDULER=false disables it during cutover
+  flowConcurrency: 1, // PLUMBUS_FLOW_CONCURRENCY; flow executions one worker pool runs at once
   eventDelivery: {
     retry: { maxAttempts: 3, backoff: "exponential", baseDelayMs: 1000, maxDelayMs: 30000 },
     unrouted: "deadLetter", // default; "acknowledge" is explicit legacy behavior
@@ -638,7 +639,7 @@ await server.start();
 
 ## Worker Pool Configuration
 
-CLI startup (`plumbus dev` / `plumbus start`, role `all`) starts the worker pool when background work is registered. `plumbus worker` runs a dedicated pool; role `api` leaves workers to a separate process. The runtime selects the configured shared backend outside deliberate development/memory mode. The settings below are programmatic `WorkerPoolConfig` options; application files expose `workers.enableScheduler` and `workers.eventDelivery`, while the other pool settings are supplied to `createWorkerPool()` or the documented worker environment variables.
+CLI startup (`plumbus dev` / `plumbus start`, role `all`) starts the worker pool when background work is registered. `plumbus worker` runs a dedicated pool; role `api` leaves workers to a separate process. The runtime selects the configured shared backend outside deliberate development/memory mode. The settings below are programmatic `WorkerPoolConfig` options; application files expose `workers.enableScheduler`, `workers.flowConcurrency` and `workers.eventDelivery`, while the other pool settings are supplied to `createWorkerPool()` or the documented worker environment variables.
 
 No manual wiring is required. The following config options are available when using `createWorkerPool()` directly:
 
@@ -678,7 +679,8 @@ interface WorkerPoolConfig {
   enableFlowRunner?: boolean;         // Default: true
   flowLeaseDurationMs?: number;       // Default: 300000 (5 min)
   flowHeartbeatIntervalMs?: number;   // Default: flowLeaseDurationMs / 3
-  flowClaimBatchSize?: number;        // Default: 50
+  flowClaimBatchSize?: number;        // Default: 50 (claims per runner slot before the next poll)
+  flowConcurrency?: number;           // Default: config.workers.flowConcurrency, else 1
 }
 ```
 
@@ -692,9 +694,24 @@ The flow runner uses lease-based row claiming (`FOR UPDATE SKIP LOCKED`) so mult
 
 - **`flowLeaseDurationMs`** (default `300_000` = 5 min) — Upper bound on how long a worker can hold a claim without heartbeating. If a worker crashes, another worker can reclaim the row after this window elapses. Raise it if you run steps longer than the heartbeat interval can reliably cover (e.g. suspended VMs, long GC pauses); lower it to reduce crash-recovery latency.
 - **`flowHeartbeatIntervalMs`** (default `flowLeaseDurationMs / 3`) — How often a running worker automatically extends its lease. The 3× safety margin tolerates two missed ticks before the lease is considered expired.
-- **`flowClaimBatchSize`** (default `50`) — Max executions a single `claimNext()` poll cycle will lock. Larger batches amortize the poll cost; smaller batches spread work more evenly across workers.
+- **`flowClaimBatchSize`** (default `50`) — How many executions one runner slot claims, one after another, before it waits for the next poll. Each claim locks a single execution right before it runs, so nothing waits behind a slow step under a lease.
+- **`flowConcurrency`** (default `1`; core 0.9.0-beta.11+) — How many flow executions one worker pool runs at the same time. Set it in `config/app.config.ts` as `workers.flowConcurrency`, with `PLUMBUS_FLOW_CONCURRENCY`, or as the `createWorkerPool({ flowConcurrency })` option (the pool option wins, then the environment, then the file). A whole number from 1 to 256; anything else fails startup. See [Flow runner concurrency](#flow-runner-concurrency).
 - **Mixed releases** — A worker that claims an execution it cannot run with its own definitions releases it for another worker instead of failing it, and counts `plumbus_flow_definition_unavailable_total` (see `onFlowDefinitionUnavailable` below).
 - **Worker identity** — Each worker auto-generates a unique `workerId` of the form `<hostname>:<pid>:<short-uuid>` via `generateWorkerId()`. The pool does not expose a `workerId` knob on `WorkerPoolConfig`; if you need stable identity for observability, pass a `workerId` directly when constructing the engine with `createFlowEngine()`.
+
+### Flow runner concurrency
+
+The polling flow runner has `flowConcurrency` slots. Each slot claims one execution (`claimNext(1)`), drains it step after step under that claim's lease token, and as soon as it finishes claims the next, without waiting for the other slots or for the poll interval. A long flow therefore holds one slot while the others keep claiming. An idle pool sends one claim query per poll; a slot that claims work starts another free slot, so a burst fills every slot within a few claims. The pool dead-letter sweep runs on a poll tick only when a slot is free, and never beside itself.
+
+Every per-execution guarantee holds per slot: lease fencing with the claim's token, heartbeats while a step runs, the `maxStepsPerCycle` cap (1000 steps per drain), failing the execution through `markFailedFromRunner` when its run throws, releasing an execution whose definition this worker lacks, and the per-execution data plane under a `dataPlaneResolver`. On shutdown, `stop({ deadlineAt })` waits for every slot's running step, logs the ids of all executions it waits for, and releases each one for another worker; executions still running at the deadline are logged by id and abandoned to lease expiry. `pool.flowExecutionsInFlight` lists the executions the slots are draining.
+
+**Default `1`.** One execution at a time per pool, exactly as before the setting existed. Before raising it, check:
+
+- **AI provider concurrency.** `aiProviderConcurrency` refuses a call over its limit (`ai-provider-concurrency-exhausted`); it does not queue it. More flows in parallel can push AI-heavy steps over that limit, and the refused step fails or retries. Keep `flowConcurrency` at or below what the AI limit allows for the flows that call AI at once.
+- **Database connections.** Each running step can hold connections from the process pool (`DATABASE_POOL_SIZE`, default 10) for its queries and transactions, plus the heartbeat. Size the pool for `flowConcurrency` steps beside the API (role `all`) and the other workers.
+- **Flows that assumed one at a time per process.** Several workers could always run flows at once, so flows should already be safe in parallel; check in-process state that was not.
+
+The queue-driven flow step consumer (durable queues without a `dataPlaneResolver`) is separate: it runs the executions the flows queue wakes, as the queue backend delivers them, and is not counted in `flowConcurrency`.
 
 ### `onFlowDefinitionUnavailable` Hook
 
@@ -727,7 +744,7 @@ The hook runs after the worker counts `plumbus_flow_definition_unavailable_total
 
 `loadConfig({ queue: { prefix: 'app' } })` applies validated nested overrides. `loadAppConfig()` also imports `config/app.config.ts`/`.js`/`.mjs` (named `config` or default), as used by CLI API/worker/operational startup. Precedence: defaults < file < environment < explicit options; CLI-forced environment wins. Unknown keys are errors.
 
-Queue tuning: `pollIntervalMs`, `visibilityTimeoutSec`, `reclaimIntervalMs`, `startupTimeoutMs`, `operationTimeoutMs`, `shutdownTimeoutMs`, `url`, `backend`, `prefix`. `QUEUE_PREFIX` works across all three queues. `workers.enableScheduler` (or `PLUMBUS_ENABLE_SCHEDULER=false`) controls scheduler startup. `workers.eventDelivery` contains `retry`, `unrouted: 'deadLetter' | 'acknowledge'`, and `ignoredEventTypes`. `retry.maxAttempts` counts total calls. `onEventDeadLetter` is an `app/server.ts` worker extension hook.
+Queue tuning: `pollIntervalMs`, `visibilityTimeoutSec`, `reclaimIntervalMs`, `startupTimeoutMs`, `operationTimeoutMs`, `shutdownTimeoutMs`, `url`, `backend`, `prefix`. `QUEUE_PREFIX` works across all three queues. `workers.enableScheduler` (or `PLUMBUS_ENABLE_SCHEDULER=false`) controls scheduler startup. `workers.flowConcurrency` (or `PLUMBUS_FLOW_CONCURRENCY`, default 1) sets how many flow executions one pool runs at once. `workers.eventDelivery` contains `retry`, `unrouted: 'deadLetter' | 'acknowledge'`, and `ignoredEventTypes`. `retry.maxAttempts` counts total calls. `onEventDeadLetter` is an `app/server.ts` worker extension hook.
 
 See [stabilization](../upgrading-stabilization.md) for defaults, legacy retry aliases, migrations, and durable dispatch/replay guarantees.
 

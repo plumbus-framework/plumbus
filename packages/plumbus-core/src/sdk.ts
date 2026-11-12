@@ -668,4 +668,8 @@ export {
 } from './validation/bounded-parse.js';
 export type { WorkerPool, WorkerPoolConfig, WorkerPoolStopOptions } from './worker/index.js';
 // ── Worker Bootstrap ──
-export { assertFlowLeaseColumns, createWorkerPool } from './worker/index.js';
+export {
+  assertFlowLeaseColumns,
+  createWorkerPool,
+  DEFAULT_FLOW_CONCURRENCY,
+} from './worker/index.js';

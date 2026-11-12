@@ -6,6 +6,28 @@ The 0.8 numbers now belong to the stable **stabilization family** published from
 
 Core 0.9.0-beta.0 contains everything in the 0.8.0-beta.N line plus every stable change merged from `main`: the core 0.8.0 stabilization (PLB-01 to PLB-10), core 0.8.1, auth 0.3.1 and the Vitest 5.0.4 toolchain. See [Included in v0.9.0-beta.0](#included-in-v090-beta0).
 
+## v0.9.0-beta.11 (2026-11-12): flow runner concurrency
+
+Prepared for repository release `v0.9.0-beta.11` under npm dist-tag `plumbus-next`. Only
+`@plumbus/core` changes, from **0.9.0-beta.10** to **0.9.0-beta.11**; every other package and all
+peer ranges stay unchanged.
+
+Until now a worker pool ran one flow execution at a time: a long flow held back every other flow
+on that worker until it ended. `workers.flowConcurrency` gives the runner that many independent
+slots:
+
+```ts
+// config/app.config.ts
+export default { workers: { flowConcurrency: 4 } };
+// or PLUMBUS_FLOW_CONCURRENCY=4
+```
+
+**The default stays `1`, so nothing changes without the setting.** Before raising it, keep it
+within `aiProviderConcurrency` (an AI call over that limit is refused, not queued) and size
+`DATABASE_POOL_SIZE` for it. Shutdown waits for every slot's running step and names each
+execution in the log. No migration. See
+[Flow runner concurrency](sdk-reference/configuration.md#flow-runner-concurrency).
+
 ## v0.9.0-beta.10 (2026-11-09): the app decides on another actor's flow execution
 
 Prepared for repository release `v0.9.0-beta.10` under npm dist-tag `plumbus-next`. Only

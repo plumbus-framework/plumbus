@@ -3,5 +3,5 @@
 //
 // Key exports: createWorkerPool
 
-export { assertFlowLeaseColumns, createWorkerPool } from './bootstrap.js';
+export { assertFlowLeaseColumns, createWorkerPool, DEFAULT_FLOW_CONCURRENCY } from './bootstrap.js';
 export type { WorkerPool, WorkerPoolConfig, WorkerPoolStopOptions } from './bootstrap.js';

@@ -26,6 +26,33 @@ describe('Config Loader', () => {
       ).toBe(false);
     });
 
+    it('reads workers.flowConcurrency from PLUMBUS_FLOW_CONCURRENCY, unset by default', () => {
+      expect(loadConfig({ env: {} }).workers?.flowConcurrency).toBeUndefined();
+      expect(loadConfig({ env: { PLUMBUS_FLOW_CONCURRENCY: '4' } }).workers).toEqual({
+        flowConcurrency: 4,
+      });
+      expect(
+        loadConfig({ env: { PLUMBUS_FLOW_CONCURRENCY: '2', PLUMBUS_ENABLE_SCHEDULER: 'false' } })
+          .workers,
+      ).toEqual({ flowConcurrency: 2, enableScheduler: false });
+    });
+
+    it('refuses a PLUMBUS_FLOW_CONCURRENCY that is not a whole number from 1 to 256', () => {
+      for (const value of ['0', '-1', '1.5', 'four', '257']) {
+        expect(() => loadConfig({ env: { PLUMBUS_FLOW_CONCURRENCY: value } })).toThrow(
+          /PLUMBUS_FLOW_CONCURRENCY/,
+        );
+      }
+    });
+
+    it('accepts workers.flowConcurrency as a config override and refuses a bad one', () => {
+      expect(loadConfig({ env: {}, workers: { flowConcurrency: 3 } }).workers).toEqual({
+        flowConcurrency: 3,
+      });
+      expect(() => loadConfig({ env: {}, workers: { flowConcurrency: 0 } })).toThrow();
+      expect(() => loadConfig({ env: {}, workers: { flowConcurrency: 2.5 } })).toThrow();
+    });
+
     it('disables transactional outbox when PLUMBUS_TRANSACTIONAL_OUTBOX=false', () => {
       const config = loadConfig({ env: { PLUMBUS_TRANSACTIONAL_OUTBOX: 'false' } });
       expect(config.execution?.transactionalOutbox).toBe(false);

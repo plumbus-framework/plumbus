@@ -2,7 +2,12 @@
 // Loads PlumbusConfig from environment variables with defaults per environment.
 // Secrets from env vars (never hardcoded in source).
 
-import { mergeConfig, parseConfigOverrides, type ConfigOverrides } from './overrides.js';
+import {
+  MAX_FLOW_CONCURRENCY,
+  mergeConfig,
+  parseConfigOverrides,
+  type ConfigOverrides,
+} from './overrides.js';
 import { isValidJwtSecret } from '../auth/index.js';
 import { ErrorDocUrls, ErrorHints } from '../errors/hints.js';
 import type {
@@ -15,6 +20,7 @@ import type {
   PlumbusConfig,
   PromptModelOverride,
   QueueConfig,
+  WorkersConfig,
 } from '../types/config.js';
 import type { AICacheConfig, AIPromptCacheOption } from '../ai/provider.js';
 import type { AISecurityConfig } from '../ai/security.js';
@@ -56,14 +62,27 @@ export function loadEnvironmentConfig(
     database: loadDatabaseConfig(env, environment),
     queue: loadQueueConfig(env, environment),
     execution: loadExecutionConfig(env),
-    ...(env.PLUMBUS_ENABLE_SCHEDULER !== undefined
-      ? { workers: { enableScheduler: env.PLUMBUS_ENABLE_SCHEDULER !== 'false' } }
-      : {}),
+    ...loadWorkersConfig(env),
     ai: loadAIConfig(env),
     aiProviders: loadMultiProviderConfig(env),
     auth: loadAuthConfig(env),
     complianceProfiles: loadComplianceProfiles(env),
   };
+}
+
+// ── Workers Config ──
+
+/** `workers` from env, present only when one of its variables is set. */
+function loadWorkersConfig(env: Record<string, string | undefined>): {
+  workers?: WorkersConfig;
+} {
+  const workers: WorkersConfig = {};
+  if (env.PLUMBUS_ENABLE_SCHEDULER !== undefined) {
+    workers.enableScheduler = env.PLUMBUS_ENABLE_SCHEDULER !== 'false';
+  }
+  const flowConcurrency = readEnvNumber(env, 'PLUMBUS_FLOW_CONCURRENCY', FLOW_CONCURRENCY_RULE);
+  if (flowConcurrency !== undefined) workers.flowConcurrency = flowConcurrency;
+  return Object.keys(workers).length > 0 ? { workers } : {};
 }
 
 // ── Execution Config ──
@@ -410,6 +429,14 @@ const PROVIDER_DAILY_COST_LIMIT_RULE: EnvNumberRule = {
   min: 0,
   max: Number.MAX_VALUE,
   expected: 'a number of US dollars, 0 or more',
+};
+
+/** `PLUMBUS_FLOW_CONCURRENCY`: flow executions one worker pool runs at once. */
+const FLOW_CONCURRENCY_RULE: EnvNumberRule = {
+  pattern: /^\d+$/,
+  min: 1,
+  max: MAX_FLOW_CONCURRENCY,
+  expected: `a whole number from 1 to ${MAX_FLOW_CONCURRENCY}`,
 };
 
 /** `AI_BEDROCK_PRICING_TTL_MS`: how long downloaded Bedrock prices are kept. */
