@@ -11,6 +11,7 @@ import { createCostTracker } from '../ai/cost-tracker.js';
 import type { PromptRegistry } from '../ai/prompt-registry.js';
 import { createProviderAdapter } from '../ai/provider.js';
 import type { DiscoveredResources, DiscoverResourcesOptions } from '../cli/discover.js';
+export type { DiscoverResourcesOptions, StrictDiscoveryDirectory } from '../cli/discover.js';
 import type { EntityDefinition } from '../types/entity.js';
 import type { EntityRegistry } from '../data/registry.js';
 import { CapabilityKind } from '../types/enums.js';

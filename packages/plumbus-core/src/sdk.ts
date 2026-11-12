@@ -360,11 +360,13 @@ export { assertFlowLeaseColumns, createWorkerPool } from './worker/index.js';
 export type { VoiceRuntimeConfig } from './runtime/voice-runtime.js';
 export type {
   BuildWorkerAiServiceOptions,
+  DiscoverResourcesOptions,
   RegisterCapabilityConsumersOptions,
   ResolveRuntimeQueuesOptions,
   RuntimeCommand,
   RuntimeQueues,
   ServerExtensions,
+  StrictDiscoveryDirectory,
 } from './runtime/index.js';
 export {
   RuntimeRole,

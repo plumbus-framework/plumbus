@@ -64,6 +64,8 @@ function exportedValues(value: unknown): unknown[] {
 
 /**
  * Scan a directory for .ts/.js files and dynamically import all exports.
+ * Test files (`*.test.*`, `*.spec.*`, anything under `__tests__/`) and `.d.ts` are skipped:
+ * they cannot be imported outside the test runner.
  * Returns every exported value (collections expanded, each value once).
  */
 async function scanDir(dir: string, strictKind?: string): Promise<unknown[]> {
@@ -77,7 +79,10 @@ async function scanDir(dir: string, strictKind?: string): Promise<unknown[]> {
         (f.endsWith('.ts') || f.endsWith('.js')) &&
         !f.endsWith('.d.ts') &&
         !f.endsWith('.test.ts') &&
-        !f.endsWith('.test.js'),
+        !f.endsWith('.test.js') &&
+        !f.endsWith('.spec.ts') &&
+        !f.endsWith('.spec.js') &&
+        !f.split(path.sep).includes('__tests__'),
     );
 
   const exports: unknown[] = [];

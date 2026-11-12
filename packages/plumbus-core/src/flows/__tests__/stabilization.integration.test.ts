@@ -407,6 +407,62 @@ describe('durable scheduler', () => {
     expect(warnings).not.toHaveBeenCalled();
     expect((await pg.db.select().from(flowSchedulesTable))[0]?.removed).toBe(false);
   });
+  it('lets requireRemovalApproval: false override the environment variable', async () => {
+    const original = setup({ schedule: { cron: 'every:1h' } });
+    await createFlowScheduler({ db: pg.db, ...original, logger }).syncSchedules();
+    vi.stubEnv('PLUMBUS_SCHEDULE_REQUIRE_REMOVAL_APPROVAL', 'true');
+    try {
+      const incomplete = createFlowScheduler({
+        db: pg.db,
+        engine: original.engine,
+        registry: new FlowRegistry(),
+        logger,
+        requireRemovalApproval: false,
+      });
+      const preview = await incomplete.reconcileSchedules();
+      await incomplete.reconcileSchedules({ apply: true, expectedRevision: preview.revision });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect((await pg.db.select().from(flowSchedulesTable))[0]?.removed).toBe(true);
+  });
+  it('writes nothing when a refused apply also contains a create', async () => {
+    const original = setup({ schedule: { cron: 'every:1h' } });
+    await createFlowScheduler({ db: pg.db, ...original, logger }).syncSchedules();
+    const registry = new FlowRegistry();
+    registry.register(
+      defineFlow({
+        name: 'late',
+        domain: 'test',
+        input: z.object({}),
+        schedule: { cron: 'every:2h' },
+        steps: [{ name: 'one', type: 'capability' }],
+      }),
+    );
+    const scheduler = createFlowScheduler({
+      db: pg.db,
+      engine: original.engine,
+      registry,
+      logger,
+      requireRemovalApproval: true,
+    });
+    const preview = await scheduler.reconcileSchedules();
+    expect(preview.changes.map((change) => change.action).sort()).toEqual(['create', 'remove']);
+    await expect(
+      scheduler.reconcileSchedules({ apply: true, expectedRevision: preview.revision }),
+    ).rejects.toThrow('would remove test');
+    const rows = await pg.db.select().from(flowSchedulesTable);
+    expect(rows.map((row) => [row.flowName, row.removed, row.revision])).toEqual([
+      ['test', false, 1],
+    ]);
+  });
+  it('rejects an allowRemove that is not true or an array of names', async () => {
+    const { engine, registry } = setup({ schedule: { cron: 'every:1h' } });
+    const scheduler = createFlowScheduler({ db: pg.db, registry, engine, logger });
+    await expect(
+      scheduler.reconcileSchedules({ apply: true, allowRemove: 'test' as any }),
+    ).rejects.toThrow('allowRemove must be true or an array of flow names');
+  });
   it('does not warn about approved removals', async () => {
     const original = setup({ schedule: { cron: 'every:1h' } });
     await createFlowScheduler({ db: pg.db, ...original, logger }).syncSchedules();

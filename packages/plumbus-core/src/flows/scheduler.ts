@@ -2,6 +2,7 @@ import { databaseTime } from './database-clock.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { and, eq, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { z } from 'zod';
 import { DataValidationError } from '../errors/index.js';
 import type { LoggerService } from '../types/context.js';
 import type { FlowDefinition } from '../types/flow.js';
@@ -39,6 +40,7 @@ export interface ReconcileSchedulesOptions {
    */
   allowRemove?: readonly string[] | true;
 }
+const allowRemoveSchema = z.union([z.literal(true), z.array(z.string())]).optional();
 function scheduleDefinition(flow: FlowDefinition) {
   const schedule = flow.schedule;
   if (!schedule) throw new DataValidationError('Flow has no schedule', { flowName: flow.name });
@@ -119,6 +121,11 @@ export function createFlowScheduler(config: SchedulerConfig) {
    * Previews always list removals.
    */
   async function reconcileSchedules(options: ReconcileSchedulesOptions = {}) {
+    // A string here would approve by substring (`'oldReport'.includes('old')`).
+    if (!allowRemoveSchema.safeParse(options.allowRemove).success)
+      throw new DataValidationError('allowRemove must be true or an array of flow names', {
+        allowRemove: options.allowRemove,
+      });
     let unapprovedRemovals: string[] = [];
     const result = await db.transaction(async (tx) => {
       await tx.execute(
@@ -155,7 +162,7 @@ export function createFlowScheduler(config: SchedulerConfig) {
       if (options.apply && unapproved.length > 0) {
         if (requireRemovalApproval)
           throw new DataValidationError(
-            `Schedule reconciliation would remove ${unapproved.join(', ')}; these flows are not in the registry. Allow the removal explicitly (allowRemove / --allow-remove) or fix the registry`,
+            `Schedule reconciliation would remove ${unapproved.join(', ')}; the registry has no scheduled flow with that name. Allow the removal explicitly (allowRemove / --allow-remove) or fix the registry`,
             { flowNames: unapproved, revision },
           );
         unapprovedRemovals = unapproved;

@@ -4,10 +4,10 @@ import {
   createFlowScheduler,
   createFlowEngine,
 } from '../../flows/index.js';
-import { discoverRuntimeResources, buildStepDeps } from '../../runtime/bootstrap.js';
-import { CapabilityRegistry } from '../../execution/index.js';
 import type { ReconcileSchedulesOptions } from '../../flows/index.js';
 import type { DiscoveredResources, DiscoverResourcesOptions } from '../discover.js';
+import { discoverRuntimeResources, buildStepDeps } from '../../runtime/bootstrap.js';
+import { CapabilityRegistry } from '../../execution/index.js';
 // ── plumbus flow new ──
 // Scaffold a new flow
 
@@ -61,12 +61,19 @@ export async function runScheduleSync(
   const resources = await deps.discover({ strict: ['flows'] });
   const result = await deps.reconcile(resources, options);
   stdout(JSON.stringify(result, null, 2));
-  for (const change of result.changes.filter((c) => c.action === 'remove'))
+  const approved = (flowName: string) =>
+    options.allowRemove === true || (options.allowRemove ?? []).includes(flowName);
+  for (const change of result.changes.filter((c) => c.action === 'remove')) {
+    if (result.applied) {
+      stderr(`⚠ Removed schedule: ${change.flowName}`);
+      continue;
+    }
     stderr(
-      result.applied
-        ? `⚠ Removed schedule: ${change.flowName}`
-        : `⚠ Would remove schedule: ${change.flowName} (approve with --allow-remove ${change.flowName})`,
+      approved(change.flowName)
+        ? `⚠ Would remove schedule: ${change.flowName} (approved)`
+        : `⚠ Would remove schedule: ${change.flowName} (if the flow was deleted on purpose, approve with --allow-remove ${change.flowName}; otherwise fix the flow registry)`,
     );
+  }
   return result;
 }
 

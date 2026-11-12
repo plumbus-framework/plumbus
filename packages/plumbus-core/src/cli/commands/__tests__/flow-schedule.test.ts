@@ -225,7 +225,23 @@ describe('runScheduleSync', () => {
     await runScheduleSync({}, t.deps);
     expect(t.out).toHaveLength(1);
     expect(JSON.parse(t.out[0] ?? '')).toEqual(preview);
-    expect(t.err).toEqual(['⚠ Would remove schedule: old (approve with --allow-remove old)']);
+    expect(t.err).toEqual([
+      '⚠ Would remove schedule: old (if the flow was deleted on purpose, approve with --allow-remove old; otherwise fix the flow registry)',
+    ]);
+  });
+
+  it('marks removals already approved in a preview', async () => {
+    const t = deps({
+      revision: 'r1',
+      changes: [
+        { flowName: 'old', action: 'remove' },
+        { flowName: 'other', action: 'remove' },
+      ],
+      applied: false,
+    });
+    await runScheduleSync({ allowRemove: ['old'] }, t.deps);
+    expect(t.err[0]).toBe('⚠ Would remove schedule: old (approved)');
+    expect(t.err[1]).toContain('approve with --allow-remove other');
   });
 
   it('reports applied removals on stderr', async () => {

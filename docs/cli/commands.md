@@ -360,12 +360,12 @@ Preview additions, definition changes, removals, and the current revision using 
 |--------|------|---------|-------------|
 | `--apply` | `boolean` | `false` | Apply the previewed changes |
 | `--expected-revision <revision>` | `string` | — | Revision from the preview; required with `--apply` |
-| `--allow-remove <flows>` | `string` | — | Comma-separated flow names whose schedules `--apply` may tombstone, or `*` for any (0.8.6+) |
+| `--allow-remove <flows>` | `string` | — | Comma-separated flow names whose schedules `--apply` may tombstone, or `'*'` (quoted) for any (0.8.6+) |
 
 Guards against an incomplete registry (0.8.6+):
 
-- Every module under `app/flows/` must import. A module that throws on import fails the command and names the file, instead of being skipped (its schedule would otherwise look removed).
-- Preview and apply print each removal to stderr; stdout stays JSON. Approve intended removals with `--allow-remove` (names or `*`).
+- Every module under `app/flows/` must import. A module that throws on import fails the command and names the file, instead of being skipped (its schedule would otherwise look removed). Test files (`*.test.*`, `*.spec.*`, `__tests__/`) are not imported.
+- Preview and apply print each removal to stderr; stdout stays JSON. Approve intended removals with `--allow-remove` (names or `'*'`); a preview marks covered removals `(approved)`.
 - By default an unapproved removal still applies and logs a warning naming the flows. Set `PLUMBUS_SCHEDULE_REQUIRE_REMOVAL_APPROVAL=true` to make `--apply` refuse it instead: the error names the flows and nothing is written.
 
 #### `plumbus flow dead-letter list`

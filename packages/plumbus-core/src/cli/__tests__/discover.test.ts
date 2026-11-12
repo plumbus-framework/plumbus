@@ -117,6 +117,18 @@ describe('discoverResources', () => {
     await expect(failure).rejects.not.toThrow('secret contents');
   });
 
+  it('strict flows skip spec files and __tests__ directories, which only load under the test runner', async () => {
+    const root = makeTmpDir();
+    const dir = path.join(root, 'app', 'flows', 'billing');
+    fs.mkdirSync(path.join(dir, '__tests__'), { recursive: true });
+    const outsideRunner = 'throw new Error("describe() outside the test runner");';
+    fs.writeFileSync(path.join(dir, 'nightly.spec.ts'), outsideRunner);
+    fs.writeFileSync(path.join(dir, 'nightly.spec.js'), outsideRunner);
+    fs.writeFileSync(path.join(dir, '__tests__', 'helpers.js'), outsideRunner);
+    const result = await discoverResources(root, { strict: ['flows'] });
+    expect(result.flows).toEqual([]);
+  });
+
   it('strict flows still skip broken modules in other directories', async () => {
     const root = makeTmpDir();
     fs.mkdirSync(path.join(root, 'app', 'flows'), { recursive: true });
