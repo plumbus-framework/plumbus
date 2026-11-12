@@ -19,6 +19,18 @@ export interface SchedulerConfig {
   logger?: LoggerService;
   pollIntervalMs?: number;
 }
+export interface ReconcileSchedulesOptions {
+  /** Write the previewed changes. Requires `expectedRevision`. */
+  apply?: boolean;
+  /** Revision returned by the preview; a different current revision rejects the apply. */
+  expectedRevision?: string;
+  /**
+   * Flow names whose stored schedules an apply may mark removed, or `true` for any.
+   * Without it, an apply that would remove a schedule throws. Guards against an
+   * incomplete registry (a flow module that failed to load, a renamed export).
+   */
+  allowRemove?: readonly string[] | true;
+}
 function scheduleDefinition(flow: FlowDefinition) {
   const schedule = flow.schedule;
   if (!schedule) throw new DataValidationError('Flow has no schedule', { flowName: flow.name });
@@ -89,8 +101,12 @@ export function createFlowScheduler(config: SchedulerConfig) {
       return count;
     });
   }
-  /** One deployment applies a complete manifest. Stale applications cannot overwrite it. */
-  async function reconcileSchedules(options: { apply?: boolean; expectedRevision?: string } = {}) {
+  /**
+   * One deployment applies a complete manifest. Stale applications cannot overwrite it.
+   * An apply that would tombstone a stored schedule throws (naming the flows) unless
+   * `allowRemove` is `true` or lists every one of them. Previews always list removals.
+   */
+  async function reconcileSchedules(options: ReconcileSchedulesOptions = {}) {
     return db.transaction(async (tx) => {
       await tx.execute(
         sql`SELECT pg_advisory_xact_lock(hashtext('plumbus:schedule-reconciliation'))`,
@@ -113,6 +129,21 @@ export function createFlowScheduler(config: SchedulerConfig) {
           revision,
         });
       const desired = registry.getScheduled();
+      const removals = stored.filter(
+        (row) => !row.removed && !desired.some((flow) => flow.name === row.flowName),
+      );
+      const allowRemove = options.allowRemove;
+      const unapproved =
+        allowRemove === true
+          ? []
+          : removals
+              .map((row) => row.flowName)
+              .filter((name) => !(allowRemove ?? []).includes(name));
+      if (options.apply && unapproved.length > 0)
+        throw new DataValidationError(
+          `Schedule reconciliation would remove ${unapproved.join(', ')}; these flows are not in the registry. Allow the removal explicitly (allowRemove / --allow-remove) or fix the registry`,
+          { flowNames: unapproved, revision },
+        );
       const changes: { flowName: string; action: string; previous?: unknown; next?: unknown }[] =
         [];
       const now = await databaseTime(tx);
@@ -173,8 +204,7 @@ export function createFlowScheduler(config: SchedulerConfig) {
             .where(eq(flowSchedulesTable.id, row.id));
         }
       }
-      for (const row of stored) {
-        if (row.removed || desired.some((flow) => flow.name === row.flowName)) continue;
+      for (const row of removals) {
         changes.push({
           flowName: row.flowName,
           action: 'remove',

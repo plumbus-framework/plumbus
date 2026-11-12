@@ -21,6 +21,16 @@ import { flowTemplate, flowTestTemplate } from '../templates/resources.js';
 import { error, exists, info, resolvePath, success, toKebabCase, writeFile } from '../utils.js';
 import { formatFlowScheduleLine, listFlowSchedules } from './flow-schedule-list.js';
 
+/** Parse `--allow-remove`: `*` allows any removal, otherwise a comma-separated list of flow names. */
+export function parseAllowRemove(value: string | undefined): readonly string[] | true | undefined {
+  if (value === undefined) return undefined;
+  if (value.trim() === '*') return true;
+  return value
+    .split(',')
+    .map((name) => name.trim())
+    .filter((name) => name.length > 0);
+}
+
 export function registerFlowCommand(program: Command): void {
   const cmd = program.command('flow').description('Manage flows');
 
@@ -84,11 +94,21 @@ export function registerFlowCommand(program: Command): void {
     .description('Preview or apply the complete deployed schedule manifest')
     .option('--apply', 'Apply the previewed changes')
     .option('--expected-revision <revision>', 'Revision from the preview; required with --apply')
-    .action(async (options: { apply?: boolean; expectedRevision?: string }) => {
+    .option(
+      '--allow-remove <flows>',
+      'Comma-separated flow names whose schedules --apply may remove, or "*" for any',
+    )
+    .action(async (opts: { apply?: boolean; expectedRevision?: string; allowRemove?: string }) => {
+      const options = {
+        apply: opts.apply,
+        expectedRevision: opts.expectedRevision,
+        allowRemove: parseAllowRemove(opts.allowRemove),
+      };
       const config = await loadAppConfig();
       const connection = await resolveDatabaseConnection(config.database, {});
       try {
-        const resources = await discoverRuntimeResources();
+        // Every flow module must load: a skipped module would look like a removed schedule.
+        const resources = await discoverRuntimeResources({ strict: ['flows'] });
         const registry = new FlowRegistry();
         for (const flow of resources.flows) registry.register(flow);
         const capabilities = new CapabilityRegistry();
@@ -99,7 +119,15 @@ export function registerFlowCommand(program: Command): void {
           stepDeps: buildStepDeps(capabilities),
         });
         const scheduler = createFlowScheduler({ db: connection.db, registry, engine });
-        console.log(JSON.stringify(await scheduler.reconcileSchedules(options), null, 2));
+        const result = await scheduler.reconcileSchedules(options);
+        console.log(JSON.stringify(result, null, 2));
+        // stderr, so stdout stays parseable JSON.
+        for (const change of result.changes.filter((c) => c.action === 'remove'))
+          console.error(
+            result.applied
+              ? `⚠ Removed schedule: ${change.flowName}`
+              : `⚠ Would remove schedule: ${change.flowName} (apply needs --allow-remove ${change.flowName})`,
+          );
       } finally {
         await closeDatabaseConnection(connection);
       }

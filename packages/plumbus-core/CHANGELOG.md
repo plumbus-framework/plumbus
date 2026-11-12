@@ -1,5 +1,12 @@
 # @plumbus/core changelog
 
+## 0.8.6 — 2026-11-12
+
+- **Schedule reconciliation no longer tombstones schedules silently** ([#94](https://github.com/plumbus-framework/plumbus/issues/94)). Before, a flow module that threw on import was skipped by discovery, so `plumbus flow schedule sync --apply` marked its schedule removed and it stopped firing without an error.
+  - `reconcileSchedules({ apply: true })` now throws, naming the flows and writing nothing, when it would remove a schedule that `allowRemove` does not allow. Pass `allowRemove: ['flowName']` or `allowRemove: true`. Previews still list `remove` changes. **Callers that apply removals must now pass `allowRemove`.**
+  - `plumbus flow schedule sync` gains `--allow-remove <flows>` (comma-separated, or `*`), prints each removal to stderr, and fails naming the file when a module under `app/flows/` cannot be imported.
+  - `discoverResources(root, { strict })` and `discoverRuntimeResources({ strict })` take directories (e.g. `['flows']`) whose import failures throw instead of being skipped. Defaults are unchanged; `decisions/` stays strict. New exported type `ReconcileSchedulesOptions`.
+
 ## 0.8.5 — 2026-11-09
 
 - **Security release.** See [the 0.8.5 security upgrade notes](../../docs/upgrading-0.8.5-security.md) for every opt-in and warning.

@@ -337,7 +337,7 @@ Flow scaffolding and dead-letter operations.
 ```bash
 plumbus flow new <name> [options]
 plumbus flow schedule list [options]
-plumbus flow schedule sync [--apply --expected-revision <revision>]
+plumbus flow schedule sync [--apply --expected-revision <revision> [--allow-remove <flows>]]
 plumbus flow dead-letter list [options]
 plumbus flow dead-letter retry <executionId>
 ```
@@ -355,6 +355,17 @@ Human output includes `synced=false` when a registered flow has no persisted sch
 #### `plumbus flow schedule sync`
 
 Preview additions, definition changes, removals, and the current revision using the complete intended flow registry. Apply the reviewed result with `--apply --expected-revision <revision>`; a changed revision rejects a stale plan. Use one deployment owner. Reconciliation preserves operator-disabled schedules, tombstones removed definitions, and records superseded overdue ticks. Review legacy database overrides before adoption. See the [upgrade guide](../upgrading-stabilization.md#schedules).
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--apply` | `boolean` | `false` | Apply the previewed changes |
+| `--expected-revision <revision>` | `string` | — | Revision from the preview; required with `--apply` |
+| `--allow-remove <flows>` | `string` | — | Comma-separated flow names whose schedules `--apply` may tombstone, or `*` for any (0.8.6+) |
+
+Guards against an incomplete registry (0.8.6+):
+
+- Every module under `app/flows/` must import. A module that throws on import fails the command and names the file, instead of being skipped (its schedule would otherwise look removed).
+- `--apply` refuses to tombstone a schedule whose flow is not in the registry unless `--allow-remove` names it (or is `*`). The error names the flows and nothing is written. Preview and apply print each removal to stderr; stdout stays JSON.
 
 #### `plumbus flow dead-letter list`
 

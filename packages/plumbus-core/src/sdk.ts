@@ -269,6 +269,7 @@ export { createExplanationTracker } from './explanation/index.js';
 export { field } from './fields/index.js';
 export type {
   FlowEngineConfig,
+  ReconcileSchedulesOptions,
   SchedulerConfig,
   StepExecutorDeps,
   StepHistoryEntry,

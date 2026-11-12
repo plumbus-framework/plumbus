@@ -29,6 +29,24 @@ export interface DiscoveredResources {
   schemas: Record<string, unknown>;
 }
 
+/** Resource directories whose import failures can be made fatal. `decisions/` is always strict. */
+export type StrictDiscoveryDirectory =
+  | 'capabilities'
+  | 'entities'
+  | 'flows'
+  | 'events'
+  | 'prompts'
+  | 'translations';
+
+export interface DiscoverResourcesOptions {
+  /**
+   * Directories where a module that fails to import throws (naming the file)
+   * instead of being skipped. Use `['flows']` when the result must be the
+   * complete flow registry, e.g. for schedule reconciliation.
+   */
+  strict?: readonly StrictDiscoveryDirectory[];
+}
+
 /**
  * What one export contributes: the value itself, or — for a plain object or an
  * array that is not itself a resource — the values it holds, one level down.
@@ -48,7 +66,7 @@ function exportedValues(value: unknown): unknown[] {
  * Scan a directory for .ts/.js files and dynamically import all exports.
  * Returns every exported value (collections expanded, each value once).
  */
-async function scanDir(dir: string, strict = false): Promise<unknown[]> {
+async function scanDir(dir: string, strictKind?: string): Promise<unknown[]> {
   if (!fs.existsSync(dir)) return [];
 
   const files = fs
@@ -72,8 +90,13 @@ async function scanDir(dir: string, strict = false): Promise<unknown[]> {
         exports.push(...exportedValues(value));
       }
     } catch {
-      if (strict) throw new PlumbusError('validation', `Unable to load decision module: ${file}`);
-      // Skip files that fail to import
+      // The underlying error is not included: module-scope errors can carry secrets.
+      if (strictKind)
+        throw new PlumbusError('validation', `Unable to load ${strictKind} module: ${file}`, {
+          kind: strictKind,
+          file,
+        });
+      // Non-strict directories skip files that fail to import
     }
   }
   // The same resource exported twice (by name and inside a collection) counts once.
@@ -186,11 +209,16 @@ async function scanSchemaDir(dir: string): Promise<Record<string, unknown>> {
  * and classifies exported values by type.
  *
  * @param appRoot - Path to the project root (default: process.cwd())
+ * @param options - `strict` directories fail on import errors instead of skipping the file
  */
 export async function discoverResources(
   appRoot: string = process.cwd(),
+  options: DiscoverResourcesOptions = {},
 ): Promise<DiscoveredResources> {
   const appDir = path.join(appRoot, 'app');
+  const strict = new Set(options.strict ?? []);
+  const kind = (dir: StrictDiscoveryDirectory, singular: string) =>
+    strict.has(dir) ? singular : undefined;
 
   // Register tsx to allow importing TypeScript files from consumer projects.
   // Use createRequire to resolve tsx from the framework's own node_modules,
@@ -216,13 +244,13 @@ export async function discoverResources(
       translationExports,
       schemaExports,
     ] = await Promise.all([
-      scanDir(path.join(appDir, 'capabilities')),
-      scanDir(path.join(appDir, 'entities')),
-      scanDir(path.join(appDir, 'flows')),
-      scanDir(path.join(appDir, 'events')),
-      scanDir(path.join(appDir, 'prompts')),
-      scanDir(path.join(appDir, 'decisions'), true),
-      scanDir(path.join(appDir, 'translations')),
+      scanDir(path.join(appDir, 'capabilities'), kind('capabilities', 'capability')),
+      scanDir(path.join(appDir, 'entities'), kind('entities', 'entity')),
+      scanDir(path.join(appDir, 'flows'), kind('flows', 'flow')),
+      scanDir(path.join(appDir, 'events'), kind('events', 'event')),
+      scanDir(path.join(appDir, 'prompts'), kind('prompts', 'prompt')),
+      scanDir(path.join(appDir, 'decisions'), 'decision'),
+      scanDir(path.join(appDir, 'translations'), kind('translations', 'translation')),
       scanSchemaDir(path.join(appDir, 'schemas')),
     ]);
 

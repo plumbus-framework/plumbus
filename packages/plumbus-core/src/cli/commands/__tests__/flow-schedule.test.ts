@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { defineFlow } from '../../../define/defineFlow.js';
 import { formatFlowScheduleLine, mergeFlowScheduleList } from '../flow-schedule-list.js';
+import { parseAllowRemove } from '../flow.js';
 
 function scheduledFlow(name: string, domain: string, cron: string) {
   return defineFlow({
@@ -156,5 +157,20 @@ describe('formatFlowScheduleLine', () => {
     expect(line).toContain('next=2026-06-20T00:00:00.000Z');
     expect(line).toContain('last=2026-06-19T00:00:00.000Z');
     expect(line).toContain('synced=true');
+  });
+});
+
+describe('parseAllowRemove', () => {
+  it('returns undefined when the option is absent', () => {
+    expect(parseAllowRemove(undefined)).toBeUndefined();
+  });
+  it('treats * as allowing any removal', () => {
+    expect(parseAllowRemove(' * ')).toBe(true);
+  });
+  it('splits and trims comma-separated flow names, dropping empty entries', () => {
+    expect(parseAllowRemove('nightlyCleanup, weeklyReport,,')).toEqual([
+      'nightlyCleanup',
+      'weeklyReport',
+    ]);
   });
 });

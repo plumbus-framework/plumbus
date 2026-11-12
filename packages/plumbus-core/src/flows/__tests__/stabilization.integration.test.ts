@@ -351,9 +351,64 @@ describe('durable scheduler', () => {
       logger,
     });
     const removePreview = await removed.reconcileSchedules();
-    await removed.reconcileSchedules({ apply: true, expectedRevision: removePreview.revision });
+    await removed.reconcileSchedules({
+      apply: true,
+      expectedRevision: removePreview.revision,
+      allowRemove: ['test'],
+    });
     await oldScheduler.syncSchedules();
     expect((await pg.db.select().from(flowSchedulesTable))[0]?.removed).toBe(true);
+  });
+  it('refuses to apply an unapproved removal and names the flows', async () => {
+    const original = setup({ schedule: { cron: 'every:1h' } });
+    await createFlowScheduler({ db: pg.db, ...original, logger }).syncSchedules();
+    // An incomplete registry: the flow module failed to load or its export was renamed.
+    const incomplete = createFlowScheduler({
+      db: pg.db,
+      engine: original.engine,
+      registry: new FlowRegistry(),
+      logger,
+    });
+    const preview = await incomplete.reconcileSchedules();
+    expect(preview.changes).toMatchObject([{ flowName: 'test', action: 'remove' }]);
+    await expect(
+      incomplete.reconcileSchedules({ apply: true, expectedRevision: preview.revision }),
+    ).rejects.toThrow('would remove test');
+    await expect(
+      incomplete.reconcileSchedules({
+        apply: true,
+        expectedRevision: preview.revision,
+        allowRemove: ['other'],
+      }),
+    ).rejects.toThrow('would remove test');
+    const [row] = await pg.db.select().from(flowSchedulesTable);
+    expect(row).toMatchObject({ removed: false, revision: 1 });
+    const applied = await incomplete.reconcileSchedules({
+      apply: true,
+      expectedRevision: preview.revision,
+      allowRemove: true,
+    });
+    expect(applied).toMatchObject({ applied: true, changes: [{ action: 'remove' }] });
+    expect((await pg.db.select().from(flowSchedulesTable))[0]?.removed).toBe(true);
+  });
+  it('applies additions without allowRemove when nothing is removed', async () => {
+    const first = setup({ schedule: { cron: 'every:1h' } });
+    await createFlowScheduler({ db: pg.db, ...first, logger }).syncSchedules();
+    first.registry.register(
+      defineFlow({
+        name: 'late',
+        domain: 'test',
+        input: z.object({}),
+        schedule: { cron: 'every:1h' },
+        steps: [{ name: 'one', type: 'capability' }],
+      }),
+    );
+    const scheduler = createFlowScheduler({ db: pg.db, ...first, logger });
+    const preview = await scheduler.reconcileSchedules();
+    await scheduler.reconcileSchedules({ apply: true, expectedRevision: preview.revision });
+    expect(
+      (await pg.db.select().from(flowSchedulesTable)).map((row) => row.flowName).sort(),
+    ).toEqual(['late', 'test']);
   });
   it('preserves next-first-run and skips overlapping active executions', async () => {
     const { engine, registry } = setup({
