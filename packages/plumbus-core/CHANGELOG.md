@@ -20,12 +20,14 @@ Schedule reconciliation can no longer stop a schedule without anyone noticing ([
 - An apply that removes a schedule without approval still removes it, and now logs `Schedule reconciliation removed schedules without approval` with the flow names.
 - `plumbus flow schedule sync` prints each removal to stderr (`⚠ Would remove schedule: <flow>` in a preview, `⚠ Removed schedule: <flow>` after an apply). Stdout is still only the JSON result.
 - `plumbus dev`, `plumbus start` and `plumbus worker` discover resources exactly as before; a flow module that fails to import is still skipped there.
+- Agent instructions (`instructions/flows.md`, `cli.md`, `stabilization.md`) explain the import failure, `--allow-remove`, the warning and the opt-in refusal, and tell agents to fix an incomplete registry rather than approve an unexpected removal.
 
 ### Upgrade
 
 1. If `schedule sync` now fails with `Unable to load flow module`, fix that module. Before 0.8.6 its schedule would have been removed.
 2. Where your deployment removes schedules on purpose, add `--allow-remove <flows>` (or `allowRemove`) so the removal is explicit and logs no warning.
-3. Optionally set `PLUMBUS_SCHEDULE_REQUIRE_REMOVAL_APPROVAL=true` (or `requireRemovalApproval: true`) to refuse unapproved removals instead of warning.
+3. Apps that embed instructions with inline agent wiring (`plumbus init --inline`) pick up the updated text after `plumbus init --patch --agent all`. Reference wiring reads it from `node_modules` and needs nothing.
+4. Optionally set `PLUMBUS_SCHEDULE_REQUIRE_REMOVAL_APPROVAL=true` (or `requireRemovalApproval: true`) to refuse unapproved removals instead of warning.
 
 See [CLI commands](../../docs/cli/commands.md#plumbus-flow-schedule-sync) and [flows](../../docs/core-concepts/flows.md).
 
