@@ -33,6 +33,14 @@ export interface ChatTurnRow {
   logicalTurnId?: string;
   continuationOfTurnId?: string;
   toolsExecuted?: ToolExecutionRecord[];
+  /**
+   * Validated client actions carried by this assistant reply (chats declaring
+   * `clientActions`). The DB-backed store keeps them only when the app
+   * registers `chatTurnWithReplyMetadataEntity`; custom stores receive them here.
+   */
+  clientActions?: unknown[];
+  /** Set when the app's `validateReply` replaced the reply: its moderation code. */
+  moderation?: { code: string };
   tokensIn: number;
   tokensOut: number;
   costUsd: number;

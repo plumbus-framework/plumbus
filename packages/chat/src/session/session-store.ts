@@ -80,8 +80,9 @@ export interface ChatBudgetAggregate {
  *   chat, and `runChatTurn` also refuses a returned row whose `chatName` differs.
  *   Concurrent first turns racing the same id must converge on one row rather
  *   than creating two.
- * - **`listTurns` returns ascending ordinal order.** A `limit` truncates from the
- *   start of that ordering, matching the DB-backed history window.
+ * - **`listTurns` returns ascending ordinal order.** A `limit` keeps the NEWEST
+ *   `limit` turns (the end of that ordering), still returned oldest → newest:
+ *   `history.includeLastTurns` reads the window through it.
  * - **`loadMergedUserBehavioralState` merges oldest → newest.** Later sessions
  *   win on key collision. Cooldowns declared with `scope: 'user'` are only
  *   enforceable across sessions if this reflects other sessions' state.
@@ -105,7 +106,7 @@ export interface ChatSessionStore {
   /** Number of turns stored for the session — drives the emitted turn ordinal. */
   countTurns(ctx: ExecutionContext, sessionId: string): Promise<number>;
 
-  /** Turns in ascending ordinal order; `limit` truncates from the start. */
+  /** Turns in ascending ordinal order; `limit` keeps the newest `limit` turns. */
   listTurns(
     ctx: ExecutionContext,
     sessionId: string,
@@ -220,10 +221,15 @@ export const dbChatSessionStore: ChatSessionStore = Object.freeze({
     sessionId: string,
     opts?: { limit?: number },
   ): Promise<ChatTurnRow[]> {
-    return chatTurnRepo(ctx).findMany(
+    if (opts?.limit === undefined) {
+      return chatTurnRepo(ctx).findMany({ sessionId }, { orderBy: 'ordinal', orderDir: 'asc' });
+    }
+    // Newest `limit` turns: read them newest-first, then return oldest → newest.
+    const newest = await chatTurnRepo(ctx).findMany(
       { sessionId },
-      { orderBy: 'ordinal', orderDir: 'asc', limit: opts?.limit },
+      { orderBy: 'ordinal', orderDir: 'desc', limit: opts.limit },
     );
+    return [...newest].sort((a, b) => a.ordinal - b.ordinal);
   },
 
   async countActivePendingActions(

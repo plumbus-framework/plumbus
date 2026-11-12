@@ -5,6 +5,7 @@ import type { ChatPendingActionV2 } from '../session/pending-action-v2.js';
 import type { ChatDefinition } from '../types/chat.js';
 import type { ChatSourceRef } from '../types/context.js';
 import type { ChatEvent } from '../types/event.js';
+import type { ChatReplyValidator } from '../types/reply.js';
 import type { ToolExecutionRecord } from '../types/tool.js';
 import type {
   ChatConversationStore,
@@ -13,6 +14,11 @@ import type {
 } from './chat-conversation-store.js';
 import { clientSafeErrorMessage } from './client-error.js';
 import { terminalizeConfirmingRow } from './pending-actions.js';
+import {
+  clientActionsFromOutput,
+  finalizeReply,
+  normalizeClientActions,
+} from './reply-finalize.js';
 import { resumeToolLoop } from './run-turn.js';
 
 /** Observation byte cap; truncation preserves a valid JSON envelope. */
@@ -81,6 +87,8 @@ export interface ResumeAfterConfirmArgs {
   emit: (evt: ChatEvent) => void;
   onResult: (result: ChatConfirmResult) => void;
   signal?: AbortSignal;
+  /** Same hook as `RunChatTurnOpts.validateReply`, run on the continuation answer before it is written. */
+  validateReply?: ChatReplyValidator;
 }
 
 function nowIso(ctx: ExecutionContext): string {
@@ -316,7 +324,54 @@ export async function resumeAfterConfirm(
         promptInput: payload.agentPromptInput,
       });
 
-      if (outcome.kind === 'failed') {
+      // Validate before persist (continuation answer). A failed check finalizes
+      // the confirmed action without a continuation turn, like a failed resume.
+      let resumeFailure = outcome.kind === 'failed' ? outcome.failure : undefined;
+      let finalized: Awaited<ReturnType<typeof finalizeReply>> | undefined;
+      if (outcome.kind === 'answer') {
+        const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+        finalized = await finalizeReply({
+          ctx,
+          chat,
+          validateReply: args.validateReply,
+          emit,
+          reply: {
+            text: outcome.answer,
+            inScope: outcome.inScope,
+            refusalReason: outcome.refusalReason ?? null,
+            sources: outcome.sourceRefs,
+            clientActions: normalizeClientActions(
+              chat,
+              clientActionsFromOutput(outcome.modelOutput),
+              emit,
+            ),
+            modelOutput: outcome.modelOutput,
+            toolsExecuted: outcome.toolsExecuted,
+          },
+          turn: {
+            ctx,
+            chatName: chat.name,
+            sessionId: pending.sessionId,
+            turnId: logicalTurnId,
+            userId: args.owner.userId ?? '',
+            tenantId: args.owner.tenantId,
+            audience: '',
+            locale: '',
+            userMessage: typeof lastUser?.content === 'string' ? lastUser.content : '',
+            ...(payload.agentPromptInput ? { promptInput: payload.agentPromptInput } : {}),
+            phase: 'resume',
+          },
+        });
+        if (!finalized.ok) {
+          resumeFailure = {
+            type: 'turn.failed',
+            code: 'chat.reply_validation_failed',
+            message: 'The reply could not be checked',
+          };
+        }
+      }
+
+      if (resumeFailure) {
         try {
           await store.completePending({
             actionId: pending.id,
@@ -348,9 +403,10 @@ export async function resumeAfterConfirm(
           execution: { status: 'succeeded' },
           resume: { status: 'failed' },
         });
-        emit(outcome.failure);
+        emit(resumeFailure);
         return;
       }
+      if (outcome.kind === 'failed') return; // narrowed above; resumeFailure is set for it
 
       if (outcome.kind === 'paused') {
         // Nested confirm: finalize original + append continuation turn + insert new pending.
@@ -393,9 +449,14 @@ export async function resumeAfterConfirm(
       }
 
       // Answer: append the continuation assistant turn and finalize.
+      const answerText = finalized?.ok ? finalized.text : outcome.answer;
+      const clientActions = finalized?.ok ? finalized.clientActions : [];
+      const moderation = finalized?.ok ? finalized.moderation : undefined;
       const resumeTurn: ChatTurnWrite = {
         role: 'assistant',
-        content: outcome.answer,
+        content: answerText,
+        ...(clientActions.length > 0 ? { clientActions } : {}),
+        ...(moderation ? { moderation } : {}),
         inScope: outcome.inScope,
         refusalReason: outcome.refusalReason ?? null,
         sources: outcome.sourceRefs,
@@ -438,7 +499,7 @@ export async function resumeAfterConfirm(
         turnId: logicalTurnId,
         costUsd: outcome.cost,
       });
-      emit({ type: 'message.delta', text: outcome.answer });
+      emit({ type: 'message.delta', text: answerText });
       emit({
         type: 'confirmation.resolved',
         actionId: pending.id,
@@ -456,6 +517,8 @@ export async function resumeAfterConfirm(
         inScope: outcome.inScope,
         refusalReason: outcome.refusalReason ?? null,
         sources: outcome.sourceRefs,
+        ...(chat.clientActions ? { clientActions } : {}),
+        ...(moderation ? { moderation } : {}),
       });
       onResult({
         decisionRecorded: true,

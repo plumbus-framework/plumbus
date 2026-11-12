@@ -203,6 +203,92 @@ describe('resumeAfterConfirm', () => {
     });
   });
 
+  it('validateReply replaces the continuation answer before it is written', async () => {
+    resumeToolLoopMock.mockResolvedValue({
+      kind: 'answer',
+      answer: 'Unchecked continuation',
+      inScope: true,
+      refusalReason: null,
+      model: 'test',
+      provider: 'mock',
+      usage: { tokensIn: 1, tokensOut: 2 },
+      cost: 0,
+      sourceRefs: [],
+      toolsExecuted: [],
+      modelOutput: { answer: 'Unchecked continuation' },
+    });
+    const store = fakeStore();
+    const events: ChatEvent[] = [];
+    const phases: string[] = [];
+    await resumeAfterConfirm(ctxWithCap(), {
+      chat: defineChat({ name: 'help', access: {}, instructions: ['x'] }),
+      store,
+      pending: pendingRow(),
+      owner: { userId: 'u1', roles: [], scopes: [], provider: 'test' },
+      emit: (evt) => events.push(evt),
+      onResult: () => {},
+      validateReply: (_reply, turn) => {
+        phases.push(turn.phase);
+        return { decision: 'replace', text: 'Checked line', code: 'app.blocked' };
+      },
+    });
+    expect(phases).toEqual(['resume']);
+    expect(store.completePending).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resumeTurn: expect.objectContaining({
+          content: 'Checked line',
+          moderation: { code: 'app.blocked' },
+        }),
+      }),
+    );
+    expect(events).toContainEqual({ type: 'message.delta', text: 'Checked line' });
+    const completed = events.find((e) => e.type === 'turn.completed');
+    expect(completed).toMatchObject({ moderation: { code: 'app.blocked' } });
+    expect(JSON.stringify(events)).not.toContain('Unchecked continuation');
+  });
+
+  it('a throwing validateReply finalizes the action without a continuation turn', async () => {
+    resumeToolLoopMock.mockResolvedValue({
+      kind: 'answer',
+      answer: 'Unchecked continuation',
+      inScope: true,
+      refusalReason: null,
+      model: 'test',
+      provider: 'mock',
+      usage: { tokensIn: 1, tokensOut: 2 },
+      cost: 0,
+      sourceRefs: [],
+      toolsExecuted: [],
+    });
+    const store = fakeStore();
+    const events: ChatEvent[] = [];
+    let result: unknown;
+    await resumeAfterConfirm(ctxWithCap(), {
+      chat: defineChat({ name: 'help', access: {}, instructions: ['x'] }),
+      store,
+      pending: pendingRow(),
+      owner: { userId: 'u1', roles: [], scopes: [], provider: 'test' },
+      emit: (evt) => events.push(evt),
+      onResult: (r) => {
+        result = r;
+      },
+      validateReply: () => {
+        throw new Error('down');
+      },
+    });
+    expect(store.completePending).toHaveBeenCalledWith(
+      expect.not.objectContaining({ resumeTurn: expect.anything() }),
+    );
+    expect(events.at(-1)).toMatchObject({
+      type: 'turn.failed',
+      code: 'chat.reply_validation_failed',
+    });
+    expect(result).toMatchObject({
+      execution: { status: 'succeeded' },
+      resume: { status: 'failed' },
+    });
+  });
+
   it('on capability failure emits tool.failed and turn.failed chat.tool_failed', async () => {
     const cap = defineCapability({
       name: 'ship',

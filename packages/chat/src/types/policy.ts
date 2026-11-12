@@ -87,6 +87,15 @@ export interface ChatToolCallingPolicy {
    */
   scopePreflight?: boolean;
 
+  /**
+   * Opt-in. When true, a `kind: 'query'` capability whose only effects are
+   * `data` (reads) and `ai` binds as an AUTO tool even though `effects.data`
+   * lists entities — e.g. "read an earlier conversation". Queries with events,
+   * external, flow or capability effects stay confirm tools. Default false:
+   * only capabilities with no effects besides `ai` are auto.
+   */
+  readOnlyQueries?: boolean;
+
   /** Default 5; range 1..20. */
   maxToolRounds?: number;
   /** Default 32; range 1..64. */

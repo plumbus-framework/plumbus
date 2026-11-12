@@ -114,6 +114,7 @@ A turn produces a sequence of `ChatEvent`s — the same `ChatEvent` union export
 |---|---|---|
 | `turn.started` | `turnId`, `ordinal` | The server accepted the request and is about to call the model. Flip your UI into a "streaming" state. |
 | `message.delta` | `text` | A chunk of assistant prose to append to the current assistant bubble. Multiple per turn. |
+| `message.replaced` | `text`, `code` | The server withdrew the streamed text: replace the current assistant bubble's content with `text` (empty when the reply check failed). `code` is the app's moderation code from `validateReply`, `chat.reply_rewritten` (a post-turn guard changed the answer) or `chat.reply_validation_failed`. `applyChatEvent` sets `content` and `replacedCode` on the message. |
 | `source.added` | `source: { id, origin, label? }` | A retrieved context source the model is using. Attach to the in-progress assistant message for citation rendering. |
 | `notice` | `code`, `message`, `retryAfterSeconds?` | A non-fatal advisory: cooldown active, out of scope, provenance missing, etc. Render alongside the message stream; `chat.cooldown_active` flips the hook into `'cooldown'` status. |
 | `confirmation_required` | `actionId`, `capabilityName`, `confirmationMessage`, `expiresAt`, `schemaHash?`, `inputSchemaHash?`, `projection?` | A turn paused awaiting user approval (Path A `action-guard`, or a Path B confirm-mode tool). Render the confirmation dialog; the hook's `confirm(actionId)` commits it via `POST /chat/:name/confirm`. `projection` (Path B) is a validated, ≤ 8 KiB preview — never a raw result. |
@@ -121,7 +122,7 @@ A turn produces a sequence of `ChatEvent`s — the same `ChatEvent` union export
 | `tool.completed` | `toolCallId`, `name`, `kind`, `projection?` | A tool call succeeded. `projection` is validated and ≤ 8 KiB — never a raw capability/flow result. |
 | `tool.failed` | `toolCallId`, `name`, `kind`, `code`, `message` | A tool call failed with a safe error code. |
 | `confirmation.resolved` | `actionId`, `decision` (`'confirm'` \| `'reject'`), `pendingStatus`, `executionStatus` | Terminal confirmation outcome. `pendingStatus` is one of `confirmed` \| `rejected` \| `failed` \| `indeterminate` \| `expired`. |
-| `turn.completed` | `turnId`, `usage`, `cost`, `inScope?`, `refusalReason?`, `sources?` | Terminal success event. Hook flips status back to `'idle'`. |
+| `turn.completed` | `turnId`, `usage`, `cost`, `inScope?`, `refusalReason?`, `sources?`, `clientActions?`, `moderation?` | Terminal success event. Hook flips status back to `'idle'`. `clientActions` (chats declaring `clientActions`) lands on the assistant message as `message.clientActions` for the page to carry out; `moderation.code` is set when `validateReply` replaced the reply. |
 | `turn.failed` | `code`, `message` | Terminal failure event (`chat.not_found`, budget exhaustion, `chat.resume_failed`, etc.). Hook flips to `'error'`. |
 
 Exactly one of `turn.completed` or `turn.failed` (or `confirmation_required` followed by an out-of-band confirm) ends every turn. The hook's `status` field tracks the lifecycle so app code rarely needs to inspect events directly — but if you're writing a custom renderer, this is the full set.

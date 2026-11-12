@@ -2,7 +2,7 @@ export * from './types/index.js';
 export { defineChat } from './define/defineChat.js';
 
 export { chatSessionEntity } from './session/entity.js';
-export { chatTurnEntity } from './session/turn-entity.js';
+export { chatTurnEntity, chatTurnWithReplyMetadataEntity } from './session/turn-entity.js';
 export { chatPendingActionEntity } from './session/pending-action-entity.js';
 
 export {
@@ -57,6 +57,10 @@ export type { ChatNestedAiCall } from './types/tool.js';
 export {
   registerChatRoutes,
   type RegisterChatRoutesOpts,
+  type ChatRequestContextSeam,
+  type ChatRequestContextArgs,
+  type ChatRouteRefusal,
+  type ChatPreparedTurn,
   type ChatHttpOptions,
   type ChatRequestAuthentication,
   type ChatRequestAuthenticator,
@@ -101,8 +105,26 @@ export { createChatTurnCapability } from './capabilities/chat-turn.js';
 export { chatConfirmAction } from './capabilities/chat-confirm-action.js';
 export { chatListTurns } from './capabilities/chat-list-turns.js';
 
-export { defineChatEvaluation } from './define/defineChatEvaluation.js';
-export { runChatEvaluation } from './eval/run-evaluation.js';
+export {
+  defineChatEvaluation,
+  type ChatEvaluationDefinition,
+  type ChatEvaluationScenario,
+  type ChatAssertion,
+  type ChatEvalTurnRecord,
+  type ChatEvalJudgeVerdict,
+  type ChatTurnJudge,
+  type ChatConversationJudge,
+  type ChatUserSimulator,
+  type ChatScriptedTurn,
+  type ChatSimulatedUser,
+} from './define/defineChatEvaluation.js';
+export {
+  runChatEvaluation,
+  type EvalVerdict,
+  type RunChatEvaluationOpts,
+  type ChatEvalTurnInputs,
+} from './eval/run-evaluation.js';
+export { promptUserSimulator, promptJudge } from './eval/model-helpers.js';
 export { TraceRecorder } from './eval/trace.js';
 export {
   chatTurnCompletedEvent,

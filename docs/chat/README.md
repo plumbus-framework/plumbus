@@ -117,7 +117,8 @@ This package composes on core; it does not duplicate. Specifically:
 - React hook (`useChat`) and components in `@plumbus/chat-ui`.
 - Session and turn persistence with opt-out for message content.
 - Domain events (`chatTurnCompletedEvent`, `chatActionConfirmedEvent`, `chatRefusalRecordedEvent`) emitted by the runtime.
-- A deterministic evaluation harness (`defineChatEvaluation`, `runChatEvaluation`, `TraceRecorder`) — see [evaluations.md](./evaluations.md).
+- A deterministic evaluation harness (`defineChatEvaluation`, `runChatEvaluation`, `TraceRecorder`) with scripted multi-turn and simulated-user scenarios and per-turn / whole-conversation judges — see [evaluations.md](./evaluations.md).
+- Validate-before-persist (`validateReply`, `message.replaced`), client actions (`clientActions`), and a request-context seam on `registerChatRoutes` (tenant binding, dependency resolution, session liveness, per-turn prompt input) — see [defining-chats.md](./defining-chats.md).
 
 ## Public barrel: what each export is for
 
@@ -126,12 +127,13 @@ This package composes on core; it does not duplicate. Specifically:
 | Group | Exports | Notes |
 |---|---|---|
 | Definition | `defineChat`, `defineChatEvaluation` | `defineChat` is the entrypoint; `defineChatEvaluation` declares eval scenarios |
-| Runtime | `runChatTurn`, `registerChatRoutes`, `RegisterChatRoutesOpts` | |
+| Runtime | `runChatTurn`, `registerChatRoutes`, `RegisterChatRoutesOpts`, `ChatRequestContextSeam`, `ChatRequestContextArgs`, `ChatRouteRefusal`, `ChatPreparedTurn` | the seam types belong to `registerChatRoutes`' opt-in `requestContext` / `prepareTurn` |
+| Reply check & client actions | types `ChatReplyValidator`, `ChatReplyVerdict`, `ChatFinalReply`, `ChatReplyValidationContext`, `ChatClientActionsConfig`, `ChatRefusalReason` | `validateReply` and `clientActions` — see [defining-chats.md](./defining-chats.md) |
 | Policy | `compilePolicy` | public for advanced tooling; chats normally compile policies internally |
 | Context helpers | `ragContext`, `knowledgeContext`, `knowledgeContextLegacy` (deprecated alias for `ragContext`), `capabilityContext`, `staticContext`, `staticContextFromTranslations` (deprecated), `resolveContextSources`, `CHAT_TIER_TOOLS_ERROR_PREFIX` | `resolveContextSources` is advanced — for custom runtimes |
 | Prompts | `chatTurnPrompt`, `chatSummarizeHistoryPrompt`, `buildSystemPrompt`, `renderContext` | overridable via `definePrompt` + AI Config admin |
 | Capabilities | `createChatTurnCapability`, `chatConfirmAction`, `chatListTurns` | auto-routed; `chatConfirmAction` is what a client calls to commit a pending action |
-| Entities | `chatSessionEntity`, `chatTurnEntity`, `chatPendingActionEntity` | register in your app's entity list |
+| Entities | `chatSessionEntity`, `chatTurnEntity` (or `chatTurnWithReplyMetadataEntity`), `chatPendingActionEntity` | register in your app's entity list; the `…WithReplyMetadata` variant adds the optional `clientActions` / `moderation` columns (needs a migration) |
 | Session service | `createSession`, `loadSession`, `appendTurn`, `aggregateForBudget`, `updateSessionBehavioralState`, `updateSessionSummary` | advanced — for custom turn pipelines / migrations; most apps never need these |
 | Session storage (tier 1) | `ChatSessionStore`, `RunChatTurnOpts`, `dbChatSessionStore`, `resolveChatSessionStore`, `requireChatBudgetAggregator`, `assertChatSessionStoreSupportsBudget`, `assertChatStoresSupportChats`, `ChatStoreUnsupportedError`, `ChatBudgetAggregate`, `ChatBudgetAggregateQuery`, `ChatBudgetAggregator`, `CreateChatSessionArgs`, `GetOrCreateChatSessionArgs` | inject non-DB chat persistence — see [session-store.md](./session-store.md) |
 | Wire protocol (`@plumbus/chat/protocol`) | `CHAT_CSRF_COOKIE_NAME`, `CHAT_CSRF_HEADER_NAME` | dependency-free, browser-safe. **Client code must import from this subpath**, not the package root — the root drags `node:crypto` and the CLI (drizzle-kit, esbuild) into the browser graph, which Turbopack refuses to resolve. Both are also re-exported from the root for server use. |
@@ -140,7 +142,7 @@ This package composes on core; it does not duplicate. Specifically:
 | Browser-write security | `csrfBindingFromAuth`, `issueCsrfToken`, `verifyCsrfToken`, `normalizeOrigin`, `originAllowed` | server-side helpers for the exact-Origin + session-bound CSRF check on cookie-authenticated writes |
 | HTTP authentication | `ChatHttpOptions`, `ChatRequestAuthentication`, `ChatRequestAuthenticator` | replace the default credential resolution on `/turn` and `/confirm` |
 | Runtime utilities | `ChatEventEmitter`, `validateCitations`, `stripInvalidFromAnswer`, `setTokenCounter` | advanced — only reach for these when wrapping the runtime or swapping the token counter (e.g. local tiktoken vs heuristic) |
-| Evaluation | `runChatEvaluation`, `TraceRecorder` | run scenarios against a scripted model and assert on the event stream — see [evaluations.md](./evaluations.md) |
+| Evaluation | `runChatEvaluation`, `TraceRecorder`, `promptUserSimulator`, `promptJudge` (+ `checkAssertion` on `@plumbus/chat/eval`) | run single- and multi-turn scenarios, simulated users and judges — see [evaluations.md](./evaluations.md) |
 | Events | `chatTurnCompletedEvent`, `chatActionConfirmedEvent`, `chatActionRejectedEvent`, `chatRefusalRecordedEvent` | domain events emitted by the runtime; subscribe with an `eventHandler` capability |
 
 ## Worker-only imports

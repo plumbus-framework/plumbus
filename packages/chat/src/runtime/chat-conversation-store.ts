@@ -30,6 +30,10 @@ export interface ChatTurnWrite {
   toolsExecuted?: ToolExecutionRecord[];
   actionRequested?: unknown;
   actionConfirmed?: boolean;
+  /** Validated client actions of an assistant reply (see `ChatTurnRow.clientActions`). */
+  clientActions?: unknown[];
+  /** Moderation code when `validateReply` replaced the reply. */
+  moderation?: { code: string };
 }
 
 export interface SessionMutationLease {
@@ -622,6 +626,8 @@ function turnRow(
     logicalTurnId: w.logicalTurnId,
     continuationOfTurnId: w.continuationOfTurnId,
     toolsExecuted: w.toolsExecuted,
+    ...(w.clientActions ? { clientActions: w.clientActions } : {}),
+    ...(w.moderation ? { moderation: w.moderation } : {}),
     tokensIn: w.tokensIn,
     tokensOut: w.tokensOut,
     costUsd: w.costUsd,

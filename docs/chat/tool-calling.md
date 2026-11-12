@@ -38,6 +38,52 @@ Programmatic callers that need per-operation billing attribution can pass `RunCh
 
 A capability is an **auto/read** tool when its only effect is `ai: true` (all of `data`, `events`, `external`, `flows`, `capabilities` empty). Any write/side-effect makes it a **confirm** tool. Confirm-mode tools are bound but not executed by this path.
 
+`effects.data` does not say whether the capability reads or writes, so a read-only query that declares the entities it reads is a confirm tool by default. Set **`policy.toolCalling.readOnlyQueries: true`** (opt-in, chat 0.4.0-beta.4) to bind a `kind: 'query'` capability whose only effects are `data` (and `ai`) as an auto tool. Queries with `events`, `external`, `flows` or `capabilities` effects, and every `kind: 'action'`, stay confirm tools. Only enable it when your query handlers really do not write.
+
+## Example: a read-only tool within a turn
+
+An assistant that answers from the current topic, and reads one of the user's earlier conversations only when the user refers to it. Agent orchestration keeps an ordinary turn at one model call; a turn that uses the tool costs one more call per tool round, bounded by `maxToolRounds`.
+
+```ts
+// app/capabilities/assistant/read-earlier-conversation.capability.ts
+export const readEarlierConversation = defineCapability({
+  name: 'readEarlierConversation',
+  kind: 'query',
+  domain: 'assistant',
+  description: 'Read one of the caller\'s earlier conversations',
+  access: { roles: ['user'], tenantScoped: true },
+  input: z.object({ conversationId: z.string() }),
+  output: z.object({ messages: z.array(z.object({ author: z.string(), text: z.string() })) }),
+  effects: { data: ['ConversationMessage'], events: [], external: [], ai: false },
+  handler: async (ctx, { conversationId }) => ({ messages: await readOwnMessages(ctx, conversationId) }),
+});
+
+// app/chats/assistant.chat.ts
+export const assistantChat = defineChat({
+  name: 'assistant',
+  access: { roles: ['user'], tenantScoped: true },
+  prompt: assistantAgentPrompt, // custom prompt; its output has `content` (the reply) plus any app fields
+  policy: {
+    toolCalling: {
+      enabled: true,
+      orchestration: 'agent',
+      capabilities: ['readEarlierConversation'],
+      readOnlyQueries: true,  // the query declares data reads; run it without confirmation
+      maxToolRounds: 1,       // at most one tool round, then the answer
+    },
+  },
+});
+```
+
+What happens in a turn:
+
+1. The agent prompt runs with the tool attached. Without a tool call, its completion is the reply (one call).
+2. With a call, Chat validates the arguments, executes the capability through `executeCapability` (access policy and tenant scoping enforced as for any capability), and appends the result to the provider thread as a native `tool` message (`{ ok: true, value }`, ≤ 8 KiB) — the tool result is fed back to the same prompt.
+3. The prompt continues. When `maxToolRounds` is reached, one terminal request without tools must answer with what it has (`chat.tool_round_limit` notice).
+4. `tool.started` / `tool.completed` (or `tool.failed`) events are emitted, and the execution is recorded on the assistant turn's `toolsExecuted`.
+
+From a capability (programmatic `runChatTurn`), pass `opts.resolveCapability` so the tool can be bound where `ctx.__runtime` is hidden. Tool calling needs `persistence.saveToDb: true` (the default); an injected tier-1 `sessionStore` is enough for auto tools.
+
 ## Confirm and resume
 
 A confirm-mode tool pauses the turn with a `confirmation_required` event. The client commits with `POST /chat/:name/confirm`; the server executes the confirmed capability through the framework pipeline (deny-by-default access preserved), then **resumes the turn for a single answer-only completion — no further tool rounds and no nested confirmation**. See [policies.md → Tool calling (Path B)](./policies.md#tool-calling-path-b) for the full confirm round-trip, error vocabulary, and HTTP status mapping.
@@ -78,6 +124,7 @@ If staged tool calling (or agent mode with scope preflight) is set but no matchi
 | `includeNestedAiUsage` | staged: `false`; agent: `true` | Include AI calls inside auto tools in logical-turn usage/budgets |
 | `orchestration` | `staged` | `staged` \| `agent` |
 | `scopePreflight` | staged: `true`; agent: `false` | boolean |
+| `readOnlyQueries` | `false` | `true`: `kind: 'query'` capabilities with only `data` (+ `ai`) effects are auto tools |
 | `maxToolRounds` | 5 | 1..20 |
 | `maxTools` | 32 | 1..64 |
 | `flowAwaitMs` | 10000 | per-start await ceiling, ms |

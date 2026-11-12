@@ -82,6 +82,7 @@ defineChat({
       includeNestedAiUsage?: boolean,                    // staged false; agent true
       orchestration?: 'staged' | 'agent',              // default staged
       scopePreflight?: boolean,                         // staged true; agent false
+      readOnlyQueries?: boolean,                       // opt-in: kind:'query' caps with only data reads run as auto tools
       maxToolRounds?: number,                          // default 5, range 1..20
     },
     custom?:   Guard[],
@@ -98,9 +99,11 @@ defineChat({
   },
 
   history?: {
-    includeLastTurns?: number,               // default 8
-    summarize?: { strategy, thresholdTurns?, targetTokens? },
+    includeLastTurns?: number,               // default 8; the newest N turns, oldest first
+    summarize?: { strategy, thresholdTurns?, targetTokens?, locale? } | false,  // off unless thresholdTurns is set
   },
+
+  clientActions?: { schema: ZodSchema, maxPerReply?: number },  // opt-in UI moves; default 1 per reply
 
   persistence?: {
     messageContent: 'server' | 'client',     // default 'server'
@@ -141,6 +144,15 @@ The optional fourth argument is `RegisterChatRoutesOpts`:
 | `authenticator: ChatRequestAuthenticator` | Replace the default credential resolution (Authorization header, then cookies). |
 | `externalBaseUrl` + `csrfSecret` | Set **both** to enable exact-Origin + session-bound CSRF enforcement on cookie-authenticated writes. With `authCookieNames` and either missing, registration fails (or only warns with `requireBrowserSecurity: false`, leaving cookie writes unprotected). |
 | `requireBrowserSecurity: boolean` | Default `true` (0.9+): cookie auth (`authCookieNames`) without both `csrfSecret` and `externalBaseUrl` is a registration error. `false` downgrades it to a warning — only for deployments that protect cookie-authenticated writes another way (e.g. a proxy). |
+| `requestContext: { dependencies?, bindTenant?, checkSession? }` | Opt-in seam. `dependencies: 'route-config'` builds the context through `routeConfig.resolveDependencies` (the app's tenant-binding and liveness gates installed there run for chat; access is checked after it). `bindTenant({ request, auth, chat, route })` → `{ tenantId }` or `{ refuse }` (then `audienceTenantOverride` is ignored). `checkSession(...)` → `false` = 401 `chat.session_not_live`. Applies to `/turn` and `/confirm`. |
+| `prepareTurn({ ctx, chat, request, body, rawBody, userMessage })` | Per turn: `{ promptInput?, trustedHistory?, validateReply? }` or `{ error }`. The only way server-owned prompt input reaches a route-served turn; body fields are never copied. |
+| `validateReply(reply, turn)` | Check every finished reply before it is persisted: `{ decision: 'accept' }` or `{ decision: 'replace', text, code }`. A replaced streamed draft gets `message.replaced`; a throw fails the turn closed. |
+
+### Validate before persist, client actions, rolling summary
+
+- **`validateReply`** (`runChatTurn` opts, `registerChatRoutes` opts or `prepareTurn`, `createChatTurnCapability(chat, opts)`): runs after the post-turn guards and before `appendTurn`. Only the accepted or replacement text is stored; `message.replaced { text, code }` tells the client to swap the streamed bubble; `turn.completed.moderation` carries the code. Throwing → nothing stored, `turn.failed chat.reply_validation_failed`. Use it for app checks that need the turn's context (the reply's structured output arrives as `reply.modelOutput`).
+- **`clientActions`**: the custom prompt's output carries `clientActions: [...]`; the runtime validates each against `schema`, keeps `maxPerReply`, sends them on `turn.completed.clientActions` and stores them with the turn. The page carries them out — no extra model call, no capability. Use server `actions` / `toolCalling` for anything that changes data. To persist them through the DB store, register `chatTurnWithReplyMetadataEntity` instead of `chatTurnEntity` and migrate.
+- **Rolling summary** is off unless `history.summarize.thresholdTurns` is set (`summarize: false` is explicit). It writes in the conversation's locale (`policy.reply.locale`, else the session's) unless `summarize.locale` names one, and sends turns as delimited JSON data, never raw.
 
 ### `<ChatPanel turnUrl=… />`
 
@@ -162,7 +174,9 @@ When the server-side route is namespaced (`/api/chat/...`), pass `turnUrl` on th
 - **Don't** use a write-effect capability as `capabilityContext`. The framework rejects this at construction time; use `actions:` + `policy.action.allowedCapabilities` for writes.
 - **Don't** narrow a staged prompt output schema. The five base fields (`inScope`, `answer`, `refusalReason`, `citedSources`, `requestedAction`) are required by staged runtime guards. `orchestration:'agent'` is the explicit plain-text exception.
 - **Don't** call `runChatTurn` directly from your route handlers. Use `registerChatRoutes(app, routeConfig, chats)` — it wires auth, body validation, SSE, and `clientHistory` capping correctly.
-- **Don't** hand-write SSE event names. The protocol is `turn.started`, `source.added`, `notice`, `message.delta`, `confirmation_required`, `turn.completed`, `turn.failed`, plus the Path B tool events `tool.started`, `tool.completed`, `tool.failed`, and `confirmation.resolved` — defined in `src/types/event.ts`.
+- **Don't** hand-write SSE event names. The protocol is `turn.started`, `source.added`, `notice`, `message.delta`, `message.replaced`, `confirmation_required`, `turn.completed`, `turn.failed`, plus the Path B tool events `tool.started`, `tool.completed`, `tool.failed`, and `confirmation.resolved` — defined in `src/types/event.ts`.
+- **Don't** call `runChatTurn` programmatically just to get tenant binding, session liveness or server-owned prompt input — `registerChatRoutes` has `requestContext` and `prepareTurn` for that.
+- **Don't** persist a reply yourself after the turn to get a check in first — use `validateReply`, which runs before the runtime writes anything.
 - **Don't** invent source IDs. The resolver issues handles in source-declaration order (`src_a`, `src_b`, ...). Cite using exactly those strings.
 - **Don't** set speculative budget caps expecting silent no-ops — `perTurn`, `perSession.userMessages`, `actions.perSession`, and `provenance.minSources` are enforced at runtime.
 

@@ -22,6 +22,7 @@ import type { ChatDefinition } from '../types/chat.js';
 import type { ChatSourceRef } from '../types/context.js';
 import type { ChatEvent } from '../types/event.js';
 import type { GuardState } from '../types/policy.js';
+import type { ChatReplyValidator } from '../types/reply.js';
 import type { ChatNestedAiCall, ToolExecutionRecord } from '../types/tool.js';
 import {
   type BoundChatTool,
@@ -39,6 +40,11 @@ import type { ChatRegistry } from './chat-registry.js';
 import { clientSafeErrorMessage } from './client-error.js';
 import { type ClientHistoryMessage, capClientHistory } from './constants.js';
 import { ChatEventEmitter, emitterToIterable } from './events.js';
+import {
+  clientActionsFromOutput,
+  finalizeReply,
+  normalizeClientActions,
+} from './reply-finalize.js';
 import { runToolPhase } from './tool-phase.js';
 
 export interface RunChatTurnArgs {
@@ -95,6 +101,14 @@ export interface RunChatTurnOpts {
   /** Server-only observer of the custom agent prompt's validated final output.
    * Structured application metadata is not emitted to clients or rewritten. */
   onAgentOutput?: (output: unknown) => void;
+  /**
+   * App check on the finished reply, run BEFORE the assistant turn is written.
+   * It accepts the reply or replaces it with app text and a moderation code;
+   * only the accepted or replacement text is persisted. When the draft was
+   * already streamed, a `message.replaced` event tells the client to swap the
+   * bubble. See {@link ChatReplyValidator}.
+   */
+  validateReply?: ChatReplyValidator;
 }
 
 const defaultModelOutput = (): ChatTurnModelOutput => ({
@@ -360,6 +374,11 @@ export async function* runChatTurn(
         resolved = { ...trimmed, sourceRefs: resolvedRaw.sourceRefs };
       }
 
+      // Turns sent verbatim from the store; the summary must cover everything before them.
+      const storedWindowTurns =
+        args.trustedHistory === undefined && persistence === 'server'
+          ? (chat.history?.includeLastTurns ?? 8)
+          : undefined;
       const historyMessages =
         args.trustedHistory ??
         (persistence === 'client'
@@ -367,21 +386,31 @@ export async function* runChatTurn(
           : await loadHistoryWindow(
               ctx,
               args.sessionId,
-              chat.history?.includeLastTurns ?? 8,
+              storedWindowTurns ?? 8,
               persistence,
               opts?.sessionStore,
             ));
 
-      // Summarizer reads chat_turn rows. Ephemeral mode has none — skip.
-      const summaryResult = saveToDb
-        ? await maybeSummarize(
-            ctx,
-            session,
-            await sessionStore.listTurns(ctx, args.sessionId),
-            chat.history?.summarize,
-            opts?.sessionStore,
-          )
-        : null;
+      // Summarizer reads chat_turn rows. Ephemeral mode has none — skip. A chat
+      // without a summarize threshold (the default) reads no turns for it.
+      const summarizeConfig = chat.history?.summarize || undefined;
+      const summaryResult =
+        saveToDb && summarizeConfig?.thresholdTurns
+          ? await maybeSummarize(
+              ctx,
+              session,
+              await sessionStore.listTurns(ctx, args.sessionId),
+              summarizeConfig,
+              opts?.sessionStore,
+              {
+                conversationLocale:
+                  policy.reply?.locale && policy.reply.locale !== 'auto'
+                    ? policy.reply.locale
+                    : (session.locale ?? args.locale),
+                windowTurns: storedWindowTurns,
+              },
+            )
+          : null;
 
       const systemPrompt = buildSystemPrompt({
         chatInstructions: (chat.instructions ?? []).join('\n'),
@@ -404,6 +433,8 @@ export async function* runChatTurn(
       };
 
       let modelOutput = defaultModelOutput();
+      // The prompt's validated structured output, for client actions and validateReply.
+      let structuredOutput: unknown;
       let usage = { tokensIn: 0, tokensOut: 0 };
       let model = 'unknown';
       let provider = 'unknown';
@@ -508,6 +539,7 @@ export async function* runChatTurn(
             boundTools = bindChatCapabilityTools(ctx, policy.toolCalling?.capabilities ?? [], {
               maxTools: policy.toolCalling?.maxTools ?? 32,
               resolveCapability: opts?.resolveCapability,
+              readOnlyQueries: policy.toolCalling?.readOnlyQueries,
             });
           } catch (err) {
             if (err instanceof ChatToolBindError) {
@@ -591,6 +623,7 @@ export async function* runChatTurn(
             model = toolPhase.finalModel ?? 'unknown';
             provider = toolPhase.finalProvider ?? 'unknown';
             cost = toolPhaseCost;
+            structuredOutput = toolPhase.finalOutput;
             skipAnswerGeneration = true;
           }
 
@@ -783,6 +816,7 @@ export async function* runChatTurn(
             streamCompleted = true;
             if (chunk.data) {
               modelOutput = chunk.data as ChatTurnModelOutput;
+              structuredOutput = chunk.data;
             }
             if (chunk.usage) {
               usage = {
@@ -809,6 +843,7 @@ export async function* runChatTurn(
           costContext: { serviceArea: 'chat', operationName: `chat.${chat.name}` },
         });
         modelOutput = gen.data as ChatTurnModelOutput;
+        structuredOutput = gen.data;
         usage = {
           tokensIn: gen.usage?.inputTokens ?? 0,
           tokensOut: gen.usage?.outputTokens ?? 0,
@@ -901,7 +936,8 @@ export async function* runChatTurn(
         return;
       }
 
-      emit({ type: 'message.delta', text: modelOutput.answer ?? '' });
+      const streamedText = modelOutput.answer ?? '';
+      emit({ type: 'message.delta', text: streamedText });
 
       guardState.modelOutput = modelOutput as unknown as Record<string, unknown>;
       if (toolCallingEnabled && guardState.modelOutput) {
@@ -1100,10 +1136,65 @@ export async function* runChatTurn(
         return;
       }
 
-      const finalAnswer =
+      const guardedAnswer =
         typeof guardState.modelOutput?.answer === 'string'
           ? guardState.modelOutput.answer
           : modelOutput.answer;
+
+      // Validate before persist: the app's check runs on the finished reply, and
+      // only the accepted or replacement text is written below.
+      const finalized = await finalizeReply({
+        ctx,
+        chat,
+        validateReply: opts?.validateReply,
+        emit,
+        reply: {
+          text: guardedAnswer ?? '',
+          inScope: modelOutput.inScope,
+          refusalReason: modelOutput.refusalReason ?? null,
+          sources: citedSourceRefs,
+          clientActions: normalizeClientActions(
+            chat,
+            clientActionsFromOutput(structuredOutput),
+            emit,
+          ),
+          modelOutput: structuredOutput,
+          toolsExecuted,
+        },
+        turn: {
+          ctx,
+          chatName: chat.name,
+          sessionId: args.sessionId,
+          turnId,
+          userId: session.userId,
+          tenantId: session.tenantId,
+          audience: args.audience,
+          locale: args.locale,
+          userMessage: args.userMessage,
+          ...(args.promptInput ? { promptInput: args.promptInput } : {}),
+          phase: 'turn',
+        },
+      });
+      if (!finalized.ok) {
+        // Fail closed: withdraw the streamed draft and persist nothing of the turn.
+        emit({ type: 'message.replaced', text: '', code: 'chat.reply_validation_failed' });
+        emit({
+          type: 'turn.failed',
+          code: 'chat.reply_validation_failed',
+          message: 'The reply could not be checked',
+        });
+        emitter.end();
+        return;
+      }
+      const finalAnswer = finalized.text;
+      if (finalAnswer !== streamedText) {
+        emit({
+          type: 'message.replaced',
+          text: finalAnswer,
+          code: finalized.moderation?.code ?? 'chat.reply_rewritten',
+        });
+      }
+      const clientActions = finalized.clientActions;
 
       // Ephemeral mode: no chat_session anchor row exists, so we can't FK
       // chat_turn rows to it. Cost still flows to onAICostRecorded via the AI
@@ -1141,6 +1232,8 @@ export async function* runChatTurn(
             refusalReason: modelOutput.refusalReason ?? undefined,
             sources: citedSourceRefs,
             toolsExecuted: toolsExecuted.length > 0 ? toolsExecuted : undefined,
+            ...(clientActions.length > 0 ? { clientActions } : {}),
+            ...(finalized.moderation ? { moderation: finalized.moderation } : {}),
             tokensIn: usage.tokensIn,
             tokensOut: usage.tokensOut,
             costUsd: cost,
@@ -1169,6 +1262,8 @@ export async function* runChatTurn(
         inScope: modelOutput.inScope,
         refusalReason: modelOutput.refusalReason ?? null,
         sources: citedSourceRefs,
+        ...(chat.clientActions ? { clientActions } : {}),
+        ...(finalized.moderation ? { moderation: finalized.moderation } : {}),
       });
     } catch (err) {
       // Raw err.message can carry provider/database detail — log it, send a safe message.
@@ -1207,6 +1302,8 @@ export type ResumeToolLoopResult =
       cost: number;
       sourceRefs: ChatSourceRef[];
       toolsExecuted: ToolExecutionRecord[];
+      /** The continuation's validated output (for client actions / validateReply). */
+      modelOutput?: unknown;
     }
   | {
       kind: 'failed';
@@ -1287,5 +1384,6 @@ export async function resumeToolLoop(
     cost: gen.cost ?? 0,
     sourceRefs: args.sourceRefs,
     toolsExecuted: args.toolsExecuted,
+    modelOutput: gen.data,
   };
 }

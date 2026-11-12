@@ -83,6 +83,7 @@ const chatConfigSchema = z.object({
           includeNestedAiUsage: z.boolean().optional(),
           orchestration: z.enum(['staged', 'agent']).optional(),
           scopePreflight: z.boolean().optional(),
+          readOnlyQueries: z.boolean().optional(),
           maxToolRounds: z.number().int().min(1).max(20).optional(),
           maxTools: z.number().int().min(1).max(64).optional(),
           flowAwaitMs: z.number().int().min(0).max(120_000).optional(),
@@ -99,16 +100,32 @@ const chatConfigSchema = z.object({
     .object({
       includeLastTurns: z.number().int().min(1).optional(),
       summarize: z
-        .object({
-          strategy: z.enum(['rolling', 'threshold']),
-          thresholdTurns: z.number().int().optional(),
-          targetTokens: z.number().int().optional(),
-        })
+        .union([
+          z.literal(false),
+          z.object({
+            strategy: z.enum(['rolling', 'threshold']),
+            thresholdTurns: z.number().int().optional(),
+            targetTokens: z.number().int().optional(),
+            locale: z.string().min(1).optional(),
+          }),
+        ])
         .optional(),
     })
     .optional(),
   instructions: z.array(z.string()).optional(),
   prompt: z.custom().optional(),
+  clientActions: z
+    .object({
+      schema: z.custom<{ safeParse: unknown }>(
+        (value) =>
+          typeof value === 'object' &&
+          value !== null &&
+          typeof (value as { safeParse?: unknown }).safeParse === 'function',
+        { message: 'clientActions.schema must be a zod schema' },
+      ),
+      maxPerReply: z.number().int().min(1).max(10).optional(),
+    })
+    .optional(),
   persistence: z
     .object({
       messageContent: z.enum(['server', 'client']),

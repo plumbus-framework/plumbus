@@ -116,6 +116,8 @@ export function bindChatCapabilityTools(
     maxTools: number;
     /** Programmatic runChatTurn callers can supply app contracts explicitly. */
     resolveCapability?: (name: string) => CapabilityContract<any, any> | undefined;
+    /** `policy.toolCalling.readOnlyQueries` — see {@link isConfirmCapability}. */
+    readOnlyQueries?: boolean;
   },
 ): BoundChatTool[] {
   const resolve = opts.resolveCapability ?? ctx.__runtime?.resolveCapability;
@@ -145,7 +147,11 @@ export function bindChatCapabilityTools(
     }
     const { schema } = zodToProviderJsonSchema(cap.input, { promptName: name });
     const inputSchemaHash = capabilityInputSchemaHashV2(schema);
-    const mode: BoundToolMode = isConfirmCapability(cap) ? 'confirm' : 'auto';
+    const mode: BoundToolMode = isConfirmCapability(cap, {
+      readOnlyQueries: opts.readOnlyQueries,
+    })
+      ? 'confirm'
+      : 'auto';
     const targetVersion = cap.version ?? inputSchemaHash;
     const tool: AITool = {
       name,

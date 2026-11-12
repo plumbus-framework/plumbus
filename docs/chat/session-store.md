@@ -127,9 +127,18 @@ catch.
   bound to its chat (chat 0.3.2+), and `runChatTurn` also refuses a returned row whose
   `chatName` is set and differs. Concurrent first turns racing the same id must
   converge on one row.
-- **`listTurns` returns ascending ordinal order,** and `limit` truncates from the
-  start of that ordering. Note this yields the *oldest* N turns, matching the
-  DB-backed `history.includeLastTurns` behavior.
+- **`listTurns` returns ascending ordinal order,** and `limit` keeps the *newest*
+  `limit` turns, still returned oldest → newest. `history.includeLastTurns` reads the
+  model's history window through it, so a store that returns the first turns instead
+  sends the model the start of a long conversation and drops the recent turns
+  (both built-in stores returned the oldest turns up to chat 0.4.0-beta.3 / 0.3.2).
+- **`appendTurn` keeps `clientActions` and `moderation` when present** (chat
+  0.4.0-beta.4). An assistant row may carry the validated client actions of the reply
+  and the moderation code `validateReply` recorded when it replaced the reply. Both are
+  optional; store them with the row if the app relies on them. Only the accepted or
+  replacement text ever reaches `appendTurn` when `validateReply` is configured — a
+  rejected draft is never passed to the store. (The DB-backed default keeps them only
+  with `chatTurnWithReplyMetadataEntity`.)
 - **`loadMergedUserBehavioralState` merges oldest → newest,** so later sessions win on
   key collision. Cooldowns declared with `scope: 'user'` are only enforceable across
   sessions if this reflects other sessions' state.

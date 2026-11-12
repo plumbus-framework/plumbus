@@ -41,7 +41,7 @@ export function MyChat({ sessionId }: { sessionId: string }) {
 
 ```ts
 {
-  messages: ChatUiMessage[];                       // { role, content, sources?, inScope?, refusalReason? }
+  messages: ChatUiMessage[];                       // { role, content, sources?, inScope?, refusalReason?, clientActions?, replacedCode? }
   status: 'idle' | 'streaming' | 'awaiting_confirmation' | 'cooldown' | 'error';
   notices: ChatUiNotice[];                         // { code, message, retryAfterSeconds? }
   pendingConfirmation: ChatUiPendingConfirmation | null;
@@ -156,10 +156,11 @@ Useful when the consumer wants the same UX as `<ChatPanel />` but with a custom 
 |---|---|---|
 | `turn.started` | `turnId`, `ordinal` | sets `status = 'streaming'`. |
 | `message.delta` | `text` | appends to the in-progress assistant message (or starts a new one). |
+| `message.replaced` | `text`, `code` | replaces the in-progress assistant message's content with `text` and sets `replacedCode` (the server withdrew the streamed draft — app reply check, guard rewrite, or a failed check with empty text). |
 | `source.added` | `source: { id, origin, label? }` | attaches a citation source ID (deduped) to the assistant message. |
 | `notice` | `code`, `message`, `retryAfterSeconds?` | pushes into `notices`. `chat.cooldown_active` flips `status` to `'cooldown'`. |
 | `confirmation_required` | `actionId`, `capabilityName`, `confirmationMessage`, `expiresAt`, `inputSchemaHash?`, `projection?` | sets `pendingConfirmation`; flips `status` to `'awaiting_confirmation'`. |
-| `turn.completed` | `turnId`, `usage`, `cost`, `inScope?`, `refusalReason?`, `sources?` | tags the last assistant message with refusal metadata; flips `status` to `'idle'`. |
+| `turn.completed` | `turnId`, `usage`, `cost`, `inScope?`, `refusalReason?`, `sources?`, `clientActions?`, `moderation?` | tags the last assistant message with refusal metadata and its `clientActions` (carry them out in the page — they are app-defined UI moves); flips `status` to `'idle'`. |
 | `turn.failed` | `code`, `message` | flips `status` to `'error'`. |
 | `tool.started` | `toolCallId`, `name`, `kind` | recognized; folds to **no** state change (no tool message bubble). |
 | `tool.completed` | `toolCallId`, `name`, `kind`, `projection?` | pushes a `chat.tool_completed` notice. `projection` is validated ≤8 KiB — **never** raw capability/flow results. |

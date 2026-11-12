@@ -141,6 +141,8 @@ export type ToolPhaseResult =
       finalModel?: string;
       /** Provider that produced finalAnswer. */
       finalProvider?: string;
+      /** Agent orchestration: the final completion's validated output (the same value `onAgentOutput` receives). */
+      finalOutput?: unknown;
       usage: { tokensIn: number; tokensOut: number };
       cost: number;
     }
@@ -487,6 +489,7 @@ export async function runToolPhase(args: RunToolPhaseArgs): Promise<ToolPhaseRes
               finalAnswer: String(res.data?.content ?? ''),
               finalModel: res.model ?? 'unknown',
               finalProvider: res.provider ?? 'unknown',
+              finalOutput: res.data,
             }
           : {}),
         usage: { tokensIn: usageIn, tokensOut: usageOut },
@@ -577,6 +580,7 @@ export async function runToolPhase(args: RunToolPhaseArgs): Promise<ToolPhaseRes
       finalAnswer: String(terminal.data?.content ?? ''),
       finalModel: terminal.model ?? 'unknown',
       finalProvider: terminal.provider ?? 'unknown',
+      finalOutput: terminal.data,
       usage: { tokensIn: usageIn, tokensOut: usageOut },
       cost,
     };

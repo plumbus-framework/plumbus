@@ -1,6 +1,6 @@
 import type { AuthContext, ExecutionContext } from '@plumbus/core';
 import type { RouteGeneratorConfig } from '@plumbus/core';
-import { evaluateAccess } from '@plumbus/core/sdk';
+import { errorToHttpResponse, evaluateAccess, isPlumbusError } from '@plumbus/core/sdk';
 import { createExecutionContext } from '@plumbus/core/runtime';
 import { z } from '@plumbus/core/zod';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -9,6 +9,7 @@ import type { ChatPendingActionV2 } from '../session/pending-action-v2.js';
 import { assertChatStoresSupportChats, type ChatSessionStore } from '../session/session-store.js';
 import type { ChatDefinition } from '../types/chat.js';
 import type { ChatEvent } from '../types/event.js';
+import type { ChatReplyValidator } from '../types/reply.js';
 import { resolveToolBinding } from './bind-tools.js';
 import type { ChatConversationStore } from './chat-conversation-store.js';
 import type { ChatRegistry } from './chat-registry.js';
@@ -80,6 +81,73 @@ export interface ChatHttpOptions {
   authenticator: ChatRequestAuthenticator;
 }
 
+/** A refusal a seam hook asks the route to send instead of running the turn. */
+export interface ChatRouteRefusal {
+  status: number;
+  body: unknown;
+}
+
+/** Arguments every request-context hook receives. */
+export interface ChatRequestContextArgs {
+  /** The Fastify request (hostname, headers, ip). */
+  request: FastifyRequest;
+  /** The authenticated caller. Hooks may read it; tenant changes go through `bindTenant`. */
+  auth: AuthContext;
+  chat: ChatDefinition;
+  /** `turn` for `POST /chat/:name/turn`, `confirm` for `POST /chat/:name/confirm`. */
+  route: 'turn' | 'confirm';
+}
+
+/**
+ * The app's request-context seam for chat routes (opt-in; every field is
+ * optional and an absent field keeps the previous behavior).
+ *
+ * Order on `/turn` and `/confirm`: authenticate → body → browser Origin/CSRF →
+ * `bindTenant` → build dependencies (`dependencies`) → chat access → `checkSession`
+ * → pending-action check → `beforeTurn` → `prepareTurn` → turn.
+ */
+export interface ChatRequestContextSeam {
+  /**
+   * How the request's `ExecutionContext` dependencies are built.
+   * - `'create'` (default): `routeConfig.createDependencies(auth)`, as before.
+   * - `'route-config'`: `routeConfig.resolveDependencies(auth, { bypassTenantScope, locale })`
+   *   when the app supplies one (falling back to `createDependencies`) — the seam
+   *   capability routes use, so an app's tenant binding and session-liveness
+   *   gates installed there run for chat turns too. A thrown `PlumbusError` keeps
+   *   its HTTP status and code; anything else is a 500. Chat access is then
+   *   evaluated against the context's `auth` (after the resolver bound the tenant).
+   */
+  dependencies?: 'create' | 'route-config';
+  /**
+   * Decide the request's tenant from the request itself (e.g. its hostname).
+   * Return `{ tenantId }` to bind it (it replaces any tenant the credential
+   * claimed; `undefined` clears the claim, so `tenantScoped` chats are refused),
+   * or `{ refuse }` to send that response. Throwing a `PlumbusError` maps to its
+   * status. When set, `audienceTenantOverride` is not applied: a body field must
+   * never choose the tenant.
+   */
+  bindTenant?: (
+    args: ChatRequestContextArgs,
+  ) => Promise<{ tenantId: string | undefined } | { refuse: ChatRouteRefusal }>;
+  /**
+   * Is the caller's session still live (not revoked, not expired)? `false`
+   * refuses with 401 `{ error: { code: 'chat.session_not_live' } }`; a thrown
+   * `PlumbusError` maps to its status. Runs after access evaluation, before any
+   * pending-action read or model call.
+   */
+  checkSession?: (args: ChatRequestContextArgs & { ctx: ExecutionContext }) => Promise<boolean>;
+}
+
+/** Per-turn, server-owned turn inputs from the app (see `RegisterChatRoutesOpts.prepareTurn`). */
+export interface ChatPreparedTurn {
+  /** Server-owned prompt fields merged into the custom prompt's input (`RunChatTurnArgs.promptInput`). */
+  promptInput?: Record<string, unknown>;
+  /** Server-authoritative history for this turn (`RunChatTurnArgs.trustedHistory`). */
+  trustedHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  /** Per-turn reply check; wins over the route-level `validateReply`. */
+  validateReply?: ChatReplyValidator;
+}
+
 export interface RegisterChatRoutesOpts {
   authCookieNames?: string[];
   /** REQUIRED for chats with policy.toolCalling.enabled; supplies chat.toolRound /
@@ -92,6 +160,27 @@ export interface RegisterChatRoutesOpts {
     rawBody: unknown,
   ) => Promise<{ userMessage?: string } | { error: { status: number; body: unknown } }>;
   afterTurn?: (ctx: ExecutionContext, rawBody: unknown, events: ChatEvent[]) => Promise<void>;
+  /** Opt-in request-context seam: tenant binding, dependency resolution, session liveness. */
+  requestContext?: ChatRequestContextSeam;
+  /**
+   * Fill server-owned turn inputs per turn (prompt input, trusted history, a
+   * per-turn reply check). Runs after `beforeTurn`, with the turn's context.
+   * Request body fields are never copied into the prompt input by the route;
+   * only what this callback returns is used. Return `{ error }` to refuse.
+   */
+  prepareTurn?: (args: {
+    ctx: ExecutionContext;
+    chat: ChatDefinition;
+    request: FastifyRequest;
+    body: ChatTurnParsedBody;
+    rawBody: unknown;
+    userMessage: string;
+  }) => Promise<ChatPreparedTurn | { error: ChatRouteRefusal }>;
+  /**
+   * Validate every finished reply before it is persisted (turns and confirm
+   * resumes). See `RunChatTurnOpts.validateReply`.
+   */
+  validateReply?: ChatReplyValidator;
   /** D3 — injected authenticator; when absent a default is derived from routeConfig.authAdapter. */
   authenticator?: ChatRequestAuthenticator;
   /** D1 — conversation store; when present the /confirm route + C5 pre-turn pending check are enabled. */
@@ -246,6 +335,80 @@ function enforceBrowserWrite(
   return { ok: true };
 }
 
+type SeamOutcome<T> = { ok: true; value: T } | { ok: false; refusal: ChatRouteRefusal };
+
+function seamErrorRefusal(err: unknown): ChatRouteRefusal {
+  if (isPlumbusError(err)) {
+    const mapped = errorToHttpResponse(err);
+    return { status: mapped.statusCode, body: mapped.body };
+  }
+  return { status: 500, body: { error: { code: 'internal', message: 'Internal error' } } };
+}
+
+/** Apply `requestContext.bindTenant`; returns the caller with the bound tenant. */
+async function applyTenantBinding(
+  seam: ChatRequestContextSeam | undefined,
+  args: ChatRequestContextArgs,
+): Promise<SeamOutcome<AuthContext>> {
+  if (!seam?.bindTenant) return { ok: true, value: args.auth };
+  try {
+    const decided = await seam.bindTenant(args);
+    if ('refuse' in decided) return { ok: false, refusal: decided.refuse };
+    const bound: AuthContext = { ...args.auth };
+    if (decided.tenantId === undefined) delete (bound as { tenantId?: string }).tenantId;
+    else bound.tenantId = decided.tenantId;
+    return { ok: true, value: bound };
+  } catch (err) {
+    return { ok: false, refusal: seamErrorRefusal(err) };
+  }
+}
+
+/** Build the request's ExecutionContext through the configured dependency path. */
+async function buildRequestContext(
+  routeConfig: RouteGeneratorConfig,
+  seam: ChatRequestContextSeam | undefined,
+  auth: AuthContext,
+  chat: ChatDefinition,
+  req: FastifyRequest,
+): Promise<SeamOutcome<ExecutionContext>> {
+  let deps: ReturnType<RouteGeneratorConfig['createDependencies']>;
+  if (seam?.dependencies === 'route-config' && routeConfig.resolveDependencies) {
+    try {
+      const resolved = await routeConfig.resolveDependencies(auth, {
+        bypassTenantScope: chat.access?.tenantScoped === false,
+      });
+      deps = resolved.dependencies;
+    } catch (err) {
+      return { ok: false, refusal: seamErrorRefusal(err) };
+    }
+  } else {
+    deps = routeConfig.createDependencies(auth);
+  }
+  deps.request = {
+    sourceIp: req.ip,
+    userAgent: req.headers['user-agent'],
+  };
+  return { ok: true, value: createExecutionContext(deps) };
+}
+
+/** Apply `requestContext.checkSession`. */
+async function checkSessionLive(
+  seam: ChatRequestContextSeam | undefined,
+  args: ChatRequestContextArgs & { ctx: ExecutionContext },
+): Promise<SeamOutcome<true>> {
+  if (!seam?.checkSession) return { ok: true, value: true };
+  try {
+    const live = await seam.checkSession(args);
+    if (live === true) return { ok: true, value: true };
+    return {
+      ok: false,
+      refusal: { status: 401, body: { error: { code: 'chat.session_not_live' } } },
+    };
+  } catch (err) {
+    return { ok: false, refusal: seamErrorRefusal(err) };
+  }
+}
+
 export function registerChatRoutes(
   app: FastifyInstance,
   routeConfig: RouteGeneratorConfig,
@@ -306,16 +469,29 @@ export function registerChatRoutes(
         }
       }
 
-      const overriddenTenant = opts?.audienceTenantOverride?.(parsed.data.audience, auth);
-      if (overriddenTenant && !auth.tenantId) {
-        auth = { ...auth, tenantId: overriddenTenant };
+      const seam = opts?.requestContext;
+      const bound = await applyTenantBinding(seam, { request: req, auth, chat, route: 'turn' });
+      if (!bound.ok) return reply.status(bound.refusal.status).send(bound.refusal.body);
+      auth = bound.value;
+
+      if (!seam?.bindTenant) {
+        const overriddenTenant = opts?.audienceTenantOverride?.(parsed.data.audience, auth);
+        if (overriddenTenant && !auth.tenantId) {
+          auth = { ...auth, tenantId: overriddenTenant };
+        }
       }
 
-      const authz = evaluateAccess(chat.access, auth);
-      if (!authz.allowed) {
-        return reply.status(403).send({
-          error: { code: 'forbidden', message: authz.reason ?? 'Access denied' },
-        });
+      // Legacy order (no route-config resolver): access is decided before the
+      // dependencies are built. With the resolver, the resolver may bind the
+      // tenant, so access is decided on the context's caller afterwards.
+      const resolveFirst = seam?.dependencies === 'route-config';
+      if (!resolveFirst) {
+        const authz = evaluateAccess(chat.access, auth);
+        if (!authz.allowed) {
+          return reply.status(403).send({
+            error: { code: 'forbidden', message: authz.reason ?? 'Access denied' },
+          });
+        }
       }
 
       try {
@@ -324,12 +500,21 @@ export function registerChatRoutes(
         return reply.status(400).send({ error: { code: 'chat.client_history_too_large' } });
       }
 
-      const deps = routeConfig.createDependencies(auth);
-      deps.request = {
-        sourceIp: req.ip,
-        userAgent: req.headers['user-agent'],
-      };
-      const ctx = createExecutionContext(deps);
+      const built = await buildRequestContext(routeConfig, seam, auth, chat, req);
+      if (!built.ok) return reply.status(built.refusal.status).send(built.refusal.body);
+      const ctx = built.value;
+      if (resolveFirst) {
+        auth = ctx.auth;
+        const authz = evaluateAccess(chat.access, auth);
+        if (!authz.allowed) {
+          return reply.status(403).send({
+            error: { code: 'forbidden', message: authz.reason ?? 'Access denied' },
+          });
+        }
+      }
+
+      const live = await checkSessionLive(seam, { request: req, auth, chat, route: 'turn', ctx });
+      if (!live.ok) return reply.status(live.refusal.status).send(live.refusal.body);
 
       // C5 — check live pending BEFORE scope/provider work.
       if (store) {
@@ -398,6 +583,22 @@ export function registerChatRoutes(
         return;
       }
 
+      let prepared: ChatPreparedTurn = {};
+      if (opts?.prepareTurn) {
+        const result = await opts.prepareTurn({
+          ctx,
+          chat: definition,
+          request: req,
+          body: parsed.data,
+          rawBody: req.body,
+          userMessage: effectiveUserMessage,
+        });
+        if ('error' in result) {
+          return reply.status(result.error.status).send(result.error.body);
+        }
+        prepared = result;
+      }
+
       const runArgs = {
         chatDefinition: definition,
         sessionId: parsed.data.sessionId,
@@ -406,7 +607,11 @@ export function registerChatRoutes(
         locale: parsed.data.locale,
         clientHistory: capClientHistory(parsed.data.clientHistory),
         registry: opts?.chatRegistry,
+        ...(prepared.promptInput ? { promptInput: prepared.promptInput } : {}),
+        ...(prepared.trustedHistory ? { trustedHistory: prepared.trustedHistory } : {}),
       };
+      const validateReply = prepared.validateReply ?? opts?.validateReply;
+      const turnOpts: RunChatTurnOpts = validateReply ? { ...runOpts, validateReply } : runOpts;
 
       const csrfCookie = browserSecurityEnabled
         ? buildCsrfSetCookie(issueCsrfToken(csrfSecret, csrfBindingFromAuth(auth)), csrfSecure)
@@ -414,7 +619,7 @@ export function registerChatRoutes(
 
       if (!streaming) {
         const events: ChatEvent[] = [];
-        for await (const evt of runChatTurn(ctx, runArgs, runOpts)) {
+        for await (const evt of runChatTurn(ctx, runArgs, turnOpts)) {
           events.push(evt);
         }
         if (opts?.afterTurn) {
@@ -436,7 +641,7 @@ export function registerChatRoutes(
       });
 
       const events: ChatEvent[] = [];
-      for await (const evt of runChatTurn(ctx, runArgs, runOpts)) {
+      for await (const evt of runChatTurn(ctx, runArgs, turnOpts)) {
         events.push(evt);
         reply.raw.write(`data: ${JSON.stringify(evt)}\n\n`);
       }
@@ -498,7 +703,7 @@ async function handleConfirm(
     reply.status(401).send({ error: 'Unauthorized' });
     return;
   }
-  const auth = authn.auth;
+  let auth = authn.auth;
 
   const parsed = confirmBodySchema.safeParse(req.body);
   if (!parsed.success) {
@@ -520,20 +725,43 @@ async function handleConfirm(
     }
   }
 
-  const authz = evaluateAccess(chat.access, auth);
-  if (!authz.allowed) {
+  const seam = deps.opts?.requestContext;
+  const bound = await applyTenantBinding(seam, { request: req, auth, chat, route: 'confirm' });
+  if (!bound.ok) {
+    reply.status(bound.refusal.status).send(bound.refusal.body);
+    return;
+  }
+  auth = bound.value;
+
+  const resolveFirst = seam?.dependencies === 'route-config';
+  const denyIfNoAccess = (): boolean => {
+    const authz = evaluateAccess(chat.access, auth);
+    if (authz.allowed) return false;
     reply.status(403).send({
       error: { code: 'forbidden', message: authz.reason ?? 'Access denied' },
     });
-    return;
-  }
+    return true;
+  };
+  if (!resolveFirst && denyIfNoAccess()) return;
 
   const { actionId, inputSchemaHash, decision } = parsed.data;
   const now = new Date().toISOString();
 
-  const deps2 = routeConfig.createDependencies(auth);
-  deps2.request = { sourceIp: req.ip, userAgent: req.headers['user-agent'] };
-  const ctx = createExecutionContext(deps2);
+  const built = await buildRequestContext(routeConfig, seam, auth, chat, req);
+  if (!built.ok) {
+    reply.status(built.refusal.status).send(built.refusal.body);
+    return;
+  }
+  const ctx = built.value;
+  if (resolveFirst) {
+    auth = ctx.auth;
+    if (denyIfNoAccess()) return;
+  }
+  const live = await checkSessionLive(seam, { request: req, auth, chat, route: 'confirm', ctx });
+  if (!live.ok) {
+    reply.status(live.refusal.status).send(live.refusal.body);
+    return;
+  }
 
   const csrfCookie = deps.browserSecurityEnabled
     ? buildCsrfSetCookie(
@@ -672,6 +900,7 @@ async function handleConfirm(
         confirmResult = r;
       },
       signal,
+      validateReply: deps.opts?.validateReply,
     });
     reply.raw.end();
     return;
@@ -690,6 +919,7 @@ async function handleConfirm(
       confirmResult = r;
     },
     signal,
+    validateReply: deps.opts?.validateReply,
   });
   if (csrfCookie) reply.header('set-cookie', csrfCookie);
   reply.status(200).send({ events, result: confirmResult });

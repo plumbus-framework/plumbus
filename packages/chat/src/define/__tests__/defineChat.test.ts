@@ -135,3 +135,51 @@ describe('defineChat', () => {
     warn.mockRestore();
   });
 });
+
+describe('defineChat — reply metadata options', () => {
+  it('accepts clientActions with a zod schema and keeps the schema usable', () => {
+    const schema = z.object({ kind: z.literal('open'), target: z.string() });
+    const chat = defineChat({
+      name: 'ca',
+      access: {},
+      context: [],
+      clientActions: { schema, maxPerReply: 2 },
+    });
+    expect(chat.clientActions?.maxPerReply).toBe(2);
+    expect(chat.clientActions?.schema.safeParse({ kind: 'open', target: 'x' }).success).toBe(true);
+  });
+
+  it('rejects a clientActions schema that is not a zod schema, and an out-of-range cap', () => {
+    expect(() =>
+      defineChat({ name: 'bad', access: {}, clientActions: { schema: {} as never } }),
+    ).toThrow(/clientActions/);
+    expect(() =>
+      defineChat({
+        name: 'bad2',
+        access: {},
+        clientActions: { schema: z.object({}), maxPerReply: 11 },
+      }),
+    ).toThrow(/maxPerReply/);
+  });
+
+  it('accepts history.summarize: false and a summarize locale', () => {
+    expect(defineChat({ name: 's1', access: {}, history: { summarize: false } }).history).toEqual({
+      summarize: false,
+    });
+    const chat = defineChat({
+      name: 's2',
+      access: {},
+      history: { summarize: { strategy: 'rolling', thresholdTurns: 10, locale: 'he' } },
+    });
+    expect(chat.history?.summarize).toMatchObject({ locale: 'he' });
+  });
+
+  it('accepts policy.toolCalling.readOnlyQueries', () => {
+    const chat = defineChat({
+      name: 'roq',
+      access: {},
+      policy: { toolCalling: { enabled: true, readOnlyQueries: true, capabilities: ['q'] } },
+    });
+    expect(chat.policy?.toolCalling?.readOnlyQueries).toBe(true);
+  });
+});

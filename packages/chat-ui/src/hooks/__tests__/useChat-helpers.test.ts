@@ -308,3 +308,57 @@ describe('buildTurnRequestBody', () => {
     expect(body.clientHistory).toBeUndefined();
   });
 });
+
+describe('applyChatEvent — message.replaced', () => {
+  it('replaces the streamed assistant bubble with the replacement text and records the code', () => {
+    let s = pushUserMessage(initialChatUiState, 'hi');
+    s = applyChatEvent(s, { type: 'message.delta', text: 'unchecked draft' });
+    s = applyChatEvent(s, { type: 'message.replaced', text: 'Fallback line', code: 'app.blocked' });
+    expect(s.messages).toHaveLength(2);
+    expect(s.messages[1]).toEqual({
+      role: 'assistant',
+      content: 'Fallback line',
+      replacedCode: 'app.blocked',
+    });
+  });
+
+  it('pushes an assistant message when nothing was streamed yet', () => {
+    const s = applyChatEvent(pushUserMessage(initialChatUiState, 'hi'), {
+      type: 'message.replaced',
+      text: 'Fallback line',
+      code: 'app.blocked',
+    });
+    expect(s.messages[1]?.content).toBe('Fallback line');
+  });
+});
+
+describe('applyChatEvent — turn.completed client actions', () => {
+  it('attaches clientActions to the assistant message', () => {
+    let s = pushUserMessage(initialChatUiState, 'hi');
+    s = applyChatEvent(s, { type: 'message.delta', text: 'Open it.' });
+    s = applyChatEvent(s, {
+      type: 'turn.completed',
+      turnId: 't1',
+      usage: { tokensIn: 1, tokensOut: 1 },
+      cost: 0,
+      inScope: true,
+      refusalReason: null,
+      clientActions: [{ kind: 'open', target: 'lesson-2' }],
+    });
+    expect(s.messages[1]?.clientActions).toEqual([{ kind: 'open', target: 'lesson-2' }]);
+  });
+
+  it('leaves messages without clientActions unchanged in shape', () => {
+    let s = pushUserMessage(initialChatUiState, 'hi');
+    s = applyChatEvent(s, { type: 'message.delta', text: 'ok' });
+    s = applyChatEvent(s, {
+      type: 'turn.completed',
+      turnId: 't1',
+      usage: { tokensIn: 1, tokensOut: 1 },
+      cost: 0,
+      inScope: true,
+      refusalReason: null,
+    });
+    expect(s.messages[1]).not.toHaveProperty('clientActions');
+  });
+});

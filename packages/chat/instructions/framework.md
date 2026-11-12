@@ -56,7 +56,9 @@ If you need to find or extend something, this is where it lives:
 | History window + summarization | `src/history/{window,summarizer}.ts` |
 | Persisted entities | `src/session/{entity,turn-entity,pending-action-entity}.ts` |
 | Session helpers | `src/session/service.ts` (`createSession`, `appendTurn`, `aggregateForBudget`) |
-| HTTP route registration | `src/runtime/http.ts` |
+| HTTP route registration (+ `requestContext` seam, `prepareTurn`) | `src/runtime/http.ts` |
+| Reply check (`validateReply`) + client actions | `src/runtime/reply-finalize.ts`, types in `src/types/reply.ts` |
+| Multi-turn evals, simulated users, judges | `src/define/defineChatEvaluation.ts`, `src/eval/{run-evaluation,model-helpers}.ts` |
 | Generic chat prompt | `src/prompt/chat-turn.prompt.ts` |
 | System prompt builder | `src/prompt/build-system-prompt.ts` |
 | Provenance issuer + validator | `src/runtime/provenance.ts` |
@@ -110,6 +112,8 @@ The files in this `instructions/` folder are PRESCRIPTIVE (do this, don't do tha
 - **Never use a write-effect capability as `capabilityContext`.** The framework rejects it at construction time; if you bypass that, every turn mutates state.
 - **Never narrow a staged chat prompt's output schema.** The five base fields (`inScope`, `answer`, `refusalReason`, `citedSources`, `requestedAction`) are required for staged runtime guards. Agent tool orchestration is the explicit exception: it requires a custom plain-text prompt and synthesizes the policy envelope.
 - **Never call `runChatTurn` directly from a route.** Use `registerChatRoutes(app, routeConfig, chats)` so SSE, auth, body validation, and `clientHistory` capping are handled correctly.
+- **Never let unchecked model text reach storage when the app checks replies.** Configure `validateReply`; the runtime then writes only the accepted or replacement text, and `message.replaced` withdraws the streamed draft. Do not re-implement this with a staging store.
+- **Never let a request body field choose the tenant.** With `requestContext.bindTenant` the route ignores `audienceTenantOverride`; bind from what the platform observed (hostname, the session it issued).
 - **Never store sensitive prose in `ChatTurn.content` without setting `persistence: { messageContent: 'client' }`.** Audit + cross-device hydration are nice but they have privacy implications — pick the mode deliberately.
 - **Never invent source IDs in tests or fixtures.** The resolver issues handles (`src_a`, `src_b`, ...) in the order sources are declared in the chat config; cite using those exact strings.
 - **Never bypass the action-guard for capability-backed writes.** Configure `policy.action.allowedCapabilities` and let the framework re-validate + confirm. Do not exec capabilities directly from a context source.

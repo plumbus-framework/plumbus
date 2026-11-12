@@ -9,13 +9,41 @@ export type ChatExposeAs = 'capability' | 'sse' | 'both';
 
 export type MessagePersistence = 'server' | 'client';
 
+export interface ChatHistorySummarizeConfig {
+  strategy: 'rolling' | 'threshold';
+  /** Summarize once more than this many turns are not yet in the summary. Without it the summarizer never runs. */
+  thresholdTurns?: number;
+  targetTokens?: number;
+  /**
+   * Language of the summary. `'conversation'` (default): the chat's
+   * `policy.reply.locale` when it names one, else the session's locale. Any other
+   * value is a BCP 47 tag used as is. An unusable tag falls back to "the
+   * language the conversation is conducted in".
+   */
+  locale?: 'conversation' | string;
+}
+
 export interface ChatHistoryConfig {
   includeLastTurns?: number;
-  summarize?: {
-    strategy: 'rolling' | 'threshold';
-    thresholdTurns?: number;
-    targetTokens?: number;
-  };
+  /** Rolling summary of older turns. Off unless set with `thresholdTurns`; `false` turns it off explicitly. */
+  summarize?: ChatHistorySummarizeConfig | false;
+}
+
+/**
+ * Structured, app-defined UI moves a reply may carry ("open this lesson",
+ * "show the hint"): the page carries them out, with no extra model call and no
+ * server capability. Distinct from server `actions` / tool calling, which run
+ * capabilities (with confirmation).
+ *
+ * The runtime reads them from the prompt output's `clientActions` array, drops
+ * those that fail `schema`, keeps at most `maxPerReply`, sends them on
+ * `turn.completed.clientActions` and persists them with the assistant turn.
+ */
+export interface ChatClientActionsConfig {
+  /** Schema of ONE client action. */
+  schema: z.ZodTypeAny;
+  /** Default 1; range 1..10. */
+  maxPerReply?: number;
 }
 
 export interface ChatConfig {
@@ -29,6 +57,8 @@ export interface ChatConfig {
   history?: ChatHistoryConfig;
   instructions?: string[];
   prompt?: PromptDefinition<z.ZodTypeAny, z.ZodTypeAny>;
+  /** Opt-in client actions; see {@link ChatClientActionsConfig}. */
+  clientActions?: ChatClientActionsConfig;
   /**
    * `messageContent` controls where turn TEXT lives:
    *   - `'server'`: `chat_turn.content` is written by the runtime (default).

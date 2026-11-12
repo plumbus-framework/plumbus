@@ -129,10 +129,18 @@ policy: {
     includeNestedAiUsage: false, // staged compatibility; agent defaults true
     orchestration: 'staged', // or 'agent' with a custom plain-text prompt
     scopePreflight: true,    // agent defaults false
+    readOnlyQueries: false,  // opt-in: kind:'query' caps whose only effects are data reads run as auto tools
     maxToolRounds: 5,  // default 5, range 1..20
   },
 },
 ```
+
+- **Read-only app function inside a turn** (e.g. "read an earlier conversation"): define it
+  as a `kind: 'query'` capability that declares the entities it reads, list it in
+  `capabilities`, set `readOnlyQueries: true` and a small `maxToolRounds`. The model calls
+  it, Chat runs it through `executeCapability` (access enforced) and feeds the result back
+  as a native tool message; the turn then answers. Without `readOnlyQueries`, a capability
+  with any `effects.data` is a confirm tool. See `/docs/chat/tool-calling.md#example-a-read-only-tool-within-a-turn`.
 
 - Bind capabilities and `autoStartFlows` as provider-native tools; the model calls them
   over a bounded per-turn loop. Auto-mode tools execute inline (access policy enforced);

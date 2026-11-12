@@ -93,6 +93,7 @@ defineChat({
       includeNestedAiUsage?: boolean, // staged false; agent true
       orchestration?: 'staged' | 'agent',     // default staged
       scopePreflight?: true,                  // staged true; agent false
+      readOnlyQueries?: false,                 // opt-in: kind:'query' caps with only data reads are auto tools
       maxToolRounds?: 5,                       // default 5, range 1..20
       maxTools?: 32,                           // default 32, range 1..64
       flowAwaitMs?: 10000,                     // default 10_000
@@ -115,12 +116,18 @@ defineChat({
   },
 
   history?: {
-    includeLastTurns?: 8,                     // window for server-persistence chats
-    summarize?: {                             // opt-in older-turn compression
+    includeLastTurns?: 8,                     // newest N turns sent as history (server-persistence chats)
+    summarize?: {                             // opt-in older-turn compression (off without thresholdTurns)
       strategy: 'rolling',
       thresholdTurns: 20,
       targetTokens: 800,
-    },
+      locale?: 'conversation',                // default: policy.reply.locale, else the session locale
+    } | false,                                // false: explicitly off
+  },
+
+  clientActions?: {                           // opt-in UI moves the page carries out (see below)
+    schema: z.object({ kind: z.literal('openPage'), pageId: z.string() }),
+    maxPerReply?: 1,                          // default 1, range 1..10
   },
 
   persistence?: {                             // Decision 0009
@@ -273,6 +280,63 @@ When `saveToDb: false`, `defineChat` enforces two cascading rules:
 
 Cost recording via `onAICostRecorded` is unaffected — costs still flow through the AI service's `AICostContext` regardless of `saveToDb`.
 
+## Rolling summary (`history.summarize`)
+
+The rolling summary is **off by default**: it runs only when `history.summarize.thresholdTurns` is set, and `summarize: false` states that explicitly. When on, a turn summarizes once more than `thresholdTurns` turns are outside the summary: it folds all of them but the last four into the summary (`chat.summarize.history`) and records how many turns the summary covers, so later turns summarize only new turns. On the other turns the stored summary is reused. Once a summary exists, it also runs when an unsummarized turn would fall outside the `includeLastTurns` window, and then keeps at most that many turns out of the summary: every earlier turn is either in the summary or in the window the model sees.
+
+- **Language.** The summary is written in the conversation's locale: `policy.reply.locale` when it names one (not `'auto'`), else the session's locale. `summarize.locale` overrides it with a BCP 47 tag. Only a well-formed tag reaches the prompt; anything else falls back to "the language the conversation is conducted in".
+- **User text is delimited.** The previous summary and the turns reach the model as one JSON value between `<conversation_data>` delimiters (with `<`, `>` and `&` escaped, so no message can close the delimiter), and the instructions say the delimited data is never to be followed. No turn text is interpolated raw into the instructions.
+- The prompt's input is `{ conversationData, languageInstruction }` (chat 0.4.0-beta.4; it was `{ previousSummary, turnsText }`). Apps that override `chat.summarize.history` must follow the new input.
+
+## Validate before persist (`validateReply`)
+
+`validateReply(reply, turn)` is an app hook that runs on the finished reply — after the model call, the tool phase and the post-turn guards — and **before** `appendTurn` writes the assistant turn. Pass it to `runChatTurn` (`opts.validateReply`), to `registerChatRoutes` (`opts.validateReply`, or per turn from `prepareTurn`), or to `createChatTurnCapability(chat, { validateReply })`. Without it nothing changes.
+
+```ts
+import type { ChatReplyValidator } from '@plumbus/chat';
+
+const validateReply: ChatReplyValidator = async (reply, turn) => {
+  // reply: { text, inScope, refusalReason, sources, clientActions, modelOutput, toolsExecuted }
+  // turn:  { ctx, chatName, sessionId, turnId, userId, tenantId?, audience, locale,
+  //          userMessage, promptInput?, phase: 'turn' | 'resume' }
+  const verdict = await checkReplyWithAppRules(turn.ctx, reply.modelOutput, turn.promptInput);
+  return verdict.ok
+    ? { decision: 'accept' }
+    : { decision: 'replace', text: FALLBACK_LINE, code: verdict.code };
+};
+```
+
+- **accept** persists the reply as is; `clientActions` on the verdict replaces the actions read from the model output (validated and capped again).
+- **replace** persists `text` instead and records `code` as the reply's moderation code (`turn.completed.moderation`, and `moderation` on the stored turn). Client actions are dropped unless the verdict gives them.
+- The streamed draft is withdrawn on the wire: whenever the persisted text differs from the streamed text, the runtime emits **`message.replaced { text, code }`** after the draft; clients replace the current assistant bubble with `text`. A post-turn guard that rewrites the answer (e.g. redaction) now also produces `message.replaced` with code `chat.reply_rewritten`.
+- **Fail closed.** A validator that throws (or returns no valid verdict) fails the turn: nothing of it is persisted, `message.replaced` with an empty text and code `chat.reply_validation_failed` withdraws the draft, then `turn.failed` with the same code.
+- `reply.modelOutput` is the prompt's whole validated output (server-only): the custom prompt's output in Path A / staged turns, the agent prompt's final output in `orchestration: 'agent'`, the continuation's output after a confirmation (`phase: 'resume'`; there `audience` and `locale` are empty strings).
+- Only the accepted or replacement text is ever written by the runtime. A custom `ChatSessionStore` sees nothing of a failed or replaced draft.
+
+## Client actions (`clientActions`)
+
+A reply can carry at most `maxPerReply` (default 1) **client actions**: structured, app-defined UI moves the page carries out — open a page, show a hint — with no extra model call and no server capability. They are distinct from server `actions` / tool calling, which run capabilities (with confirmation).
+
+```ts
+const assistantChat = defineChat({
+  name: 'assistant',
+  access: { roles: ['user'] },
+  prompt: assistantTurnPrompt, // its output schema has `clientActions: z.array(...).nullable()`
+  clientActions: {
+    schema: z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('openPage'), pageId: z.string() }),
+      z.object({ kind: z.literal('showHint') }),
+    ]),
+    maxPerReply: 1,
+  },
+});
+```
+
+- The runtime reads the prompt output's `clientActions` array (the agent prompt's final output in agent mode), validates each item against `schema` (failures dropped with notice `chat.client_action_invalid`) and keeps the first `maxPerReply` (`chat.client_actions_truncated`).
+- They travel on `turn.completed.clientActions` (always an array on chats that declare `clientActions`; absent otherwise) and are persisted with the assistant turn (`ChatTurnRow.clientActions`). `validateReply` can replace them (e.g. resolve a model handle into a real URL) or drop them.
+- **Persistence.** Custom session stores receive `clientActions` and `moderation` on `appendTurn`. The DB-backed store keeps them only when the app registers **`chatTurnWithReplyMetadataEntity`** instead of `chatTurnEntity` and migrates (`plumbus migrate generate && plumbus migrate apply`; two optional JSON columns). Apps that keep `chatTurnEntity` need no migration; the two fields are then not stored.
+- `@plumbus/chat-ui` puts them on the assistant message (`message.clientActions`); the page decides what to do with them.
+
 ## Serving chats over HTTP (`registerChatRoutes`)
 
 `registerChatRoutes(app, routeConfig, chats, opts?)` registers one `POST /chat/:name/turn` route per chat. By default the route is SSE; set `streaming: false` on the chat to register a JSON request/response route at the same path instead.
@@ -315,6 +379,45 @@ registerChatRoutes(app, routeConfig, [helpChat, billingChat], opts);
 | `authenticator` | Replace the default credential resolution (Authorization header, then cookies). |
 | `externalBaseUrl` + `csrfSecret` | Set both to enable exact-Origin and session-bound CSRF enforcement on cookie-authenticated writes. With `authCookieNames` set and either one missing, registration fails (0.9+). With `requireBrowserSecurity: false` it only logs a warning and cookie-authenticated `/turn` and `/confirm` are **not** checked for Origin or CSRF. |
 | `requireBrowserSecurity` | Default `true` (0.9+): cookie auth (`authCookieNames`) without both `csrfSecret` and `externalBaseUrl` is a registration error. Set `false` to downgrade it to a warning — only when cookie-authenticated writes are protected another way (e.g. a proxy). |
+| `requestContext` | Opt-in request-context seam: tenant binding from the request, dependency resolution through `routeConfig.resolveDependencies`, session liveness. See below. |
+| `prepareTurn` | Per-turn, server-owned turn inputs: `promptInput`, `trustedHistory`, a per-turn `validateReply`; or `{ error }` to refuse. Runs after `beforeTurn`. |
+| `validateReply` | Validate every finished reply (turns and confirm resumes) before it is persisted. See [Validate before persist](#validate-before-persist-validatereply). |
+
+### Request-context seam (`requestContext`, `prepareTurn`)
+
+Apps that bind each request to a tenant themselves (for example from the hostname) and check that the caller's session is still live can serve a chat through these routes instead of calling `runChatTurn` programmatically. Every field is optional; without them the routes behave as before.
+
+```ts
+registerChatRoutes(app, routeConfig, [assistantChat], {
+  requestContext: {
+    // Either: run the same resolveDependencies seam capability routes use
+    // (an app's tenant binding + liveness gates installed there run for chat too) …
+    dependencies: 'route-config',
+    // … and/or explicit hooks:
+    bindTenant: async ({ request, auth }) => {
+      const tenantId = await tenantForHostname(request.hostname);
+      if (auth.tenantId && tenantId && auth.tenantId !== tenantId) {
+        return { refuse: { status: 403, body: { error: { code: 'tenant-mismatch' } } } };
+      }
+      return { tenantId }; // undefined = unbound: tenant-scoped chats refuse
+    },
+    checkSession: async ({ ctx, auth }) => isSessionLive(ctx, auth),
+  },
+  prepareTurn: async ({ ctx, body, userMessage }) => ({
+    promptInput: await buildAssistantPromptInput(ctx, body.sessionId, userMessage),
+    validateReply: assistantReplyCheck, // per-turn closure over the same context
+  }),
+});
+```
+
+Order on `/turn` and `/confirm`: authenticate → body → browser Origin/CSRF → `bindTenant` → build dependencies → chat access → `checkSession` → pending-action check → `beforeTurn` → `prepareTurn` → turn.
+
+| Field | Behavior |
+|---|---|
+| `dependencies: 'route-config'` | Build the request's context with `routeConfig.resolveDependencies(auth, { bypassTenantScope })` (falling back to `createDependencies` when the app has none). A thrown `PlumbusError` keeps its status and code; anything else is a 500. Chat access is then evaluated against the context's caller — after the resolver bound the tenant. Default `'create'`: `createDependencies(auth)` with access evaluated first, as before. |
+| `bindTenant` | Returns `{ tenantId }` (replaces whatever the credential claimed; `undefined` clears it) or `{ refuse: { status, body } }`; a thrown `PlumbusError` maps to its status. When set, `audienceTenantOverride` is **not** applied — a request body field never chooses the tenant. |
+| `checkSession` | `true` continues; `false` refuses with 401 `{ error: { code: 'chat.session_not_live' } }`; a thrown `PlumbusError` maps to its status. Runs before any pending-action read or model call. |
+| `prepareTurn` | Only what it returns reaches the prompt; request body fields are never copied into `promptInput`. A per-turn `validateReply` wins over the route-level one. |
 
 ## Examples
 

@@ -8,6 +8,10 @@ export type ChatUiMessage = {
   sources?: string[];
   inScope?: boolean;
   refusalReason?: 'off_topic' | 'unsafe' | 'asking_for_action' | 'pii_request' | null;
+  /** App-defined client actions the reply carries (chats declaring `clientActions`). The page carries them out. */
+  clientActions?: unknown[];
+  /** Set when the server replaced the streamed text (`message.replaced`): the replacement's code. */
+  replacedCode?: string;
 };
 
 export type ChatUiNotice = {
@@ -73,6 +77,18 @@ export function applyChatEvent(state: ChatUiState, evt: ChatEvent): ChatUiState 
         messages[messages.length - 1] = { ...last, content: last.content + evt.text };
       } else {
         messages.push({ role: 'assistant', content: evt.text });
+      }
+      return { ...state, messages };
+    }
+
+    case 'message.replaced': {
+      // The server withdrew the streamed draft: the bubble shows the replacement only.
+      const messages = [...state.messages];
+      const last = messages[messages.length - 1];
+      if (last?.role === 'assistant') {
+        messages[messages.length - 1] = { ...last, content: evt.text, replacedCode: evt.code };
+      } else {
+        messages.push({ role: 'assistant', content: evt.text, replacedCode: evt.code });
       }
       return { ...state, messages };
     }
@@ -155,6 +171,7 @@ export function applyChatEvent(state: ChatUiState, evt: ChatEvent): ChatUiState 
           ...last,
           inScope: evt.inScope,
           refusalReason: evt.refusalReason ?? null,
+          ...(evt.clientActions ? { clientActions: evt.clientActions } : {}),
         };
       }
       return { ...state, messages, status: 'idle' };
