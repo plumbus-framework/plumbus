@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0-beta.4 — unreleased
+## 0.4.0-beta.4 — 2026-11-12 — reply validation, client actions, multi-turn evaluations
 
 All additions are opt-in; chats and routes that set none of the new options behave as before. **No migration** unless you choose `chatTurnWithReplyMetadataEntity`. Peers unchanged.
 

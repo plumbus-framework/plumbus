@@ -6,11 +6,23 @@ The 0.8 numbers now belong to the stable **stabilization family** published from
 
 Core 0.9.0-beta.0 contains everything in the 0.8.0-beta.N line plus every stable change merged from `main`: the core 0.8.0 stabilization (PLB-01 to PLB-10), core 0.8.1, auth 0.3.1 and the Vitest 5.0.4 toolchain. See [Included in v0.9.0-beta.0](#included-in-v090-beta0).
 
-## v0.9.0-beta.11 (2026-11-12): flow runner concurrency
+## v0.9.0-beta.11 (2026-11-12): flow runner concurrency, chat reply validation
 
-Prepared for repository release `v0.9.0-beta.11` under npm dist-tag `plumbus-next`. Only
-`@plumbus/core` changes, from **0.9.0-beta.10** to **0.9.0-beta.11**; every other package and all
+Prepared for repository release `v0.9.0-beta.11` under npm dist-tag `plumbus-next`. Three packages
+change: `@plumbus/core` **0.9.0-beta.10 → 0.9.0-beta.11**, `@plumbus/chat` **0.4.0-beta.3 →
+0.4.0-beta.4** and `@plumbus/chat-ui` **0.4.0-beta.0 → 0.4.0-beta.1**. Every other package and all
 peer ranges stay unchanged.
+
+The chat additions are opt-in (reply validation before persist, client actions, multi-turn
+evaluations, read-only query tools, a request-context seam on `registerChatRoutes`) and need no
+migration unless you adopt `chatTurnWithReplyMetadataEntity`. Two changes apply without opting in:
+`history.includeLastTurns` now sends the newest turns (it sent the oldest), and apps that override
+the `chat.summarize.history` prompt must take its new input `{ conversationData,
+languageInstruction }`. Custom `ChatSessionStore.listTurns(…, { limit })` implementations must
+return the newest `limit` turns. See the [`@plumbus/chat` changelog](../packages/chat/CHANGELOG.md)
+and [`@plumbus/chat-ui` changelog](../packages/chat-ui/CHANGELOG.md).
+
+### Core: flow runner concurrency
 
 Until now a worker pool ran one flow execution at a time: a long flow held back every other flow
 on that worker until it ended. `workers.flowConcurrency` gives the runner that many independent

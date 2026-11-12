@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0-beta.1 — unreleased
+## 0.4.0-beta.1 — 2026-11-12 — replaced replies and client actions
 
 - `applyChatEvent` handles **`message.replaced`**: the in-progress assistant message's content becomes the replacement text and `replacedCode` records the code (server-side `validateReply` or a guard rewrite in `@plumbus/chat` 0.4.0-beta.4).
 - `turn.completed.clientActions` lands on the assistant message as `ChatUiMessage.clientActions` for the page to carry out.
