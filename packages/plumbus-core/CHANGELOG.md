@@ -2,10 +2,32 @@
 
 ## 0.8.6 — 2026-11-12
 
-- **Schedule reconciliation no longer tombstones schedules silently** ([#94](https://github.com/plumbus-framework/plumbus/issues/94)). Before, a flow module that threw on import was skipped by discovery, so `plumbus flow schedule sync --apply` marked its schedule removed and it stopped firing without an error.
-  - `reconcileSchedules()` takes `allowRemove: ['flowName'] | true` to approve removals. An apply that removes a schedule without approval still applies in 0.8.x and logs a warning naming the flows. New opt-in `requireRemovalApproval` on `createFlowScheduler()` (or `PLUMBUS_SCHEDULE_REQUIRE_REMOVAL_APPROVAL=true`) makes it throw instead, naming the flows and writing nothing. Refusal becomes the default in core 0.9. Previews still list `remove` changes.
-  - `plumbus flow schedule sync` gains `--allow-remove <flows>` (comma-separated, or `*`), prints each removal to stderr, and fails naming the file when a module under `app/flows/` cannot be imported. That last check is on by default: before, such a module was skipped and its schedule looked removed.
-  - `discoverResources(root, { strict })` and `discoverRuntimeResources({ strict })` take directories (e.g. `['flows']`) whose import failures throw instead of being skipped. Defaults are unchanged; `decisions/` stays strict. New exported type `ReconcileSchedulesOptions`.
+Schedule reconciliation can no longer stop a schedule without anyone noticing ([#94](https://github.com/plumbus-framework/plumbus/issues/94)). No database migration. Existing calls keep working; the only check that is on by default affects apps with a flow module that already fails to import.
+
+### Fixed
+
+- **`plumbus flow schedule sync` no longer tombstones the schedule of a flow that failed to import.** Discovery used to skip any file under `app/flows/` that threw on import (a bad dependency, a configuration error at module scope). The flow dropped out of the registry, `sync --apply` marked its schedule `removed`, and the schedule stopped firing with no error. The command now loads flows strictly and fails with `Unable to load flow module: <file>`. The underlying error message is not printed, because module-scope errors can contain secrets; import the file directly to see it.
+
+### Added
+
+- **Approving removals:** `reconcileSchedules({ apply, expectedRevision, allowRemove })`. `allowRemove` is a list of flow names, or `true` for any. The CLI equivalent is `plumbus flow schedule sync --apply --expected-revision <revision> --allow-remove <flows>` (comma-separated, or `*`).
+- **Opt-in refusal of unapproved removals:** `createFlowScheduler({ requireRemovalApproval: true })`, or `PLUMBUS_SCHEDULE_REQUIRE_REMOVAL_APPROVAL=true` when the option is omitted. An apply that would remove a schedule not covered by `allowRemove` then throws a `DataValidationError` that names the flows, and writes nothing.
+- **Strict discovery:** `discoverResources(root, { strict })` and `discoverRuntimeResources({ strict })` take the directories whose import failures throw instead of being skipped, e.g. `{ strict: ['flows'] }`. Without the option nothing changes, and `decisions/` stays strict as before.
+- The new `ReconcileSchedulesOptions` type is exported.
+
+### Changed
+
+- An apply that removes a schedule without approval still removes it, and now logs `Schedule reconciliation removed schedules without approval` with the flow names.
+- `plumbus flow schedule sync` prints each removal to stderr (`⚠ Would remove schedule: <flow>` in a preview, `⚠ Removed schedule: <flow>` after an apply). Stdout is still only the JSON result.
+- `plumbus dev`, `plumbus start` and `plumbus worker` discover resources exactly as before; a flow module that fails to import is still skipped there.
+
+### Upgrade
+
+1. If `schedule sync` now fails with `Unable to load flow module`, fix that module. Before 0.8.6 its schedule would have been removed.
+2. Where your deployment removes schedules on purpose, add `--allow-remove <flows>` (or `allowRemove`) so the removal is explicit and logs no warning.
+3. Set `PLUMBUS_SCHEDULE_REQUIRE_REMOVAL_APPROVAL=true` (or `requireRemovalApproval: true`) to refuse unapproved removals now. **Core 0.9 makes this the default.**
+
+See [CLI commands](../../docs/cli/commands.md#plumbus-flow-schedule-sync) and [flows](../../docs/core-concepts/flows.md).
 
 ## 0.8.5 — 2026-11-09
 
