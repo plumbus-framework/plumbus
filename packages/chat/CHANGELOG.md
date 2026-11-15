@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.3.3 — 2026-11-15
+
+Bug-fix release. No database migration and no `@plumbus/core` upgrade needed (peer stays `">=0.8.3 <0.9.0"`).
 
 - **Fix: `history.includeLastTurns` sent the oldest turns.** For a server-persistence chat longer than the window, the model was given the first N turns of the session instead of the last N, so it lost the recent conversation. `ChatSessionStore.listTurns(…, { limit })` now returns the newest `limit` turns, still oldest → newest, in the DB-backed default and in `createInMemoryChatSessionStore`. Custom stores must do the same (see `docs/chat/session-store.md`). Chats with `persistence.messageContent: 'client'` or `trustedHistory` are unaffected.
 
