@@ -126,7 +126,8 @@ export function createInMemoryChatSessionStore(seed?: {
       opts?: { limit?: number },
     ): Promise<ChatTurnRow[]> {
       const rows = turnsFor(sessionId);
-      return opts?.limit === undefined ? rows : rows.slice(0, opts.limit);
+      // `limit` keeps the newest turns, still oldest → newest (see ChatSessionStore).
+      return opts?.limit === undefined ? rows : rows.slice(Math.max(0, rows.length - opts.limit));
     },
 
     async updateSessionBehavioralState(

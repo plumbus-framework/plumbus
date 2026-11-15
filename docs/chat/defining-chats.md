@@ -115,7 +115,7 @@ defineChat({
   },
 
   history?: {
-    includeLastTurns?: 8,                     // window for server-persistence chats
+    includeLastTurns?: 8,                     // newest N turns sent as history (server-persistence chats)
     summarize?: {                             // opt-in older-turn compression
       strategy: 'rolling',
       thresholdTurns: 20,
