@@ -14,8 +14,10 @@ export {
 } from './bootstrap.js';
 export type {
   BuildWorkerAiServiceOptions,
+  DiscoverResourcesOptions,
   RuntimeCommand,
   ServerExtensions,
+  StrictDiscoveryDirectory,
 } from './bootstrap.js';
 export {
   QueueBackend,

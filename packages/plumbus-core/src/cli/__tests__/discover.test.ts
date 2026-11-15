@@ -95,4 +95,49 @@ describe('discoverResources', () => {
       'Unable to load decision module: invalid.js',
     );
   });
+
+  it('skips a flow module that fails to import by default', async () => {
+    const root = makeTmpDir();
+    const dir = path.join(root, 'app', 'flows');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'broken.js'), 'throw new Error("bad dependency");');
+    const result = await discoverResources(root);
+    expect(result.flows).toEqual([]);
+  });
+
+  it('fails naming the file when a strict flow module cannot load', async () => {
+    const root = makeTmpDir();
+    const dir = path.join(root, 'app', 'flows', 'billing');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'broken.js'), 'throw new Error("secret contents");');
+    const failure = discoverResources(root, { strict: ['flows'] });
+    await expect(failure).rejects.toThrow(
+      `Unable to load flow module: ${path.join('billing', 'broken.js')}`,
+    );
+    await expect(failure).rejects.not.toThrow('secret contents');
+  });
+
+  it('strict flows skip spec files and __tests__ directories, which only load under the test runner', async () => {
+    const root = makeTmpDir();
+    const dir = path.join(root, 'app', 'flows', 'billing');
+    fs.mkdirSync(path.join(dir, '__tests__'), { recursive: true });
+    const outsideRunner = 'throw new Error("describe() outside the test runner");';
+    fs.writeFileSync(path.join(dir, 'nightly.spec.ts'), outsideRunner);
+    fs.writeFileSync(path.join(dir, 'nightly.spec.js'), outsideRunner);
+    fs.writeFileSync(path.join(dir, '__tests__', 'helpers.js'), outsideRunner);
+    const result = await discoverResources(root, { strict: ['flows'] });
+    expect(result.flows).toEqual([]);
+  });
+
+  it('strict flows still skip broken modules in other directories', async () => {
+    const root = makeTmpDir();
+    fs.mkdirSync(path.join(root, 'app', 'flows'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'app', 'capabilities'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, 'app', 'capabilities', 'broken.js'),
+      'throw new Error("bad dependency");',
+    );
+    const result = await discoverResources(root, { strict: ['flows'] });
+    expect(result.capabilities).toEqual([]);
+  });
 });

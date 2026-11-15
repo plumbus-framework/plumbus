@@ -4,6 +4,8 @@ import {
   createFlowScheduler,
   createFlowEngine,
 } from '../../flows/index.js';
+import type { ReconcileSchedulesOptions } from '../../flows/index.js';
+import type { DiscoveredResources, DiscoverResourcesOptions } from '../discover.js';
 import { discoverRuntimeResources, buildStepDeps } from '../../runtime/bootstrap.js';
 import { CapabilityRegistry } from '../../execution/index.js';
 // ── plumbus flow new ──
@@ -20,6 +22,60 @@ import { resolveRuntimeQueues } from '../../runtime/queue-factory.js';
 import { flowTemplate, flowTestTemplate } from '../templates/resources.js';
 import { error, exists, info, resolvePath, success, toKebabCase, writeFile } from '../utils.js';
 import { formatFlowScheduleLine, listFlowSchedules } from './flow-schedule-list.js';
+
+/** Parse `--allow-remove`: `*` allows any removal, otherwise a comma-separated list of flow names. */
+export function parseAllowRemove(value: string | undefined): readonly string[] | true | undefined {
+  if (value === undefined) return undefined;
+  if (value.trim() === '*') return true;
+  return value
+    .split(',')
+    .map((name) => name.trim())
+    .filter((name) => name.length > 0);
+}
+
+type ReconcileResult = Awaited<
+  ReturnType<ReturnType<typeof createFlowScheduler>['reconcileSchedules']>
+>;
+
+export interface ScheduleSyncDeps {
+  discover: (options: DiscoverResourcesOptions) => Promise<DiscoveredResources>;
+  reconcile: (
+    resources: DiscoveredResources,
+    options: ReconcileSchedulesOptions,
+  ) => Promise<ReconcileResult>;
+  stdout?: (line: string) => void;
+  stderr?: (line: string) => void;
+}
+
+/**
+ * `plumbus flow schedule sync`: discover flows strictly (a module that fails to
+ * import would otherwise look like a removed schedule), reconcile, print the JSON
+ * result to stdout and each removal to stderr.
+ */
+export async function runScheduleSync(
+  options: ReconcileSchedulesOptions,
+  deps: ScheduleSyncDeps,
+): Promise<ReconcileResult> {
+  const stdout = deps.stdout ?? ((line: string) => console.log(line));
+  const stderr = deps.stderr ?? ((line: string) => console.error(line));
+  const resources = await deps.discover({ strict: ['flows'] });
+  const result = await deps.reconcile(resources, options);
+  stdout(JSON.stringify(result, null, 2));
+  const approved = (flowName: string) =>
+    options.allowRemove === true || (options.allowRemove ?? []).includes(flowName);
+  for (const change of result.changes.filter((c) => c.action === 'remove')) {
+    if (result.applied) {
+      stderr(`⚠ Removed schedule: ${change.flowName}`);
+      continue;
+    }
+    stderr(
+      approved(change.flowName)
+        ? `⚠ Would remove schedule: ${change.flowName} (approved)`
+        : `⚠ Would remove schedule: ${change.flowName} (if the flow was deleted on purpose, approve with --allow-remove ${change.flowName}; otherwise fix the flow registry)`,
+    );
+  }
+  return result;
+}
 
 export function registerFlowCommand(program: Command): void {
   const cmd = program.command('flow').description('Manage flows');
@@ -84,22 +140,36 @@ export function registerFlowCommand(program: Command): void {
     .description('Preview or apply the complete deployed schedule manifest')
     .option('--apply', 'Apply the previewed changes')
     .option('--expected-revision <revision>', 'Revision from the preview; required with --apply')
-    .action(async (options: { apply?: boolean; expectedRevision?: string }) => {
+    .option(
+      '--allow-remove <flows>',
+      'Comma-separated flow names whose schedules --apply may remove, or "*" for any',
+    )
+    .action(async (opts: { apply?: boolean; expectedRevision?: string; allowRemove?: string }) => {
+      const options = {
+        apply: opts.apply,
+        expectedRevision: opts.expectedRevision,
+        allowRemove: parseAllowRemove(opts.allowRemove),
+      };
       const config = await loadAppConfig();
       const connection = await resolveDatabaseConnection(config.database, {});
       try {
-        const resources = await discoverRuntimeResources();
-        const registry = new FlowRegistry();
-        for (const flow of resources.flows) registry.register(flow);
-        const capabilities = new CapabilityRegistry();
-        capabilities.registerAll(resources.capabilities);
-        const engine = createFlowEngine({
-          db: connection.db,
-          registry,
-          stepDeps: buildStepDeps(capabilities),
+        await runScheduleSync(options, {
+          discover: discoverRuntimeResources,
+          reconcile: (resources, reconcileOptions) => {
+            const registry = new FlowRegistry();
+            for (const flow of resources.flows) registry.register(flow);
+            const capabilities = new CapabilityRegistry();
+            capabilities.registerAll(resources.capabilities);
+            const engine = createFlowEngine({
+              db: connection.db,
+              registry,
+              stepDeps: buildStepDeps(capabilities),
+            });
+            return createFlowScheduler({ db: connection.db, registry, engine }).reconcileSchedules(
+              reconcileOptions,
+            );
+          },
         });
-        const scheduler = createFlowScheduler({ db: connection.db, registry, engine });
-        console.log(JSON.stringify(await scheduler.reconcileSchedules(options), null, 2));
       } finally {
         await closeDatabaseConnection(connection);
       }
