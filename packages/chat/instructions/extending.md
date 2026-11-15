@@ -30,7 +30,7 @@ registerChatRoutes(app, routeConfig, chats, { sessionStore: store, authenticator
 Rules:
 
 - **Do not fork `runChatTurn`.** Injecting a store is the supported way to run the pipeline on non-DB memory; re-stitching `compilePolicy` / `resolveContextSources` / `buildSystemPrompt` yourself is the thing this replaces.
-- **Honor the documented invariants** — `appendTurn` assigns the ordinal and advances `lastTurnAt`, `persistContent: false` means store empty content, `getOrCreateSession` raises `notFound` on a userId mismatch, `listTurns` is ascending by ordinal. They are listed in full on the `ChatSessionStore` doc comment and in `/docs/chat/session-store.md`.
+- **Honor the documented invariants** — `appendTurn` assigns the ordinal and advances `lastTurnAt`, `persistContent: false` means store empty content, `getOrCreateSession` raises `notFound` on a userId mismatch, `listTurns` is ascending by ordinal and a `limit` keeps the newest turns. They are listed in full on the `ChatSessionStore` doc comment and in `/docs/chat/session-store.md`.
 - **Implement `aggregateForBudget` if any chat declares a `budget`,** and `countActivePendingActions` if any sets `budget.actions.perSession`. Omitting them is a startup failure (`chat.budget_unsupported`), not a silent skip.
 - **Tool confirmations need the second tier.** They require atomic compare-and-set writes; pass a `ChatConversationStore` as `store` too, or the chat must not enable `policy.toolCalling` / `policy.action.allowedCapabilities`.
 - **In custom guards, read `state.sessionStore`** via `resolveChatSessionStore(state.sessionStore)` — never `ctx.data` directly, or the guard breaks under an injected store.

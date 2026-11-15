@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Fix: `history.includeLastTurns` sent the oldest turns.** For a server-persistence chat longer than the window, the model was given the first N turns of the session instead of the last N, so it lost the recent conversation. `ChatSessionStore.listTurns(…, { limit })` now returns the newest `limit` turns, still oldest → newest, in the DB-backed default and in `createInMemoryChatSessionStore`. Custom stores must do the same (see `docs/chat/session-store.md`). Chats with `persistence.messageContent: 'client'` or `trustedHistory` are unaffected.
+
 ## 0.3.2 — 2026-11-09
 
 - **Security release.** See [the 0.8.5 security upgrade notes](../../docs/upgrading-0.8.5-security.md) for every opt-in and warning.
