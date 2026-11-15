@@ -1,6 +1,6 @@
 # @plumbus/core changelog
 
-## 0.8.6 — 2026-11-12
+## 0.8.6 — 2026-11-15
 
 Schedule reconciliation can no longer stop a schedule without anyone noticing ([#94](https://github.com/plumbus-framework/plumbus/issues/94)). No database migration. Existing calls keep working; the only check that is on by default affects apps with a flow module that already fails to import.
 
