@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.4 — 2026-11-16
+
+Bug-fix release. No database migration and no `@plumbus/core` upgrade needed (peer stays `">=0.8.3 <0.9.0"`).
+
+- **Fix: Path B tools failed every turn over the HTTP routes.** `policy.toolCalling.capabilities` only accepted bare names (`'lookupOrder'`), but the server's runtime resolves capabilities by canonical name (`'orders.lookupOrder'`), so every turn of a tool-calling chat ended in `turn.failed` `chat.tool_unknown_capability`. Tests and programmatic `runChatTurn` callers with their own `resolveCapability` did not see it. Entries may now be canonical `<domain>.<name>`: they resolve as written, and the model is offered the capability's bare `name`, which must be portable and unique in the chat (`chat.tool_name_invalid` otherwise). Binding hashes and pending actions use the configured canonical name. A bare entry that cannot be resolved now says to use the canonical form. Bare entries keep working with a programmatic resolver. The docs examples now use canonical names.
+- **Fix: a staged tool-calling chat with `scopePreflight: false` lost its own off-topic refusals.** The Path B scope-coherence step turns an answer's `off_topic` back into in-scope because "the preflight already passed", but with the preflight off there was none, so a refusal became an empty in-scope answer (`inScope: true`, `refusalReason: null`, with a stray `chat.out_of_scope` notice). The coercion now runs only when a preflight ran; `unsafe`/`pii_request` were never coerced and still are not.
+
 ## 0.3.3 — 2026-11-15
 
 Bug-fix release. No database migration and no `@plumbus/core` upgrade needed (peer stays `">=0.8.3 <0.9.0"`).

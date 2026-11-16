@@ -4,7 +4,7 @@ import type { CapabilityContract, ExecutionContext } from '@plumbus/core';
 import { zodToProviderJsonSchema } from '@plumbus/core';
 import { createTestContext } from '@plumbus/core/testing';
 import { capabilityInputSchemaHashV2 } from '../../policy/action-schema-hash.js';
-import { bindChatCapabilityTools, ChatToolBindError } from '../bind-tools.js';
+import { bindChatCapabilityTools, ChatToolBindError, resolveToolBinding } from '../bind-tools.js';
 
 function makeCap(name: string, overrides: Partial<CapabilityContract> = {}): CapabilityContract {
   return {
@@ -105,6 +105,68 @@ describe('bindChatCapabilityTools', () => {
     } catch (err) {
       expect((err as ChatToolBindError).code).toBe('chat.tools_runtime_unavailable');
     }
+  });
+
+  describe('with the runtime resolver (canonical names only, as over HTTP)', () => {
+    it('binds a canonical name and gives the provider the capability name', () => {
+      const cap = makeCap('readHelpPage', { domain: 'support' });
+      const ctx = createTestContext({ capabilities: [cap] });
+      const bound = bindChatCapabilityTools(ctx, ['support.readHelpPage'], { maxTools: 32 });
+      expect(bound).toHaveLength(1);
+      expect(bound[0]?.tool.name).toBe('readHelpPage');
+      expect(bound[0]?.targetName).toBe('support.readHelpPage');
+      expect(bound[0]?.capability).toBe(cap);
+    });
+
+    it('keeps the binding hash in step with resolveToolBinding for the canonical target', async () => {
+      const cap = makeCap('openTicket', {
+        domain: 'support',
+        effects: { data: ['Ticket'], events: [], external: [], ai: false },
+      });
+      const ctx = createTestContext({ capabilities: [cap] });
+      const [bound] = bindChatCapabilityTools(ctx, ['support.openTicket'], { maxTools: 32 });
+      const recomputed = await resolveToolBinding(ctx, 'capability', 'support.openTicket');
+      expect(recomputed).toEqual({
+        ok: true,
+        inputSchemaHash: bound?.inputSchemaHash,
+        toolBindingHash: bound?.toolBindingHash,
+      });
+    });
+
+    it('explains the canonical form when a bare name cannot be resolved', () => {
+      const cap = makeCap('readHelpPage', { domain: 'support' });
+      const ctx = createTestContext({ capabilities: [cap] });
+      try {
+        bindChatCapabilityTools(ctx, ['readHelpPage'], { maxTools: 32 });
+        expect.unreachable('expected a bind error');
+      } catch (err) {
+        expect((err as ChatToolBindError).code).toBe('chat.tool_unknown_capability');
+        expect((err as Error).message).toContain('<domain>.<name>');
+      }
+    });
+
+    it('rejects two canonical names that bind to the same tool name', () => {
+      const a = makeCap('lookup', { domain: 'orders' });
+      const b = makeCap('lookup', { domain: 'billing' });
+      const ctx = createTestContext({ capabilities: [a, b] });
+      try {
+        bindChatCapabilityTools(ctx, ['orders.lookup', 'billing.lookup'], { maxTools: 32 });
+        expect.unreachable('expected a bind error');
+      } catch (err) {
+        expect((err as ChatToolBindError).code).toBe('chat.tool_name_invalid');
+      }
+    });
+
+    it('still rejects a canonical entry whose capability name is not portable', () => {
+      const cap = makeCap('flow__sneaky', { domain: 'support' });
+      const ctx = createTestContext({ capabilities: [cap] });
+      try {
+        bindChatCapabilityTools(ctx, ['support.flow__sneaky'], { maxTools: 32 });
+        expect.unreachable('expected a bind error');
+      } catch (err) {
+        expect((err as ChatToolBindError).code).toBe('chat.tool_name_invalid');
+      }
+    });
   });
 
   it('caps to maxTools', () => {

@@ -119,7 +119,7 @@ In `@plumbus/chat-ui`, `useChat.confirm()` performs the real `POST /chat/:name/c
 policy: {
   toolCalling: {
     enabled: true,
-    capabilities: ['lookupOrder', 'openSupportTicket'],
+    capabilities: ['orders.lookupOrder', 'support.openSupportTicket'],
     autoStartFlows: ['issueRefund'],
     ai: {
       provider: 'anthropic',
@@ -134,6 +134,12 @@ policy: {
 },
 ```
 
+- List capabilities by canonical name, `<domain>.<name>`: that is the name the server's
+  runtime resolves. The model is offered the bare capability `name` (it must match
+  `^[A-Za-z][A-Za-z0-9_-]{0,63}$` and be unique in the chat); resolution, execution and
+  pending actions keep the canonical name. A bare entry such as `'lookupOrder'` resolves
+  only through a programmatic `runChatTurn` `resolveCapability`; over the HTTP routes it
+  fails every turn with `chat.tool_unknown_capability`.
 - Bind capabilities and `autoStartFlows` as provider-native tools; the model calls them
   over a bounded per-turn loop. Auto-mode tools execute inline (access policy enforced);
   confirm-mode tools pause with `confirmation_required` and execute on `POST
