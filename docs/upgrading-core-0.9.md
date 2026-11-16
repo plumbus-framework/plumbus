@@ -6,10 +6,12 @@ The 0.8 numbers now belong to the stable **stabilization family** published from
 
 Core 0.9.0-beta.0 contains everything in the 0.8.0-beta.N line plus every stable change merged from `main`: the core 0.8.0 stabilization (PLB-01 to PLB-10), core 0.8.1, auth 0.3.1 and the Vitest 5.0.4 toolchain. See [Included in v0.9.0-beta.0](#included-in-v090-beta0).
 
-## Unreleased (prepared 2026-11-16): chat `regenerate` verdict and `answerOf`
+## v0.9.0-beta.13 (2026-11-16): chat `regenerate` verdict and `answerOf`
 
-One package changes: `@plumbus/chat` **0.4.0-beta.4 → 0.4.0-beta.5**. Every other package and all
-peer ranges stay unchanged. No migration. Both additions are opt-in:
+Prepared for repository release `v0.9.0-beta.13` under npm dist-tag `plumbus-next`. One package
+changes: `@plumbus/chat` **0.4.0-beta.4 → 0.4.0-beta.5**. `@plumbus/core` stays at
+**0.9.0-beta.12** (this repository release has no core of the same number), and every other package
+and all peer ranges stay unchanged. No migration. Both additions are opt-in:
 
 - `validateReply` may return `{ decision: 'regenerate', feedback, code, fallback }`: the model is asked
   again within the same turn, through `ctx.ai`, bounded by `maxRegenerations` (default 1); past it, or
