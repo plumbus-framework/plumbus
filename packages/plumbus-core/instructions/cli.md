@@ -74,8 +74,11 @@ plumbus flow new <FlowName>
 
 # Compile defineFlow modules into signed FlowDefinition JSON
 plumbus compile-flows
-# → .plumbus/compiled-flows/{domain.name}@{version}.json
+# → .plumbus/compiled-flows/{domain.name}@{version}.json (replaces the previous build's files)
 # createServer / createWorkerPool reload that directory on boot (digest-checked)
+# Keep earlier releases' definitions for their in-flight executions (never started anew; 0.9.0-beta.12+):
+plumbus compile-flows --retain <earlier build's compiled-flows dir> [...]
+# → .plumbus/compiled-flows/retained/{domain.name}@{version}.json
 
 # Create a prompt
 plumbus prompt new <PromptName>

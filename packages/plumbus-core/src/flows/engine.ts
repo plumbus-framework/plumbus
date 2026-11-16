@@ -540,7 +540,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
   function resolveCompiledForStart(flow: FlowDefinition) {
     if (!compiledRegistry) return undefined;
     const id = flowDefinitionId(flow);
-    const compiled = compiledRegistry.getLatest(id);
+    const compiled = compiledRegistry.getCurrent(id);
     if (!compiled) {
       throw new PlumbusError(ErrorCode.NotFound, `compiled definition required for "${id}"`, {
         reason: 'compiled-definition-required',

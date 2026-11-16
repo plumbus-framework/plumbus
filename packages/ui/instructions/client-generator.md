@@ -55,8 +55,26 @@ Generated behavior:
 - route paths are derived from `/api/{domain}/{kebab-capability-name}`;
 - query input is serialized with `URLSearchParams`;
 - post input is serialized with `JSON.stringify(input)`;
-- each function accepts optional `headers` and `signal`;
+- each function accepts optional `headers`, `signal` and `keepalive`;
 - non-OK responses throw an error enriched with response details when possible.
+
+`keepalive: true` (since 0.10.0-beta.4) lets a request outlive the page, for a last small
+write when the page is closing: call the same generated function from a `pagehide` (or
+`visibilitychange` to `hidden`) listener. Do not hand-write `navigator.sendBeacon` or a
+separate route for this. A beacon cannot send the CSRF or bearer header; the generated call
+sends the same credentials, auth headers and `Idempotency-Key` as any other call.
+
+```ts
+window.addEventListener("pagehide", () => {
+  void savePosition({ lessonId, second }, { keepalive: true }).catch(() => {});
+});
+```
+
+Limits: browsers cap the bodies of all in-flight keepalive requests from one page at
+**64 KiB together**, and the request fails outright beyond that, so send only a small
+payload. The page may be gone before the answer arrives, so do not rely on the result or
+on updating state from it. Generated flow triggers accept `keepalive` too, and a generated
+mutation hook's `mutate(input, request?)` forwards `headers`, `signal` and `keepalive`.
 
 Every non-`GET` client function (and every flow trigger) sends an `Idempotency-Key` — a
 fresh `clientIdempotencyKey()` per call unless the caller passed one in `options.headers`
@@ -98,7 +116,7 @@ generateMutationHook(createUserCapability);
 
 Generated mutation hooks:
 
-- expose `mutate(input)`;
+- expose `mutate(input, request?)`, which forwards `headers`, `signal` and `keepalive` to the client function;
 - track `data`, `loading`, and `error`;
 - expose `reset()`;
 - call `options.onError(error)` when provided;

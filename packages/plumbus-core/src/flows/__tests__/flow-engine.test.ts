@@ -1358,6 +1358,71 @@ describe('FlowEngine — compiled definition pin (complete-on-original)', () => 
     expect(capabilities).not.toContain('ops.replacement');
   });
 
+  it('after a deploy, finishes the old release’s execution on its retained version and starts new ones on the current', async () => {
+    const steps = (last: string, capability: string) => [
+      { name: 'first', type: FlowStepType.Capability, capability: 'ops.first' },
+      { name: last, type: FlowStepType.Capability, capability },
+    ];
+    const v1 = defineFlow({
+      name: 'migrate-me',
+      domain: 'ops',
+      input: z.object({ id: z.string() }),
+      steps: steps('original-step', 'ops.original'),
+    });
+    const v2 = defineFlow({
+      name: 'migrate-me',
+      domain: 'ops',
+      input: z.object({ id: z.string() }),
+      steps: steps('replacement-step', 'ops.replacement'),
+    });
+    const db = mockDb();
+    const stepDeps = {
+      executeCapability: vi.fn().mockResolvedValue({ success: true, data: {} }),
+      evaluateCondition: vi.fn().mockReturnValue(true),
+    };
+
+    // Release 1: v1 is current; an execution starts and runs its first step.
+    const release1Flows = new FlowRegistry();
+    release1Flows.register(v1);
+    const release1 = new CompiledFlowRegistry();
+    release1.publish(compileFlowDefinition(v1, { definitionVersion: '1.9.0' }));
+    const engine1 = createFlowEngine({
+      db,
+      registry: release1Flows,
+      stepDeps,
+      compiledRegistry: release1,
+    });
+    const old = await engine1.start('migrate-me', { id: 'old' }, makeAuth());
+    const oldRow = db._rows.get(old.id);
+    db.select = vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({ limit: vi.fn().mockResolvedValue([oldRow]) }),
+      }),
+    });
+    await engine1.runNext(old.id, makeCtx());
+    expect(oldRow.currentStep).toBe('original-step');
+
+    // Release 2, a new process: v2 is current, v1 retained. "1.10.0" sorts before "1.9.0".
+    const release2Flows = new FlowRegistry();
+    release2Flows.register(v2);
+    const release2 = new CompiledFlowRegistry();
+    release2.publish(compileFlowDefinition(v2, { definitionVersion: '1.10.0' }));
+    release2.publish(compileFlowDefinition(v1, { definitionVersion: '1.9.0' }), { retained: true });
+    const engine2 = createFlowEngine({
+      db,
+      registry: release2Flows,
+      stepDeps,
+      compiledRegistry: release2,
+    });
+
+    await engine2.runNext(old.id, makeCtx());
+    const capabilities = stepDeps.executeCapability.mock.calls.map((c: unknown[]) => c[0]);
+    expect(capabilities).toEqual(['ops.first', 'ops.original']);
+
+    const fresh = await engine2.start('migrate-me', { id: 'new' }, makeAuth());
+    expect(db._rows.get(fresh.id).definitionVersion).toBe('1.10.0');
+  });
+
   it('refuses start when compiledRegistry is set but no version is published', async () => {
     const registry = new FlowRegistry();
     registry.register(v1Flow());

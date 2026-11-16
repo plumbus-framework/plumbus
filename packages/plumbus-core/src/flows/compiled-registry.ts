@@ -12,15 +12,32 @@ import type { CompiledFlowDefinition } from '../types/flow.js';
 /** Project-relative default used by `plumbus compile-flows` and boot load. */
 export const DEFAULT_COMPILED_FLOWS_DIRECTORY = '.plumbus/compiled-flows';
 
+/**
+ * Subdirectory of a compiled-flows directory holding definitions earlier releases shipped
+ * (`plumbus compile-flows --retain`). They load as retained: an execution pinned to one can
+ * finish on it, but no new execution starts on it.
+ */
+export const RETAINED_COMPILED_FLOWS_SUBDIRECTORY = 'retained';
+
+export interface PublishCompiledFlowOptions {
+  /**
+   * Kept only so executions pinned to this version can finish; never the version a new
+   * execution starts on. Default false: the definition is (or becomes) the flow's current one.
+   */
+  retained?: boolean;
+}
+
 export class CompiledFlowRegistry {
   private readonly versions = new Map<string, Map<string, CompiledFlowDefinition>>();
-  private readonly publishOrder = new Map<string, string[]>();
+  /** Versions published as current, oldest first; the last one is the flow's current version. */
+  private readonly currentOrder = new Map<string, string[]>();
 
   /**
-   * Publish a compiled definition. Same version + same digest is a no-op.
-   * Same version + different digest is rejected (immutable retain-all).
+   * Publish a compiled definition. Same version + same digest is a no-op, except that a
+   * retained version published again as current becomes current. Same version + different
+   * digest is rejected (immutable retain-all).
    */
-  publish(compiled: CompiledFlowDefinition): void {
+  publish(compiled: CompiledFlowDefinition, options: PublishCompiledFlowOptions = {}): void {
     const { flowDefinitionId, definitionVersion, definitionDigest } = compiled;
     if (!flowDefinitionId || !definitionVersion || !definitionDigest) {
       throw new Error('Compiled flow definition is missing identity fields');
@@ -39,27 +56,49 @@ export class CompiledFlowRegistry {
           `Flow definition "${flowDefinitionId}@${definitionVersion}" is immutable (digest mismatch)`,
         );
       }
+      if (!options.retained) this.markCurrent(flowDefinitionId, definitionVersion);
       return;
     }
 
     byVersion.set(definitionVersion, compiled);
-    const order = this.publishOrder.get(flowDefinitionId) ?? [];
+    if (!options.retained) this.markCurrent(flowDefinitionId, definitionVersion);
+  }
+
+  /** Appends a version not yet published as current; a repeat leaves the order as it was. */
+  private markCurrent(flowDefinitionId: string, definitionVersion: string): void {
+    const order = this.currentOrder.get(flowDefinitionId) ?? [];
+    if (order.includes(definitionVersion)) return;
     order.push(definitionVersion);
-    this.publishOrder.set(flowDefinitionId, order);
+    this.currentOrder.set(flowDefinitionId, order);
   }
 
   get(flowDefinitionId: string, definitionVersion: string): CompiledFlowDefinition | undefined {
     return this.versions.get(flowDefinitionId)?.get(definitionVersion);
   }
 
-  /** Most recently published version for this id (not semver-max). */
-  getLatest(flowDefinitionId: string): CompiledFlowDefinition | undefined {
-    const latest = this.publishOrder.get(flowDefinitionId)?.at(-1);
-    return latest === undefined ? undefined : this.get(flowDefinitionId, latest);
+  /**
+   * The version a new execution of this flow starts on: the one most recently published as
+   * current. Retained versions are never current. Undefined when the flow has none.
+   */
+  getCurrent(flowDefinitionId: string): CompiledFlowDefinition | undefined {
+    const current = this.currentOrder.get(flowDefinitionId)?.at(-1);
+    return current === undefined ? undefined : this.get(flowDefinitionId, current);
   }
 
+  /** @deprecated Use `getCurrent`: the same version (retained definitions are never returned). */
+  getLatest(flowDefinitionId: string): CompiledFlowDefinition | undefined {
+    return this.getCurrent(flowDefinitionId);
+  }
+
+  /** True when this version is held only for executions pinned to it. */
+  isRetained(flowDefinitionId: string, definitionVersion: string): boolean {
+    if (!this.get(flowDefinitionId, definitionVersion)) return false;
+    return !(this.currentOrder.get(flowDefinitionId) ?? []).includes(definitionVersion);
+  }
+
+  /** Every version this registry can run for the flow, current and retained, in publish order. */
   listVersions(flowDefinitionId: string): string[] {
-    return [...(this.publishOrder.get(flowDefinitionId) ?? [])];
+    return [...(this.versions.get(flowDefinitionId)?.keys() ?? [])];
   }
 }
 
@@ -166,9 +205,23 @@ function listCompiledFlowJsonFiles(directory: string): string[] {
     .sort();
 }
 
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch (err) {
+    if (errorCode(err) === 'ENOENT') return false;
+    throw err;
+  }
+}
+
 /**
  * Load signed JSON from a host-owned directory (the `plumbus compile-flows`
  * output). Each file is digest-checked; a mismatch refuses the whole load.
+ *
+ * The top-level files are this build's definitions: each is its flow's current version, and
+ * two versions of one flow there are refused (which would be current depended on file names).
+ * Files under `retained/` (RETAINED_COMPILED_FLOWS_SUBDIRECTORY) are earlier releases'
+ * definitions, loaded for the executions pinned to them only.
  */
 export function loadCompiledFlowRegistryFromDirectory(directory: string): CompiledFlowRegistry {
   const trimmed = directory.trim();
@@ -177,11 +230,35 @@ export function loadCompiledFlowRegistryFromDirectory(directory: string): Compil
   }
 
   const root = resolve(trimmed);
-  const fileNames = listCompiledFlowJsonFiles(root);
+  const current = listCompiledFlowJsonFiles(root).map((fileName) =>
+    parseCompiledFlowArtifact(readJsonFile(join(root, fileName), fileName), fileName),
+  );
+
+  const currentVersions = new Map<string, string[]>();
+  for (const compiled of current) {
+    const versions = currentVersions.get(compiled.flowDefinitionId) ?? [];
+    versions.push(compiled.definitionVersion);
+    currentVersions.set(compiled.flowDefinitionId, versions);
+  }
+  for (const [flowDefinitionId, versions] of currentVersions) {
+    if (versions.length > 1) {
+      throw new Error(
+        `Compiled flow directory has more than one current version of "${flowDefinitionId}" ` +
+          `(${versions.join(', ')}): a build compiles one version per flow, and earlier ` +
+          `releases' versions belong in its ${RETAINED_COMPILED_FLOWS_SUBDIRECTORY}/ folder (${directory})`,
+      );
+    }
+  }
+
   const registry = new CompiledFlowRegistry();
-  for (const fileName of fileNames) {
-    const parsed = readJsonFile(join(root, fileName), fileName);
-    registry.publish(parseCompiledFlowArtifact(parsed, fileName));
+  for (const compiled of current) registry.publish(compiled);
+
+  const retainedRoot = join(root, RETAINED_COMPILED_FLOWS_SUBDIRECTORY);
+  if (isDirectory(retainedRoot)) {
+    for (const fileName of listCompiledFlowJsonFiles(retainedRoot)) {
+      const parsed = readJsonFile(join(retainedRoot, fileName), fileName);
+      registry.publish(parseCompiledFlowArtifact(parsed, fileName), { retained: true });
+    }
   }
   return registry;
 }

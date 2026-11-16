@@ -6,6 +6,42 @@ The 0.8 numbers now belong to the stable **stabilization family** published from
 
 Core 0.9.0-beta.0 contains everything in the 0.8.0-beta.N line plus every stable change merged from `main`: the core 0.8.0 stabilization (PLB-01 to PLB-10), core 0.8.1, auth 0.3.1 and the Vitest 5.0.4 toolchain. See [Included in v0.9.0-beta.0](#included-in-v090-beta0).
 
+## v0.9.0-beta.12 (2026-11-16): earlier releases' flow definitions kept for their executions, `keepalive` on generated client calls
+
+Prepared for repository release `v0.9.0-beta.12` under npm dist-tag `plumbus-next`. Two packages
+change: `@plumbus/core` **0.9.0-beta.11 → 0.9.0-beta.12** and `@plumbus/ui` **0.10.0-beta.3 →
+0.10.0-beta.4**. Every other package and all peer ranges stay unchanged. No migration.
+
+### UI: `keepalive` on generated client calls
+
+Generated client functions and flow triggers accept `keepalive?: boolean` and pass it to `fetch`, and a
+generated mutation hook's `mutate(input, request?)` forwards `headers`, `signal` and `keepalive`. A
+page that is closing can send one last small write through the same typed call (credentials, CSRF or
+bearer header, `Idempotency-Key` included). Additive; regenerate the client to use it. See the
+[`@plumbus/ui` changelog](../packages/ui/CHANGELOG.md).
+
+### Core: current and retained compiled flow definitions
+
+An execution is pinned to the compiled version it started on. After a deploy, a worker of the new
+build can run it only if the build still has that version; and the version a *new* execution
+started on used to be whichever file loaded last, in file-name order (`x@1.9.0` won over
+`x@1.10.0`). Now:
+
+- New executions start on each flow's **current** version: a top-level file of
+  `.plumbus/compiled-flows`, i.e. what this build compiled. Two versions of one flow there are
+  refused at load.
+- Earlier releases' versions are **retained** under `.plumbus/compiled-flows/retained/`, written by
+  `plumbus compile-flows --retain <earlier build's compiled-flows dir> [...]`. They run only the
+  executions pinned to them.
+- `plumbus compile-flows` replaces the previous build's top-level files (a bumped version no longer
+  leaves the old file behind). A changed flow needs a new `version`: `--retain` refuses an earlier
+  definition that differs under the same id and version.
+
+**What to check when upgrading:** if your build copied older compiled files into the top level of
+`.plumbus/compiled-flows`, boot now refuses two versions of one flow; build with `--retain`
+instead. `CompiledFlowRegistry.getLatest` is a deprecated alias of the new `getCurrent`. An app on an
+earlier core ignores `retained/`. See the [core changelog](../packages/plumbus-core/CHANGELOG.md).
+
 ## v0.9.0-beta.11 (2026-11-12): flow runner concurrency, chat reply validation
 
 Prepared for repository release `v0.9.0-beta.11` under npm dist-tag `plumbus-next`. Three packages

@@ -46,10 +46,12 @@ Authoring stays TypeScript. `plumbus compile-flows` (and `compileFlowDefinition`
 
 `CompiledFlowRegistry` retains every published `(flowDefinitionId, definitionVersion)` immutably. `plumbus compile-flows` writes signed JSON under `.plumbus/compiled-flows`. `loadCompiledFlowRegistryFromDirectory` (and `tryLoadCompiledFlowRegistryFromDirectory`) reloads those files into a new registry, recomputing `definitionDigest` and refusing a mismatch. `createServer` and `createWorkerPool` use that load: pass `compiledRegistry`, or `compiledFlowsDirectory`, or leave both off to load `{cwd}/.plumbus/compiled-flows` when that tree has JSON. When a registry is set, the engine **consumes compiled JSON** (not live TypeScript steps): `start` requires a published version and writes `definition_version` + `definition_digest` on `flow_executions`. Later `runNext` / `resume` restore that pin from the row (complete-on-original), including across process restarts. Omit the registry (and have no compiled-flows tree) and the engine keeps today's live `FlowRegistry` objects.
 
+A new execution starts on the flow's **current** version (`getCurrent`): the one this build compiled. Earlier releases' versions can be kept **retained** (core 0.9.0-beta.12+; `plumbus compile-flows --retain`, loaded from `.plumbus/compiled-flows/retained/`, or `publish(compiled, { retained: true })`): an execution pinned to one finishes on it after a deploy, and no new execution starts on it. Which version is current never depends on file names or load order; two current versions of one flow in the directory are refused.
+
 `approval-outcome` steps route on an approval decision (`approved` / `rejected` / `changes-requested`) via `createApprovalService`. The step reads only the approval requested for its own tenant and execution, and an approval that expired before the step runs routes as `expired` (no route — the step fails). In-flight strategies: `complete-on-original` (default), `stop-and-recover` (cancel + record), `migrate` throws `definition-strategy-not-supported` — never a silent no-op.
 
 ```bash
-plumbus compile-flows [--out .plumbus/compiled-flows] [--json]
+plumbus compile-flows [--out .plumbus/compiled-flows] [--retain <dir...>] [--json]
 ```
 
 Hosts that should not assemble the engine per call use `createPlumbusRuntime({ flows: engine, auth }).startFlow(...)` and `inspectExecution(id)`. The same facade wraps the existing scheduler as `syncTimers` / `pollTimers` when you pass `timers: scheduler`. See [Execution lifecycle — Host runtime facade](../architecture/execution-lifecycle.md#host-runtime-facade).

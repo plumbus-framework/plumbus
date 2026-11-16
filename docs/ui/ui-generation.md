@@ -152,7 +152,7 @@ The generated client file starts with shared Plumbus API error helpers, then emi
 
 For a query capability named `getUser` in domain `users`, the generated client function is named `getUser` and sends a `GET` request to `/api/users/get-user`. Inputs are serialized through `URLSearchParams`. Action and job capabilities use `POST` and send `JSON.stringify(input)` in the request body.
 
-Each generated client function accepts optional request headers and an abort signal:
+Each generated client function accepts optional request headers, an abort signal and `keepalive`:
 
 ```ts
 await getUser(
@@ -163,6 +163,8 @@ await getUser(
   },
 );
 ```
+
+`keepalive: true` (`@plumbus/ui` 0.10.0-beta.4+) lets the request outlive the page, for one last small write from a `pagehide` or `visibilitychange`-to-hidden listener. It goes through the same generated function, so it keeps the credentials, CSRF or bearer header and `Idempotency-Key` that `navigator.sendBeacon` cannot send. Browsers cap the bodies of all in-flight keepalive requests from a page at 64 KiB together and refuse the request beyond that. Flow triggers accept `keepalive` too, and a generated mutation hook's `mutate(input, request?)` forwards these options.
 
 A non-2xx answer throws an `Error` carrying `status`, `code`, `metadata` and `requestId` (`PlumbusApiError`). `requestId` is the server's id for the failed request (`error.requestId`, else the envelope's `meta.requestId`, else the `x-request-id` header; `undefined` from a server that sends none — core sends one only under `requestIds: { expose: true }`). Show it on a failure screen so the person can quote it to support; the server's log and audit trail carry the same id (see [Request ids](../security/security-model.md#request-ids)).
 

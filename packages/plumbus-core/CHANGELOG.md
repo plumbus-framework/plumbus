@@ -1,5 +1,14 @@
 # @plumbus/core changelog
 
+## 0.9.0-beta.12 — 2026-11-16 — earlier releases' flow definitions, kept for their executions
+
+- **Which version a new execution starts on no longer depends on file names.** `CompiledFlowRegistry` now has a *current* version per flow (`getCurrent`) and *retained* versions (`publish(compiled, { retained: true })`, `isRetained`). A retained version runs the executions pinned to it and is never the one a new execution starts on. Before, `getLatest` returned the version loaded last, and the directory loads in file-name order, so `x@1.9.0` would have won over `x@1.10.0`. `getLatest` is kept as a deprecated alias of `getCurrent`; publishing several current versions in code behaves as before (the last one is current).
+- **`loadCompiledFlowRegistryFromDirectory`:** the top-level files are the build's current definitions, and two versions of one flow there are refused (`more than one current version of "<id>"`). Files under `retained/` (`RETAINED_COMPILED_FLOWS_SUBDIRECTORY`) load as retained, digest-checked like the rest. A retained file that differs from a current definition under the same version is refused (immutable).
+- **`plumbus compile-flows`** replaces the previous build's top-level files instead of leaving them beside the new ones (a version bump used to leave the old file, which then loaded too). New `--retain <dir...>`: earlier builds' compiled-flows directories (their top level and `retained/`); every definition this build does not ship is written to `<out>/retained/`. A definition shipped again under the same id and version must have the same digest, and two sources must agree: a changed flow needs a new `version`. Without `--retain`, `retained/` is emptied. `--json` adds a `retained` list.
+- New exports: `RETAINED_COMPILED_FLOWS_SUBDIRECTORY`, type `PublishCompiledFlowOptions`.
+- An app on an earlier core ignores `retained/` (it reads the top level only), so builds can start writing it before upgrading.
+- No migration.
+
 ## 0.9.0-beta.11 — 2026-11-12 — flow runner concurrency
 
 - **Opt-in `workers.flowConcurrency`** (`config/app.config.ts`, `PLUMBUS_FLOW_CONCURRENCY`, or `WorkerPoolConfig.flowConcurrency`; the pool option wins, then the environment, then the file). The polling flow runner gets that many slots: each claims one execution (`claimNext(1)`), drains it under its own lease token, and claims the next at once, without waiting for the other slots or the poll interval. One long flow (many AI calls) now holds one slot instead of every flow on the worker. A whole number from 1 to 256; anything else fails startup. **Default `1`: nothing changes without the setting.** It stays 1 because `aiProviderConcurrency` refuses AI calls over its limit rather than queueing them, and each slot can hold database connections; see [Flow runner concurrency](../../docs/sdk-reference/configuration.md#flow-runner-concurrency).

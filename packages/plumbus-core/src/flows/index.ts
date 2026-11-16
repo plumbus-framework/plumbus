@@ -12,9 +12,11 @@ export { FlowRegistry } from './registry.js';
 export {
   CompiledFlowRegistry,
   DEFAULT_COMPILED_FLOWS_DIRECTORY,
+  RETAINED_COMPILED_FLOWS_SUBDIRECTORY,
   loadCompiledFlowRegistryFromDirectory,
   tryLoadCompiledFlowRegistryFromDirectory,
 } from './compiled-registry.js';
+export type { PublishCompiledFlowOptions } from './compiled-registry.js';
 export {
   COMPILED_FLOW_CONTRACT_VERSION,
   compileFlowDefinition,

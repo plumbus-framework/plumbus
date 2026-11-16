@@ -339,14 +339,19 @@ Compile `app/flows` `defineFlow` modules into signed FlowDefinition JSON. Condit
 
 `createServer` and `createWorkerPool` reload that directory on boot (or `compiledFlowsDirectory` / an explicit `compiledRegistry`). A tampered file whose stored digest no longer matches is refused. An empty or missing default directory leaves live TypeScript flows on.
 
+The directory's top level is exactly this build's definitions: each run replaces what an earlier run left there (another version of a flow, a removed flow), and each top-level definition is its flow's **current** version, the one new executions start on. Two versions of one flow at the top level are refused at load.
+
+**Keeping earlier releases' definitions** (core 0.9.0-beta.12+). An execution started by an earlier release is pinned to that release's version; if the new build no longer ships it, a worker of the new build cannot run it. `--retain <dir...>` takes the compiled-flows directories of earlier builds (their top level and their own `retained/`) and writes every definition this build does not ship to `<out>/retained/`, digest-checked. Retained definitions load for the executions pinned to them only; a new execution never starts on one, whatever the file names. A definition this build ships under the same id and version must be identical (same digest): a changed flow needs a new `version`. Without `--retain`, `retained/` is emptied.
+
 ```bash
-plumbus compile-flows [--out .plumbus/compiled-flows] [--json]
+plumbus compile-flows [--out .plumbus/compiled-flows] [--retain <dir...>] [--json]
 ```
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `-o, --out <dir>` | `string` | `.plumbus/compiled-flows` | Output directory (project-relative) |
-| `--json` | `boolean` | `false` | Machine-readable list of id, version, digest, path |
+| `--retain <dir...>` | `string[]` | none | Earlier builds' compiled-flows directories; definitions this build does not ship go to `<out>/retained/` |
+| `--json` | `boolean` | `false` | Machine-readable `flows` and `retained`: id, version, digest, path |
 
 ### plumbus flow
 

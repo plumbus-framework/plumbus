@@ -106,6 +106,7 @@ const PUBLIC_EXPORTS: readonly string[] = [
   'REASONING_EFFORTS',
   'REQUEST_IDEMPOTENCY_TABLE',
   'REQUEST_ID_HEADER',
+  'RETAINED_COMPILED_FLOWS_SUBDIRECTORY',
   'ReasoningEffortValues',
   'ReasoningLevelValues',
   'RelationType',

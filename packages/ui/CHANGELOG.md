@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.0-beta.4 — 2026-11-16 — `keepalive` on generated client calls
+
+- **Generated client functions accept `keepalive?: boolean`** (`options` is now `{ headers?, signal?, keepalive? }`) and pass it to `fetch`, so a page that is closing (`pagehide`, `visibilitychange` to hidden) can still send one last write, such as saving a video position, through the same typed call. The request keeps everything an ordinary call sends: credentials and the CSRF header (session transport) or the bearer header, and the Idempotency-Key. Generated flow triggers accept `keepalive` too, and a generated mutation hook's `mutate(input, request?)` forwards `headers`, `signal` and `keepalive` to the client function. Browsers cap the bodies of all in-flight keepalive requests of a page at 64 KiB together, and refuse the request beyond that; keep these writes small. Additive: omit the option and nothing changes. Regenerate the client (`plumbus ui generate`).
+
 ## 0.10.0-beta.3 — 2026-11-09 — session auth by default, request id on generated client errors
 
 - **Breaking: the generated auth transport defaults to `session`** (HttpOnly cookie + CSRF via `@plumbus/auth`) in `generateClientModule`, `generateAuthModule`, `generateNextjsTemplate` and `plumbus ui generate` / `ui nextjs`. Before, an omitted transport meant `bearer`, which keeps the token in `localStorage` where any XSS can read and replay it. Apps that use bearer tokens pass `--auth-transport bearer` (or `transport: 'bearer'` / `authTransport: 'bearer'`); the generator then warns once.

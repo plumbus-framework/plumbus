@@ -378,12 +378,13 @@ export function generateTypedClient(
 
   return `${jsdoc}export async function ${fnName}(
   input: ${pascal}Input,
-  options?: { headers?: Record<string, string>; signal?: AbortSignal },
+  options?: { headers?: Record<string, string>; signal?: AbortSignal; keepalive?: boolean },
 ): Promise<${pascal}Output> {${queryParams}
   const response = await fetch(${fetchUrl}, {
     method: "${method}",
     ...clientFetchInit("${method}", ${fetchHeaders}),${fetchBody}
     signal: options?.signal,
+    keepalive: options?.keepalive,
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
@@ -452,11 +453,11 @@ export function generateMutationHook(
   const [error, setError] = useState<Error | null>(null);
   const [data, setData] = useState<${pascal}Output | null>(null);
 
-  const mutate = async (input: ${pascal}Input) => {
+  const mutate = async (input: ${pascal}Input, request?: Parameters<typeof ${fnName}>[1]) => {
     setLoading(true);
     setError(null);
     try {
-      const result = await ${fnName}(input);
+      const result = await ${fnName}(input, request);
       setData(result);
       return result;
     } catch (e) {
@@ -506,12 +507,13 @@ export function generateFlowTrigger(
 
   return `${jsdoc}export async function ${fnName}(
   input: ${pascal}FlowInput,
-  options?: { headers?: Record<string, string> },
+  options?: { headers?: Record<string, string>; keepalive?: boolean },
 ): Promise<{ executionId: string; status: string }> {
   const response = await fetch(${JSON.stringify(`${base}${urlPath}`)}, {
     method: "POST",
     ...clientFetchInit("POST", withIdempotencyKey(options?.headers)),
     body: JSON.stringify(input),
+    keepalive: options?.keepalive,
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));

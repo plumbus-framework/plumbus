@@ -225,6 +225,85 @@ describe('generateTypedClient', () => {
     expect(code).toContain('signal?: AbortSignal');
     expect(code).toContain('signal: options?.signal');
   });
+
+  it('accepts keepalive and passes it to fetch', () => {
+    for (const cap of [makeCap(), makeActionCap()]) {
+      const code = generateTypedClient(cap);
+      expect(code).toContain('keepalive?: boolean');
+      expect(code).toContain('keepalive: options?.keepalive');
+    }
+  });
+});
+
+// ── keepalive at run time ──
+
+/**
+ * A page that is closing can still send one last write when the request is `keepalive`. The
+ * call must keep everything an ordinary call sends: credentials, the CSRF header (session
+ * transport), the bearer header (bearer transport) and the Idempotency-Key.
+ */
+describe('generated client keepalive (executed)', () => {
+  async function loadClient(authTransport: 'session' | 'bearer') {
+    const ts = await import('typescript');
+    const source = generateClientModule(
+      [makeCap(), makeActionCap()],
+      [{ name: 'refundFlow', startPath: '/api/billing/request-refund' }],
+      { authTransport },
+    );
+    const js = ts.transpileModule(source, {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    }).outputText;
+    const auth = {
+      csrfHeaders: (method: string) => (method === 'GET' ? {} : { 'X-CSRF-Token': 'csrf-1' }),
+      getAuthHeaders: () => ({ Authorization: 'Bearer tok-1' }),
+    };
+    const calls: { url: string; init: RequestInit }[] = [];
+    const fakeFetch = async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        json: async () => ({ data: { amount: 1, executionId: 'e-1', status: 'running' } }),
+      };
+    };
+    const exports: Record<string, unknown> = {};
+    new Function('exports', 'require', 'fetch', js)(exports, () => auth, fakeFetch);
+    return { exports: exports as Record<string, (...args: unknown[]) => Promise<unknown>>, calls };
+  }
+
+  it('sends keepalive with the CSRF header, credentials and an idempotency key (session)', async () => {
+    const { exports, calls } = await loadClient('session');
+    await exports.approveRefund({ invoiceId: 'i-1' }, { keepalive: true });
+    const init = calls[0].init;
+    const headers = init.headers as Record<string, string>;
+    expect(init.keepalive).toBe(true);
+    expect(init.credentials).toBe('include');
+    expect(headers['X-CSRF-Token']).toBe('csrf-1');
+    expect(headers['Idempotency-Key']).toMatch(/\S+/);
+    expect(init.body).toBe(JSON.stringify({ invoiceId: 'i-1' }));
+  });
+
+  it('sends keepalive with the bearer header (bearer)', async () => {
+    const { exports, calls } = await loadClient('bearer');
+    await exports.approveRefund({ invoiceId: 'i-1' }, { keepalive: true });
+    expect(calls[0].init.keepalive).toBe(true);
+    expect((calls[0].init.headers as Record<string, string>).Authorization).toBe('Bearer tok-1');
+  });
+
+  it('leaves keepalive off unless asked, for reads and writes', async () => {
+    const { exports, calls } = await loadClient('session');
+    await exports.getInvoice({ invoiceId: 'i-1' });
+    await exports.approveRefund({ invoiceId: 'i-1' });
+    expect(calls.map((c) => c.init.keepalive)).toEqual([undefined, undefined]);
+  });
+
+  it('passes keepalive on a flow trigger', async () => {
+    const { exports, calls } = await loadClient('session');
+    await exports.startRefundFlow({}, { keepalive: true });
+    expect(calls[0].url).toBe('/api/billing/request-refund');
+    expect(calls[0].init.keepalive).toBe(true);
+  });
 });
 
 // ── generateQueryHook ──
@@ -303,6 +382,14 @@ describe('generateMutationHook', () => {
     const code = generateMutationHook(makeActionCap());
     expect(code).toContain('throw err;');
   });
+
+  it('forwards request options (headers, signal, keepalive) from mutate to the client', () => {
+    const code = generateMutationHook(makeActionCap());
+    expect(code).toContain(
+      'const mutate = async (input: ApproveRefundInput, request?: Parameters<typeof approveRefund>[1]) => {',
+    );
+    expect(code).toContain('await approveRefund(input, request);');
+  });
 });
 
 // ── generateReactHook ──
@@ -352,6 +439,12 @@ describe('generateFlowTrigger', () => {
     expect(module).not.toContain('startOnboarding');
     expect(module).not.toContain('OnboardingFlowInput');
     expect(module).not.toContain('/start');
+  });
+
+  it('accepts keepalive and passes it to fetch', () => {
+    const code = generateFlowTrigger(flow);
+    expect(code).toContain('options?: { headers?: Record<string, string>; keepalive?: boolean }');
+    expect(code).toContain('keepalive: options?.keepalive');
   });
 
   it('includes JSDoc when configured', () => {
