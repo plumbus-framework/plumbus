@@ -65,4 +65,4 @@ The custom prompt still runs through the same runtime — guards, provenance, bu
 
 ## Addendum (2026-07-08)
 
-**Validation:** staged custom prompts are checked for the five base fields and warn at define time when fields are missing. Agent tool orchestration is deliberately different: its custom prompt is plain text/single-field, the same prompt chooses tools and returns the answer, and Chat synthesizes the policy envelope.
+**Validation:** staged custom prompts are checked for the five base fields and warn at define time when fields are missing. A chat that declares `answerOf(output) => string` (chat 0.4.0-beta.5) supplies its answer text from its own output shape, so `answer` is not required of its prompt. Agent tool orchestration is deliberately different: its custom prompt is plain text/single-field, the same prompt chooses tools and returns the answer, and Chat synthesizes the policy envelope.

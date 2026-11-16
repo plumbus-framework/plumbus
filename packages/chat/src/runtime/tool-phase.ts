@@ -143,6 +143,8 @@ export type ToolPhaseResult =
       finalProvider?: string;
       /** Agent orchestration: the final completion's validated output (the same value `onAgentOutput` receives). */
       finalOutput?: unknown;
+      /** Agent orchestration: the thread the final answer was written on (history, user message, tool exchange). */
+      finalThread?: ChatMessage[];
       usage: { tokensIn: number; tokensOut: number };
       cost: number;
     }
@@ -490,6 +492,7 @@ export async function runToolPhase(args: RunToolPhaseArgs): Promise<ToolPhaseRes
               finalModel: res.model ?? 'unknown',
               finalProvider: res.provider ?? 'unknown',
               finalOutput: res.data,
+              finalThread: [...baseThread, ...exchange],
             }
           : {}),
         usage: { tokensIn: usageIn, tokensOut: usageOut },
@@ -581,6 +584,7 @@ export async function runToolPhase(args: RunToolPhaseArgs): Promise<ToolPhaseRes
       finalModel: terminal.model ?? 'unknown',
       finalProvider: terminal.provider ?? 'unknown',
       finalOutput: terminal.data,
+      finalThread: [...baseThread, ...exchange],
       usage: { tokensIn: usageIn, tokensOut: usageOut },
       cost,
     };

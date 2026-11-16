@@ -111,6 +111,20 @@ For `orchestration:'agent'`, use a custom plain-text prompt and script its tool-
   `message.replaced`, `turn.completed.moderation`, and that the store's `__turns` holds
   only the accepted or replacement text. Cover the throwing validator: no turns stored,
   `turn.failed chat.reply_validation_failed`.
+- `regenerate`: `mockAI` returns the same output for every call, so script a sequence with
+  your own `AIService` (spread `mockAI({})`, override `streamGenerate` / `generateWithUsage`
+  to shift outputs and record each call's config) and run it with
+  `mockChatRuntime(chat, input, { ai }, { sessionStore, validateReply, maxRegenerations })`.
+  Assert: the calls made (one per draft; the regeneration's `messages` end with the draft and
+  your `feedback`, `costContext.operationName` is `chat.<name>.regenerate`);
+  `turn.regeneration` seen by the validator (`{ attempt, remaining }`); the
+  `message.replaced` events (one per new draft, with the verdict's code, then the fallback);
+  `turn.completed.usage` / `cost` summed over the calls and `turn.completed.regenerations`;
+  the stored turn holds only the accepted or fallback text. Cover the spent budget (a
+  second `regenerate` → fallback) and a failing regeneration call (`notice
+  chat.regeneration_failed` → fallback). Reference: `src/runtime/__tests__/reply-regenerate.test.ts`.
+- `answerOf`: script an output without `answer`; assert `message.delta`, the stored text and
+  `reply.text` are what `answerOf` returns, and `reply.modelOutput` is the raw output.
 - `clientActions`: script a model output with `clientActions: [...]`; assert on
   `turn.completed.clientActions` and the stored turn. Never assert on reply prose.
 - Multi-turn: `defineChatEvaluation` scenarios with `when: { turns: [...] }` or

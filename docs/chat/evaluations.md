@@ -55,7 +55,7 @@ Exact assertions (chat 0.4.0-beta.4):
 | `{ type: 'expectTurnFailed', code? }` | The turn emitted `turn.failed` (with that `code` when given). |
 | `{ type: 'expectCompletedInScope', value }` | `turn.completed.inScope === value`. |
 | `{ type: 'expectCompletedRefusalReason', value }` | `turn.completed.refusalReason` equals `value` (`null` = no refusal). |
-| `{ type: 'expectReplyReplaced', code? }` | A `message.replaced` event (from `validateReply` or a guard rewrite), with that `code` when given. |
+| `{ type: 'expectReplyReplaced', code? }` | A `message.replaced` event (from `validateReply` — a replacement, a fallback, or a regenerated draft — or a guard rewrite), with that `code` when given. |
 | `{ type: 'expectClientActions', count }` | `turn.completed.clientActions` has exactly `count` entries. |
 
 Assertions never read the reply's prose. To judge what a reply says, use a judge (below). For guard verdicts, model output or cited sources, read a `TraceRecorder` (below) with plain Vitest expectations.

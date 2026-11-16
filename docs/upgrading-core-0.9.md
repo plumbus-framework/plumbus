@@ -6,6 +6,21 @@ The 0.8 numbers now belong to the stable **stabilization family** published from
 
 Core 0.9.0-beta.0 contains everything in the 0.8.0-beta.N line plus every stable change merged from `main`: the core 0.8.0 stabilization (PLB-01 to PLB-10), core 0.8.1, auth 0.3.1 and the Vitest 5.0.4 toolchain. See [Included in v0.9.0-beta.0](#included-in-v090-beta0).
 
+## Unreleased (prepared 2026-11-16): chat `regenerate` verdict and `answerOf`
+
+One package changes: `@plumbus/chat` **0.4.0-beta.4 → 0.4.0-beta.5**. Every other package and all
+peer ranges stay unchanged. No migration. Both additions are opt-in:
+
+- `validateReply` may return `{ decision: 'regenerate', feedback, code, fallback }`: the model is asked
+  again within the same turn, through `ctx.ai`, bounded by `maxRegenerations` (default 1); past it, or
+  when the call fails, the `fallback` is persisted. Regeneration calls count in the turn's usage, cost
+  and caps (`turn.completed.regenerations`).
+- `defineChat({ answerOf })` lets a custom prompt supply its answer text from its own output shape
+  instead of the base `answer` field.
+
+See the [`@plumbus/chat` changelog](../packages/chat/CHANGELOG.md) and
+[defining-chats](./chat/defining-chats.md#validate-before-persist-validatereply).
+
 ## v0.9.0-beta.12 (2026-11-16): earlier releases' flow definitions kept for their executions, `keepalive` on generated client calls
 
 Prepared for repository release `v0.9.0-beta.12` under npm dist-tag `plumbus-next`. Two packages

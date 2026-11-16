@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0-beta.5 — 2026-11-16 — regenerate a refused reply; a prompt's own answer text
+
+Both additions are opt-in; chats that use neither behave as before. **No migration.** Peers unchanged.
+
+- **`validateReply` can `regenerate`.** New verdict `{ decision: 'regenerate', feedback, code, fallback: { text, code?, clientActions? } }`: the runtime calls the model again **within the same turn** — same prompt, same prompt input and history, then the draft (the structured output as JSON, or the plain text) and the app's `feedback` as the next messages — runs the post-turn guards and `validateReply` on the new reply. A streamed turn shows the new draft with `message.replaced { text, code }` (several may come in one turn; the last wins); a confirm resume shows nothing until the reply is checked. Staged Path B regenerates the answer phase over the same tool results; agent orchestration regenerates on the agent's own thread without tools; confirm resumes regenerate the continuation call. A regeneration never proposes an action.
+  - **Bounded** by the new `maxRegenerations` option (on `RunChatTurnOpts`, `RegisterChatRoutesOpts`, `ChatPreparedTurn`, `ResumeAfterConfirmArgs`; 0..3, default 1). A `regenerate` past it ends in the verdict's required `fallback`, persisted like a `replace` with `fallback.code` (default: the verdict's `code`). A failing regeneration call also ends in the fallback, after `notice chat.regeneration_failed` — or `chat.budget_exceeded` when the call took the turn past `budget.perTurn`.
+  - **Governed like the first call:** every regeneration goes through `ctx.ai` tagged `chat.<name>.regenerate`; its tokens and cost are added to the turn's `usage` / `cost` and to the stored assistant turn, `budget.perTurn` is re-checked, and the new `turn.completed.regenerations` counts the calls.
+  - `ChatReplyValidationContext.regeneration: { attempt, remaining }` tells the validator where it stands. `accept` may carry an optional `code`, recorded as the moderation code (e.g. "passed after a regeneration"). New type `ChatReplyFallback`.
+- **`answerOf(output) => string` on `defineChat`.** A custom prompt whose output carries its reply in its own shape (parts, sections) no longer needs a flat `answer` field: the runtime streams, guards, validates and persists the text `answerOf` returns, for every completion (turn, regeneration, confirm resume, agent final answer). `reply.modelOutput` still carries the whole output. `defineChat` no longer warns that `answer` is missing for such a chat and rejects `answerOf` without `prompt`; a non-string result fails the turn (`chat.turn_error`). The base `answer` field stays the default.
+- Fix: a structured output read from the stream is now interpreted after the stream ends, so a failure reading it (a broken `answerOf`) fails the turn instead of being taken for a stream failure.
+
 ## 0.4.0-beta.4 — 2026-11-12 — reply validation, client actions, multi-turn evaluations
 
 All additions are opt-in; chats and routes that set none of the new options behave as before. **No migration** unless you choose `chatTurnWithReplyMetadataEntity`. Peers unchanged.

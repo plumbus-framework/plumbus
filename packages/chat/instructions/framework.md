@@ -57,7 +57,7 @@ If you need to find or extend something, this is where it lives:
 | Persisted entities | `src/session/{entity,turn-entity,pending-action-entity}.ts` |
 | Session helpers | `src/session/service.ts` (`createSession`, `appendTurn`, `aggregateForBudget`) |
 | HTTP route registration (+ `requestContext` seam, `prepareTurn`) | `src/runtime/http.ts` |
-| Reply check (`validateReply`) + client actions | `src/runtime/reply-finalize.ts`, types in `src/types/reply.ts` |
+| Reply check (`validateReply`: accept / replace / regenerate loop, `maxRegenerations`, `answerOf`) + client actions | `src/runtime/reply-finalize.ts` (the regeneration calls themselves: `regenerate` in `src/runtime/run-turn.ts`, and in `src/runtime/resume-after-confirm.ts` via `resumeToolLoop({ regeneration })`), types in `src/types/reply.ts` |
 | Multi-turn evals, simulated users, judges | `src/define/defineChatEvaluation.ts`, `src/eval/{run-evaluation,model-helpers}.ts` |
 | Generic chat prompt | `src/prompt/chat-turn.prompt.ts` |
 | System prompt builder | `src/prompt/build-system-prompt.ts` |
@@ -110,9 +110,10 @@ The files in this `instructions/` folder are PRESCRIPTIVE (do this, don't do tha
 
 - **Never bump `@plumbus/chat` without running migrations.** 0.1.11 adds columns to all three chat entities and a **unique** index on `chat_turn (session_id, ordinal)`. After upgrading, run `plumbus generate && plumbus migrate generate && plumbus migrate apply`. The change is additive with no backfill, but the unique index **fails to build** if the existing table already holds duplicate `(session_id, ordinal)` rows — check with `SELECT session_id, ordinal, count(*) FROM chat_turn GROUP BY 1,2 HAVING count(*) > 1` and dedupe first. Full detail: `/docs/chat/confirmation-persistence.md`.
 - **Never use a write-effect capability as `capabilityContext`.** The framework rejects it at construction time; if you bypass that, every turn mutates state.
-- **Never narrow a staged chat prompt's output schema.** The five base fields (`inScope`, `answer`, `refusalReason`, `citedSources`, `requestedAction`) are required for staged runtime guards. Agent tool orchestration is the explicit exception: it requires a custom plain-text prompt and synthesizes the policy envelope.
+- **Never narrow a staged chat prompt's output schema.** The five base fields (`inScope`, `answer`, `refusalReason`, `citedSources`, `requestedAction`) are required for staged runtime guards. Agent tool orchestration is the explicit exception: it requires a custom plain-text prompt and synthesizes the policy envelope. A prompt that writes its reply in its own shape declares `answerOf(output) => string` on the chat instead of an `answer` field (0.4.0-beta.5).
 - **Never call `runChatTurn` directly from a route.** Use `registerChatRoutes(app, routeConfig, chats)` so SSE, auth, body validation, and `clientHistory` capping are handled correctly.
 - **Never let unchecked model text reach storage when the app checks replies.** Configure `validateReply`; the runtime then writes only the accepted or replacement text, and `message.replaced` withdraws the streamed draft. Do not re-implement this with a staging store.
+- **Never retry a refused reply outside the turn.** `validateReply` returns `regenerate` (with app-written `feedback` and a required `fallback`); the runtime asks the model again through `ctx.ai` within the turn, bounded by `maxRegenerations` (default 1), and counts the calls in the turn's usage, cost and caps.
 - **Never let a request body field choose the tenant.** With `requestContext.bindTenant` the route ignores `audienceTenantOverride`; bind from what the platform observed (hostname, the session it issued).
 - **Never store sensitive prose in `ChatTurn.content` without setting `persistence: { messageContent: 'client' }`.** Audit + cross-device hydration are nice but they have privacy implications — pick the mode deliberately.
 - **Never invent source IDs in tests or fixtures.** The resolver issues handles (`src_a`, `src_b`, ...) in the order sources are declared in the chat config; cite using those exact strings.

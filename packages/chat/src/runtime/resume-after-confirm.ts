@@ -5,7 +5,7 @@ import type { ChatPendingActionV2 } from '../session/pending-action-v2.js';
 import type { ChatDefinition } from '../types/chat.js';
 import type { ChatSourceRef } from '../types/context.js';
 import type { ChatEvent } from '../types/event.js';
-import type { ChatReplyValidator } from '../types/reply.js';
+import type { ChatFinalReply, ChatReplyValidator } from '../types/reply.js';
 import type { ToolExecutionRecord } from '../types/tool.js';
 import type {
   ChatConversationStore,
@@ -16,6 +16,7 @@ import { clientSafeErrorMessage } from './client-error.js';
 import { terminalizeConfirmingRow } from './pending-actions.js';
 import {
   clientActionsFromOutput,
+  draftMessageOf,
   finalizeReply,
   normalizeClientActions,
 } from './reply-finalize.js';
@@ -89,6 +90,8 @@ export interface ResumeAfterConfirmArgs {
   signal?: AbortSignal;
   /** Same hook as `RunChatTurnOpts.validateReply`, run on the continuation answer before it is written. */
   validateReply?: ChatReplyValidator;
+  /** Same bound as `RunChatTurnOpts.maxRegenerations` (default 1). */
+  maxRegenerations?: number;
 }
 
 function nowIso(ctx: ExecutionContext): string {
@@ -328,12 +331,56 @@ export async function resumeAfterConfirm(
       // the confirmed action without a continuation turn, like a failed resume.
       let resumeFailure = outcome.kind === 'failed' ? outcome.failure : undefined;
       let finalized: Awaited<ReturnType<typeof finalizeReply>> | undefined;
+      // Regeneration calls add to the continuation's usage (counters are mutated in place too).
+      const extra = { tokensIn: 0, tokensOut: 0, cost: 0, model: '', provider: '', calls: 0 };
       if (outcome.kind === 'answer') {
         const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+        const regenThread: ChatMessage[] = [];
+        const regenerate = async (feedback: string, draft: ChatFinalReply) => {
+          regenThread.push(
+            { role: 'assistant', content: draftMessageOf(draft) },
+            { role: 'user', content: feedback },
+          );
+          extra.calls++;
+          const again = await resumeToolLoop(ctx, {
+            chat,
+            messages,
+            counters,
+            sourceRefs,
+            toolsExecuted,
+            logicalTurnId,
+            emit,
+            signal: args.signal,
+            promptInput: payload.agentPromptInput,
+            regeneration: [...regenThread],
+          });
+          if (again.kind !== 'answer') throw new Error('regeneration produced no answer');
+          extra.tokensIn += again.usage.tokensIn;
+          extra.tokensOut += again.usage.tokensOut;
+          extra.cost += again.cost;
+          extra.model = again.model;
+          extra.provider = again.provider;
+          return {
+            text: again.answer,
+            inScope: again.inScope,
+            refusalReason: again.refusalReason ?? null,
+            sources: again.sourceRefs,
+            clientActions: normalizeClientActions(
+              chat,
+              clientActionsFromOutput(again.modelOutput),
+              emit,
+            ),
+            modelOutput: again.modelOutput,
+            toolsExecuted: again.toolsExecuted,
+          } satisfies ChatFinalReply;
+        };
         finalized = await finalizeReply({
           ctx,
           chat,
           validateReply: args.validateReply,
+          maxRegenerations: args.maxRegenerations,
+          // Nothing of the continuation is shown before it is checked (no `shownText`).
+          regenerate,
           emit,
           reply: {
             text: outcome.answer,
@@ -452,20 +499,31 @@ export async function resumeAfterConfirm(
       const answerText = finalized?.ok ? finalized.text : outcome.answer;
       const clientActions = finalized?.ok ? finalized.clientActions : [];
       const moderation = finalized?.ok ? finalized.moderation : undefined;
+      const finalReply = finalized?.ok ? finalized.reply : undefined;
+      const inScope = finalReply ? finalReply.inScope : outcome.inScope;
+      const refusalReason = finalReply ? finalReply.refusalReason : (outcome.refusalReason ?? null);
+      const sources = finalReply ? finalReply.sources : outcome.sourceRefs;
+      const usage = {
+        tokensIn: outcome.usage.tokensIn + extra.tokensIn,
+        tokensOut: outcome.usage.tokensOut + extra.tokensOut,
+      };
+      const cost = outcome.cost + extra.cost;
+      const model = extra.model || outcome.model;
+      const provider = extra.provider || outcome.provider;
       const resumeTurn: ChatTurnWrite = {
         role: 'assistant',
         content: answerText,
         ...(clientActions.length > 0 ? { clientActions } : {}),
         ...(moderation ? { moderation } : {}),
-        inScope: outcome.inScope,
-        refusalReason: outcome.refusalReason ?? null,
-        sources: outcome.sourceRefs,
+        inScope,
+        refusalReason,
+        sources,
         logicalTurnId,
         continuationOfTurnId: payload.proposalAssistantTurnId,
-        tokensIn: outcome.usage.tokensIn,
-        tokensOut: outcome.usage.tokensOut,
-        costUsd: outcome.cost,
-        model: outcome.model,
+        tokensIn: usage.tokensIn,
+        tokensOut: usage.tokensOut,
+        costUsd: cost,
+        model,
         latencyMs: 0,
         toolsExecuted: outcome.toolsExecuted,
       };
@@ -497,7 +555,7 @@ export async function resumeAfterConfirm(
         chatName: chat.name,
         sessionId: pending.sessionId,
         turnId: logicalTurnId,
-        costUsd: outcome.cost,
+        costUsd: cost,
       });
       emit({ type: 'message.delta', text: answerText });
       emit({
@@ -510,15 +568,16 @@ export async function resumeAfterConfirm(
       emit({
         type: 'turn.completed',
         turnId: logicalTurnId,
-        usage: { tokensIn: outcome.usage.tokensIn, tokensOut: outcome.usage.tokensOut },
-        cost: outcome.cost,
-        model: outcome.model,
-        provider: outcome.provider,
-        inScope: outcome.inScope,
-        refusalReason: outcome.refusalReason ?? null,
-        sources: outcome.sourceRefs,
+        usage,
+        cost,
+        model,
+        provider,
+        inScope,
+        refusalReason,
+        sources,
         ...(chat.clientActions ? { clientActions } : {}),
         ...(moderation ? { moderation } : {}),
+        ...(extra.calls > 0 ? { regenerations: extra.calls } : {}),
       });
       onResult({
         decisionRecorded: true,

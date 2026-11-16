@@ -57,6 +57,17 @@ export interface ChatConfig {
   history?: ChatHistoryConfig;
   instructions?: string[];
   prompt?: PromptDefinition<z.ZodTypeAny, z.ZodTypeAny>;
+  /**
+   * The reply text of a completion of the custom `prompt`, for a prompt whose
+   * output carries its answer in its own shape (parts, sections) instead of the
+   * base `answer` field. The runtime streams, guards, validates and persists
+   * this text; the whole output still reaches `validateReply` as
+   * `reply.modelOutput`. Called with the validated output of every completion
+   * (turn, regeneration, confirm resume, agent final answer). Requires `prompt`;
+   * the prompt's schema then need not declare `answer`. Must return a string —
+   * anything else fails the turn.
+   */
+  answerOf?: (output: unknown) => string;
   /** Opt-in client actions; see {@link ChatClientActionsConfig}. */
   clientActions?: ChatClientActionsConfig;
   /**

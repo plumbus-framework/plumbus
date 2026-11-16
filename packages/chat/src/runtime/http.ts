@@ -146,6 +146,8 @@ export interface ChatPreparedTurn {
   trustedHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
   /** Per-turn reply check; wins over the route-level `validateReply`. */
   validateReply?: ChatReplyValidator;
+  /** Per-turn bound on `regenerate` verdicts; wins over the route-level `maxRegenerations`. */
+  maxRegenerations?: number;
 }
 
 export interface RegisterChatRoutesOpts {
@@ -181,6 +183,8 @@ export interface RegisterChatRoutesOpts {
    * resumes). See `RunChatTurnOpts.validateReply`.
    */
   validateReply?: ChatReplyValidator;
+  /** Bound on `regenerate` verdicts per turn or resume (0..3, default 1). See `RunChatTurnOpts.maxRegenerations`. */
+  maxRegenerations?: number;
   /** D3 — injected authenticator; when absent a default is derived from routeConfig.authAdapter. */
   authenticator?: ChatRequestAuthenticator;
   /** D1 — conversation store; when present the /confirm route + C5 pre-turn pending check are enabled. */
@@ -611,7 +615,12 @@ export function registerChatRoutes(
         ...(prepared.trustedHistory ? { trustedHistory: prepared.trustedHistory } : {}),
       };
       const validateReply = prepared.validateReply ?? opts?.validateReply;
-      const turnOpts: RunChatTurnOpts = validateReply ? { ...runOpts, validateReply } : runOpts;
+      const maxRegenerations = prepared.maxRegenerations ?? opts?.maxRegenerations;
+      const turnOpts: RunChatTurnOpts = {
+        ...runOpts,
+        ...(validateReply ? { validateReply } : {}),
+        ...(maxRegenerations !== undefined ? { maxRegenerations } : {}),
+      };
 
       const csrfCookie = browserSecurityEnabled
         ? buildCsrfSetCookie(issueCsrfToken(csrfSecret, csrfBindingFromAuth(auth)), csrfSecure)
@@ -901,6 +910,7 @@ async function handleConfirm(
       },
       signal,
       validateReply: deps.opts?.validateReply,
+      maxRegenerations: deps.opts?.maxRegenerations,
     });
     reply.raw.end();
     return;
@@ -920,6 +930,7 @@ async function handleConfirm(
     },
     signal,
     validateReply: deps.opts?.validateReply,
+    maxRegenerations: deps.opts?.maxRegenerations,
   });
   if (csrfCookie) reply.header('set-cookie', csrfCookie);
   reply.status(200).send({ events, result: confirmResult });

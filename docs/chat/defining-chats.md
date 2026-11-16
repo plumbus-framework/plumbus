@@ -179,6 +179,25 @@ export const helpChat = defineChat({
 
 **The five base output fields are required for staged chats** — the runtime's scope, provenance, and action guards depend on them. Custom fields can be added freely. Agent tool orchestration is the explicit exception: it requires a custom plain-text prompt and synthesizes the policy envelope.
 
+### A prompt that names its own answer text (`answerOf`)
+
+A custom prompt whose output carries the reply in its own shape — parts, sections, a structured layout — need not also write a flat `answer`. Give the chat `answerOf(output) => string`:
+
+```ts
+export const lessonChat = defineChat({
+  name: 'lesson',
+  access: { roles: ['student'] },
+  prompt: lessonReplyPrompt, // output: { inScope, parts: [...], refusalReason, citedSources, requestedAction }
+  answerOf: (output) => (output as LessonReply).parts.map(textOfPart).join('\n'),
+});
+```
+
+- The runtime streams, guards, validates (`reply.text`) and persists the text `answerOf` returns; `reply.modelOutput` still carries the whole output for `validateReply`.
+- It is called with the validated output of every completion of the prompt: the turn, each regeneration, the answer after a confirmed tool, and the agent's final answer in `orchestration: 'agent'` (instead of its `content`).
+- `defineChat` then no longer warns that `answer` is missing (the other base fields are still checked), and rejects `answerOf` without a `prompt`.
+- It must return a string: anything else (or a throw) fails the turn with `chat.turn_error`.
+- Without `answerOf`, the base `answer` field is used, as before.
+
 ## Provider-native tool calling (`policy.toolCalling`, Path B)
 
 `policy.toolCalling` turns capabilities and flows into provider-native tools the model
@@ -290,7 +309,7 @@ The rolling summary is **off by default**: it runs only when `history.summarize.
 
 ## Validate before persist (`validateReply`)
 
-`validateReply(reply, turn)` is an app hook that runs on the finished reply — after the model call, the tool phase and the post-turn guards — and **before** `appendTurn` writes the assistant turn. Pass it to `runChatTurn` (`opts.validateReply`), to `registerChatRoutes` (`opts.validateReply`, or per turn from `prepareTurn`), or to `createChatTurnCapability(chat, { validateReply })`. Without it nothing changes.
+`validateReply(reply, turn)` is an app hook that runs on the finished reply — after the model call, the tool phase and the post-turn guards — and **before** `appendTurn` writes the assistant turn. Pass it to `runChatTurn` (`opts.validateReply`), to `registerChatRoutes` (`opts.validateReply`, or per turn from `prepareTurn`), or to `createChatTurnCapability(chat, { validateReply })`. Without it nothing changes. `maxRegenerations` (same places; 0..3, default 1) bounds the `regenerate` verdict below.
 
 ```ts
 import type { ChatReplyValidator } from '@plumbus/chat';
@@ -298,20 +317,47 @@ import type { ChatReplyValidator } from '@plumbus/chat';
 const validateReply: ChatReplyValidator = async (reply, turn) => {
   // reply: { text, inScope, refusalReason, sources, clientActions, modelOutput, toolsExecuted }
   // turn:  { ctx, chatName, sessionId, turnId, userId, tenantId?, audience, locale,
-  //          userMessage, promptInput?, phase: 'turn' | 'resume' }
+  //          userMessage, promptInput?, phase: 'turn' | 'resume',
+  //          regeneration: { attempt, remaining } }
   const verdict = await checkReplyWithAppRules(turn.ctx, reply.modelOutput, turn.promptInput);
-  return verdict.ok
-    ? { decision: 'accept' }
-    : { decision: 'replace', text: FALLBACK_LINE, code: verdict.code };
+  if (verdict.ok) return { decision: 'accept' };
+  return { decision: 'replace', text: FALLBACK_LINE, code: verdict.code };
+};
+```
+
+To give the model one more chance instead of replacing at once, return **`regenerate`**:
+
+```ts
+const validateReply: ChatReplyValidator = async (reply, turn) => {
+  const verdict = await checkReplyWithAppRules(turn.ctx, reply.modelOutput, turn.promptInput);
+  if (verdict.ok) {
+    return turn.regeneration.attempt === 0
+      ? { decision: 'accept' }
+      : { decision: 'accept', code: `${firstCode}|retry-passed` }; // optional audit code
+  }
+  if (turn.regeneration.attempt === 0) firstCode = verdict.code;
+  return {
+    decision: 'regenerate',
+    feedback: correctionFor(verdict), // app-written; the model reads it as the next user message
+    code: verdict.code,
+    fallback: { text: FALLBACK_LINE, code: `${firstCode}|retried:${verdict.code}` },
+  };
 };
 ```
 
 - **accept** persists the reply as is; `clientActions` on the verdict replaces the actions read from the model output (validated and capped again).
+- **accept** may also carry `code`: it is then recorded as the reply's moderation code (e.g. "passed after a regeneration").
 - **replace** persists `text` instead and records `code` as the reply's moderation code (`turn.completed.moderation`, and `moderation` on the stored turn). Client actions are dropped unless the verdict gives them.
+- **regenerate** asks the model again **within the same turn**: the same prompt, the same prompt input and history, and — as the next messages of the thread — the draft (the prompt's structured output as JSON, or the plain text) and the app's `feedback` as a user message. Earlier drafts and feedback of the same turn stay in the thread. The new reply goes through the post-turn guards and then `validateReply` again (`turn.regeneration.attempt` counts up, `remaining` down). A streamed turn shows the new draft with `message.replaced { text, code }` (the verdict's `code`), withdrawing the one before; a confirm resume shows nothing until the reply is accepted.
+  - **Bounded.** `maxRegenerations` (default 1, at most 3) regenerations per turn. A `regenerate` past it ends in the verdict's **`fallback`**: `fallback.text` is persisted as with `replace`, with `fallback.code` (default: the verdict's `code`) as the moderation code. The fallback is required, so the turn always has an answer.
+  - **A failed regeneration** (the provider, the deadline, a cap) also ends in the fallback, after a `notice` — `chat.regeneration_failed`, or `chat.budget_exceeded` when the call took the turn past `budget.perTurn`.
+  - **Governed like the first call.** Each regeneration goes through `ctx.ai` (`streamGenerate`, falling back to `generateWithUsage`; agent orchestration: `generateWithUsage` on the agent's own thread, without tools; confirm resume: the continuation call) tagged `chat.<name>.regenerate`, so the AI service's cost ledger, caps and app-level AI wrappers apply. Its tokens and cost are added to the turn's `usage` / `cost` (and the stored turn), `budget.perTurn` is re-checked, and `turn.completed.regenerations` counts the calls.
+  - A regeneration rewrites the reply; it never proposes an action (`requestedAction` is cleared), and tools are not called again — staged Path B regenerates the answer phase over the same tool results.
+  - Write `feedback` from structured values your check produced (a code, a number), not from text read out of the draft.
 - The streamed draft is withdrawn on the wire: whenever the persisted text differs from the streamed text, the runtime emits **`message.replaced { text, code }`** after the draft; clients replace the current assistant bubble with `text`. A post-turn guard that rewrites the answer (e.g. redaction) now also produces `message.replaced` with code `chat.reply_rewritten`.
 - **Fail closed.** A validator that throws (or returns no valid verdict) fails the turn: nothing of it is persisted, `message.replaced` with an empty text and code `chat.reply_validation_failed` withdraws the draft, then `turn.failed` with the same code.
 - `reply.modelOutput` is the prompt's whole validated output (server-only): the custom prompt's output in Path A / staged turns, the agent prompt's final output in `orchestration: 'agent'`, the continuation's output after a confirmation (`phase: 'resume'`; there `audience` and `locale` are empty strings).
-- Only the accepted or replacement text is ever written by the runtime. A custom `ChatSessionStore` sees nothing of a failed or replaced draft.
+- Only the accepted or replacement text is ever written by the runtime. A custom `ChatSessionStore` sees nothing of a failed, regenerated or replaced draft.
 
 ## Client actions (`clientActions`)
 
@@ -380,8 +426,9 @@ registerChatRoutes(app, routeConfig, [helpChat, billingChat], opts);
 | `externalBaseUrl` + `csrfSecret` | Set both to enable exact-Origin and session-bound CSRF enforcement on cookie-authenticated writes. With `authCookieNames` set and either one missing, registration fails (0.9+). With `requireBrowserSecurity: false` it only logs a warning and cookie-authenticated `/turn` and `/confirm` are **not** checked for Origin or CSRF. |
 | `requireBrowserSecurity` | Default `true` (0.9+): cookie auth (`authCookieNames`) without both `csrfSecret` and `externalBaseUrl` is a registration error. Set `false` to downgrade it to a warning — only when cookie-authenticated writes are protected another way (e.g. a proxy). |
 | `requestContext` | Opt-in request-context seam: tenant binding from the request, dependency resolution through `routeConfig.resolveDependencies`, session liveness. See below. |
-| `prepareTurn` | Per-turn, server-owned turn inputs: `promptInput`, `trustedHistory`, a per-turn `validateReply`; or `{ error }` to refuse. Runs after `beforeTurn`. |
+| `prepareTurn` | Per-turn, server-owned turn inputs: `promptInput`, `trustedHistory`, a per-turn `validateReply` and `maxRegenerations`; or `{ error }` to refuse. Runs after `beforeTurn`. |
 | `validateReply` | Validate every finished reply (turns and confirm resumes) before it is persisted. See [Validate before persist](#validate-before-persist-validatereply). |
+| `maxRegenerations` | How many `regenerate` verdicts one turn or resume acts on (0..3, default 1). |
 
 ### Request-context seam (`requestContext`, `prepareTurn`)
 

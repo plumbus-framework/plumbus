@@ -10,10 +10,11 @@ export type ChatEvent =
    * The assistant text streamed so far for this turn is withdrawn: the client
    * replaces the current assistant bubble's content with `text`. Emitted when
    * the app's `validateReply` hook replaced the finished reply (its `code` is
-   * the app's moderation code), when a post-turn guard rewrote the answer after
-   * it was streamed (`chat.reply_rewritten`), or with an empty `text` when the
-   * validator failed (`chat.reply_validation_failed`). Only the text a
-   * `message.replaced` names is ever persisted.
+   * the app's moderation code), when it asked for a `regenerate` (`text` is the
+   * new draft, `code` the verdict's code), when a post-turn guard rewrote the
+   * answer after it was streamed (`chat.reply_rewritten`), or with an empty
+   * `text` when the validator failed (`chat.reply_validation_failed`). Only the
+   * text of the last `message.replaced` (or the draft, when none) is persisted.
    */
   | { type: 'message.replaced'; text: string; code: string }
   | {
@@ -46,8 +47,16 @@ export type ChatEvent =
        * Present only on chats that declare `clientActions`.
        */
       clientActions?: unknown[];
-      /** Set when `validateReply` replaced the reply; `code` is the app's moderation code. */
+      /**
+       * Set when `validateReply` replaced the reply, fell back after a
+       * `regenerate`, or accepted it with a `code`: the app's moderation code.
+       */
       moderation?: { code: string };
+      /**
+       * Regeneration calls this turn made after a `regenerate` verdict (absent
+       * when none). Their tokens and cost are included in `usage` and `cost`.
+       */
+      regenerations?: number;
     }
   | { type: 'turn.failed'; code: string; message: string }
   | { type: 'tool.started'; toolCallId: string; name: string; kind: 'capability' | 'flow' }

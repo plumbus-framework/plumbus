@@ -247,6 +247,73 @@ describe('resumeAfterConfirm', () => {
     expect(JSON.stringify(events)).not.toContain('Unchecked continuation');
   });
 
+  it('validateReply may regenerate the continuation: a second resume call with the draft and feedback', async () => {
+    const answerOf = (text: string, tokens: number) => ({
+      kind: 'answer' as const,
+      answer: text,
+      inScope: true,
+      refusalReason: null,
+      model: `m-${tokens}`,
+      provider: 'mock',
+      usage: { tokensIn: tokens, tokensOut: tokens },
+      cost: 0.01,
+      sourceRefs: [],
+      toolsExecuted: [],
+      modelOutput: { answer: text },
+    });
+    resumeToolLoopMock
+      .mockResolvedValueOnce(answerOf('Draft continuation', 1))
+      .mockResolvedValueOnce(answerOf('Checked continuation', 2));
+    const store = fakeStore();
+    const events: ChatEvent[] = [];
+    const attempts: number[] = [];
+    await resumeAfterConfirm(ctxWithCap(), {
+      chat: defineChat({ name: 'help', access: {}, instructions: ['x'] }),
+      store,
+      pending: pendingRow(),
+      owner: { userId: 'u1', roles: [], scopes: [], provider: 'test' },
+      emit: (evt) => events.push(evt),
+      onResult: () => {},
+      validateReply: (reply, turn) => {
+        attempts.push(turn.regeneration.attempt);
+        return reply.text === 'Checked continuation'
+          ? { decision: 'accept' }
+          : {
+              decision: 'regenerate',
+              feedback: 'Say it again.',
+              code: 'app.retry',
+              fallback: { text: 'Fallback' },
+            };
+      },
+    });
+    expect(attempts).toEqual([0, 1]);
+    expect(resumeToolLoopMock).toHaveBeenCalledTimes(2);
+    expect(resumeToolLoopMock.mock.calls[1]?.[1]).toMatchObject({
+      regeneration: [
+        { role: 'assistant', content: JSON.stringify({ answer: 'Draft continuation' }) },
+        { role: 'user', content: 'Say it again.' },
+      ],
+    });
+    expect(store.completePending).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resumeTurn: expect.objectContaining({
+          content: 'Checked continuation',
+          tokensIn: 3,
+          tokensOut: 3,
+          model: 'm-2',
+        }),
+      }),
+    );
+    // Nothing of the continuation was shown before it was checked: no message.replaced.
+    expect(events.filter((e) => e.type === 'message.replaced')).toHaveLength(0);
+    expect(events).toContainEqual({ type: 'message.delta', text: 'Checked continuation' });
+    expect(events.find((e) => e.type === 'turn.completed')).toMatchObject({
+      regenerations: 1,
+      usage: { tokensIn: 3, tokensOut: 3 },
+    });
+    expect(JSON.stringify(events)).not.toContain('Draft continuation');
+  });
+
   it('a throwing validateReply finalizes the action without a continuation turn', async () => {
     resumeToolLoopMock.mockResolvedValue({
       kind: 'answer',

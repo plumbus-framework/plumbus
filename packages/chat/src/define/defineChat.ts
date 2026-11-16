@@ -114,6 +114,11 @@ const chatConfigSchema = z.object({
     .optional(),
   instructions: z.array(z.string()).optional(),
   prompt: z.custom().optional(),
+  answerOf: z
+    .custom<(output: unknown) => string>((value) => typeof value === 'function', {
+      message: 'answerOf must be a function (output) => string',
+    })
+    .optional(),
   clientActions: z
     .object({
       schema: z.custom<{ safeParse: unknown }>(
@@ -160,8 +165,16 @@ export function defineChat(config: ChatConfig): ChatDefinition {
     }
   }
 
+  if (config.answerOf && !config.prompt) {
+    throwDefineValidationError(
+      'defineChat: answerOf reads a custom prompt output — it requires `prompt`',
+    );
+  }
+
   if (config.prompt && !agentToolOrchestration) {
-    warnMissingChatPromptBaseFields(config.prompt);
+    warnMissingChatPromptBaseFields(config.prompt, {
+      answerSupplied: config.answerOf !== undefined,
+    });
   }
 
   const audience = config.policy?.audience;

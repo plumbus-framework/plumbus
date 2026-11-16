@@ -118,7 +118,7 @@ This package composes on core; it does not duplicate. Specifically:
 - Session and turn persistence with opt-out for message content.
 - Domain events (`chatTurnCompletedEvent`, `chatActionConfirmedEvent`, `chatRefusalRecordedEvent`) emitted by the runtime.
 - A deterministic evaluation harness (`defineChatEvaluation`, `runChatEvaluation`, `TraceRecorder`) with scripted multi-turn and simulated-user scenarios and per-turn / whole-conversation judges — see [evaluations.md](./evaluations.md).
-- Validate-before-persist (`validateReply`, `message.replaced`), client actions (`clientActions`), and a request-context seam on `registerChatRoutes` (tenant binding, dependency resolution, session liveness, per-turn prompt input) — see [defining-chats.md](./defining-chats.md).
+- Validate-before-persist (`validateReply` with `accept` / `replace` / `regenerate` within the turn, `message.replaced`), a custom prompt's own answer text (`answerOf`), client actions (`clientActions`), and a request-context seam on `registerChatRoutes` (tenant binding, dependency resolution, session liveness, per-turn prompt input) — see [defining-chats.md](./defining-chats.md).
 
 ## Public barrel: what each export is for
 
@@ -128,7 +128,7 @@ This package composes on core; it does not duplicate. Specifically:
 |---|---|---|
 | Definition | `defineChat`, `defineChatEvaluation` | `defineChat` is the entrypoint; `defineChatEvaluation` declares eval scenarios |
 | Runtime | `runChatTurn`, `registerChatRoutes`, `RegisterChatRoutesOpts`, `ChatRequestContextSeam`, `ChatRequestContextArgs`, `ChatRouteRefusal`, `ChatPreparedTurn` | the seam types belong to `registerChatRoutes`' opt-in `requestContext` / `prepareTurn` |
-| Reply check & client actions | types `ChatReplyValidator`, `ChatReplyVerdict`, `ChatFinalReply`, `ChatReplyValidationContext`, `ChatClientActionsConfig`, `ChatRefusalReason` | `validateReply` and `clientActions` — see [defining-chats.md](./defining-chats.md) |
+| Reply check & client actions | types `ChatReplyValidator`, `ChatReplyVerdict`, `ChatReplyFallback`, `ChatFinalReply`, `ChatReplyValidationContext`, `ChatClientActionsConfig`, `ChatRefusalReason` | `validateReply` (incl. `regenerate` + `maxRegenerations`) and `clientActions` — see [defining-chats.md](./defining-chats.md) |
 | Policy | `compilePolicy` | public for advanced tooling; chats normally compile policies internally |
 | Context helpers | `ragContext`, `knowledgeContext`, `knowledgeContextLegacy` (deprecated alias for `ragContext`), `capabilityContext`, `staticContext`, `staticContextFromTranslations` (deprecated), `resolveContextSources`, `CHAT_TIER_TOOLS_ERROR_PREFIX` | `resolveContextSources` is advanced — for custom runtimes |
 | Prompts | `chatTurnPrompt`, `chatSummarizeHistoryPrompt`, `buildSystemPrompt`, `renderContext` | overridable via `definePrompt` + AI Config admin |

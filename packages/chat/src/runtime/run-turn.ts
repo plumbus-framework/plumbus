@@ -21,8 +21,8 @@ import { type ChatSessionStore, resolveChatSessionStore } from '../session/sessi
 import type { ChatDefinition } from '../types/chat.js';
 import type { ChatSourceRef } from '../types/context.js';
 import type { ChatEvent } from '../types/event.js';
-import type { GuardState } from '../types/policy.js';
-import type { ChatReplyValidator } from '../types/reply.js';
+import type { GuardState, GuardVerdict } from '../types/policy.js';
+import type { ChatFinalReply, ChatReplyValidator } from '../types/reply.js';
 import type { ChatNestedAiCall, ToolExecutionRecord } from '../types/tool.js';
 import {
   type BoundChatTool,
@@ -41,7 +41,10 @@ import { clientSafeErrorMessage } from './client-error.js';
 import { type ClientHistoryMessage, capClientHistory } from './constants.js';
 import { ChatEventEmitter, emitterToIterable } from './events.js';
 import {
+  answerTextOf,
+  ChatRegenerationError,
   clientActionsFromOutput,
+  draftMessageOf,
   finalizeReply,
   normalizeClientActions,
 } from './reply-finalize.js';
@@ -109,6 +112,12 @@ export interface RunChatTurnOpts {
    * bubble. See {@link ChatReplyValidator}.
    */
   validateReply?: ChatReplyValidator;
+  /**
+   * How many times one turn may act on a `regenerate` verdict (each one a model
+   * call through `ctx.ai`, counted in the turn's usage, cost and caps).
+   * Integer 0..3, default 1. Past it a `regenerate` ends in its `fallback`.
+   */
+  maxRegenerations?: number;
 }
 
 const defaultModelOutput = (): ChatTurnModelOutput => ({
@@ -118,6 +127,32 @@ const defaultModelOutput = (): ChatTurnModelOutput => ({
   citedSources: [],
   requestedAction: null,
 });
+
+/**
+ * The chat's view of a custom prompt's completion: the output itself, with
+ * `answer` read through the chat's `answerOf` when it declares one. The raw
+ * output is kept separately as `structuredOutput` for `validateReply`.
+ */
+function chatModelOutputOf(chat: ChatDefinition, data: unknown): ChatTurnModelOutput {
+  if (!chat.answerOf) return data as ChatTurnModelOutput;
+  const base = data !== null && typeof data === 'object' ? (data as Record<string, unknown>) : {};
+  return {
+    ...defaultModelOutput(),
+    ...base,
+    answer: answerTextOf(chat, data),
+  } as ChatTurnModelOutput;
+}
+
+/** Per-call AI overrides of `policy.toolCalling.ai`, for agent completions. */
+function toolAiOverrides(chat: ChatDefinition): Record<string, unknown> {
+  const ai = chat.policy?.toolCalling?.ai;
+  return {
+    ...(ai?.provider ? { provider: ai.provider } : {}),
+    ...(ai?.model ? { model: ai.model } : {}),
+    ...(ai?.reasoning !== undefined ? { reasoning: ai.reasoning } : {}),
+    ...(ai?.reasoningEffort !== undefined ? { reasoningEffort: ai.reasoningEffort } : {}),
+  };
+}
 
 function hasToolAiOverride(chat: ChatDefinition): boolean {
   if (chat.policy?.toolCalling?.enabled !== true) return false;
@@ -300,6 +335,8 @@ export async function* runChatTurn(
         toolCallingEnabled && !scopePreflightEnabled ? true : undefined;
       let skipAnswerGeneration = false;
       let proposalCommitted = false;
+      // Agent orchestration: the thread the final answer was written on (for a regeneration).
+      let agentThread: ChatMessage[] | undefined;
       const { preTurnGuards, postTurnGuards } = compilePolicy(policy);
       const timeoutSignal = AbortSignal.timeout(
         (chat.budget?.timeout?.perTurnSeconds ?? 120) * 1000,
@@ -447,6 +484,7 @@ export async function* runChatTurn(
       // model call. Falling back on empty answer would double-charge every
       // refusal turn.
       let streamCompleted = false;
+      let streamedData: unknown;
 
       const threadMessages: ChatMessage[] = historyMessages
         .filter(
@@ -609,9 +647,12 @@ export async function* runChatTurn(
           toolPhaseCost += toolPhase.cost;
 
           if (toolPhase.status === 'completed' && toolOrchestration === 'agent') {
+            agentThread = toolPhase.finalThread;
             modelOutput = {
               inScope: true,
-              answer: toolPhase.finalAnswer ?? '',
+              answer: chat.answerOf
+                ? answerTextOf(chat, toolPhase.finalOutput)
+                : (toolPhase.finalAnswer ?? ''),
               refusalReason: null,
               citedSources: [],
               requestedAction: null,
@@ -814,10 +855,9 @@ export async function* runChatTurn(
           // require diffing partial JSON snapshots — out of scope for v0.1.)
           if (chunk.type === 'done') {
             streamCompleted = true;
-            if (chunk.data) {
-              modelOutput = chunk.data as ChatTurnModelOutput;
-              structuredOutput = chunk.data;
-            }
+            // Read through answerOf after the stream: a broken answerOf must fail
+            // the turn, not be taken for a stream failure.
+            if (chunk.data) streamedData = chunk.data;
             if (chunk.usage) {
               usage = {
                 tokensIn: chunk.usage.inputTokens,
@@ -832,6 +872,10 @@ export async function* runChatTurn(
       } catch {
         // Stream threw — fall through to non-stream generate below.
       }
+      if (streamCompleted && streamedData !== undefined) {
+        modelOutput = chatModelOutputOf(chat, streamedData);
+        structuredOutput = streamedData;
+      }
 
       // Only fall back when streaming never produced a validated `done` payload.
       // This is the genuine "provider didn't deliver clean structured output"
@@ -842,7 +886,7 @@ export async function* runChatTurn(
           input: userPayload,
           costContext: { serviceArea: 'chat', operationName: `chat.${chat.name}` },
         });
-        modelOutput = gen.data as ChatTurnModelOutput;
+        modelOutput = chatModelOutputOf(chat, gen.data);
         structuredOutput = gen.data;
         usage = {
           tokensIn: gen.usage?.inputTokens ?? 0,
@@ -957,30 +1001,35 @@ export async function* runChatTurn(
         citedHandles.includes(src.id),
       );
 
+      const onPostGuardBlock = async (
+        verdict: Extract<GuardVerdict, { decision: 'block' }>,
+        output: ChatTurnModelOutput,
+      ): Promise<void> => {
+        if (verdict.emit) emit(verdict.emit as ChatEvent);
+        if (
+          verdict.reason === 'provenance_missing' ||
+          verdict.reason === 'provenance_insufficient' ||
+          verdict.reason === 'action_budget_exceeded'
+        ) {
+          guardState.lastBudgetOrGuardSignal = 'budget';
+        } else {
+          guardState.lastBudgetOrGuardSignal = 'guardFailure';
+        }
+        if (verdict.reason === 'out_of_scope') {
+          await ctx.events.emit(chatRefusalRecordedEvent.name, {
+            chatName: chat.name,
+            sessionId: args.sessionId,
+            refusalReason:
+              typeof output.refusalReason === 'string' ? output.refusalReason : 'off_topic',
+          });
+        }
+      };
+
       for (const guard of postTurnGuards) {
         const verdict = await guard(turnCtx, guardState);
         trace?.recordGuard(guard.name || 'anonymous', verdict);
         if (verdict.decision === 'block') {
-          if (verdict.emit) emit(verdict.emit as ChatEvent);
-          if (
-            verdict.reason === 'provenance_missing' ||
-            verdict.reason === 'provenance_insufficient' ||
-            verdict.reason === 'action_budget_exceeded'
-          ) {
-            guardState.lastBudgetOrGuardSignal = 'budget';
-          } else {
-            guardState.lastBudgetOrGuardSignal = 'guardFailure';
-          }
-          if (verdict.reason === 'out_of_scope') {
-            await ctx.events.emit(chatRefusalRecordedEvent.name, {
-              chatName: chat.name,
-              sessionId: args.sessionId,
-              refusalReason:
-                typeof modelOutput.refusalReason === 'string'
-                  ? modelOutput.refusalReason
-                  : 'off_topic',
-            });
-          }
+          await onPostGuardBlock(verdict, modelOutput);
         }
         if (verdict.decision === 'require_confirmation') {
           if (!saveToDb) {
@@ -1116,12 +1165,12 @@ export async function* runChatTurn(
       // Scope coherence (Path B): the answer phase already passed the preflight
       // scope gate. If it contradicts with `off_topic`, coerce back to in-scope.
       // NEVER coerce `unsafe`/`pii_request` in either direction — honor those.
-      if (
-        toolCallingEnabled &&
-        scopeInScope === true &&
-        modelOutput.refusalReason === 'off_topic'
-      ) {
-        modelOutput = { ...modelOutput, inScope: true, refusalReason: null };
+      const coherentScope = (output: ChatTurnModelOutput): ChatTurnModelOutput => {
+        if (
+          !(toolCallingEnabled && scopeInScope === true && output.refusalReason === 'off_topic')
+        ) {
+          return output;
+        }
         if (guardState.modelOutput) {
           guardState.modelOutput = {
             ...guardState.modelOutput,
@@ -1129,7 +1178,9 @@ export async function* runChatTurn(
             refusalReason: null,
           };
         }
-      }
+        return { ...output, inScope: true, refusalReason: null };
+      };
+      modelOutput = coherentScope(modelOutput);
 
       if (proposalCommitted) {
         emitter.end();
@@ -1141,12 +1192,170 @@ export async function* runChatTurn(
           ? guardState.modelOutput.answer
           : modelOutput.answer;
 
+      // ── Regeneration (validateReply → `regenerate`) ──
+      // Same prompt, same prompt input and history; the drafts and the app's
+      // feedback follow as messages. Each call goes through ctx.ai (cost ledger,
+      // caps) and is added to the turn's usage; the per-turn cap is re-checked.
+      const regenThread: ChatMessage[] = [];
+      let regenerationCalls = 0;
+      const regenerate = async (
+        feedback: string,
+        draft: ChatFinalReply,
+      ): Promise<ChatFinalReply> => {
+        regenThread.push(
+          { role: 'assistant', content: draftMessageOf(draft) },
+          { role: 'user', content: feedback },
+        );
+        const costContext = {
+          serviceArea: 'chat',
+          operationName: `chat.${chat.name}.regenerate`,
+        };
+        regenerationCalls++;
+        let data: unknown;
+        let callUsage = { tokensIn: 0, tokensOut: 0 };
+        let callCost = 0;
+        let callModel: string | undefined;
+        let callProvider: string | undefined;
+        let output: ChatTurnModelOutput;
+        if (agentThread) {
+          const gen = await ctx.ai.generateWithUsage({
+            prompt: promptName,
+            input: userPayload,
+            messages: [...agentThread, ...regenThread],
+            outputValidation: 'prompt',
+            validation: { maxRetries: 0 },
+            ...toolAiOverrides(chat),
+            signal: turnCtx.signal,
+            costContext,
+          });
+          data = gen.data;
+          callUsage = {
+            tokensIn: gen.usage?.inputTokens ?? 0,
+            tokensOut: gen.usage?.outputTokens ?? 0,
+          };
+          callCost = gen.cost ?? 0;
+          callModel = gen.model;
+          callProvider = gen.provider;
+          opts?.onAgentOutput?.(data);
+          output = {
+            ...defaultModelOutput(),
+            answer: chat.answerOf
+              ? answerTextOf(chat, data)
+              : String((data as { content?: unknown } | undefined)?.content ?? ''),
+          };
+        } else {
+          const messages: ChatMessage[] = [
+            ...threadMessages,
+            { role: 'user', content: args.userMessage },
+            ...regenThread,
+          ];
+          let done = false;
+          try {
+            for await (const chunk of ctx.ai.streamGenerate({
+              prompt: promptName,
+              input: userPayload,
+              messages,
+              signal: withTurnTimeout(
+                turnCtx.signal,
+                (chat.budget?.timeout?.perTurnSeconds ?? 120) * 1000,
+              ),
+              costContext,
+            })) {
+              if (chunk.type !== 'done') continue;
+              done = true;
+              data = chunk.data;
+              if (chunk.usage) {
+                callUsage = {
+                  tokensIn: chunk.usage.inputTokens,
+                  tokensOut: chunk.usage.outputTokens,
+                };
+              }
+              callModel = chunk.model ?? undefined;
+              callProvider = chunk.provider ?? undefined;
+              if (chunk.cost != null) callCost = chunk.cost;
+            }
+          } catch {
+            // Stream threw — fall through to the non-stream call, as for the first draft.
+          }
+          if (!done) {
+            const gen = await ctx.ai.generateWithUsage({
+              prompt: promptName,
+              input: userPayload,
+              messages,
+              signal: turnCtx.signal,
+              costContext,
+            });
+            data = gen.data;
+            callUsage = {
+              tokensIn: gen.usage?.inputTokens ?? 0,
+              tokensOut: gen.usage?.outputTokens ?? 0,
+            };
+            callCost = gen.cost ?? 0;
+            callModel = gen.model;
+            callProvider = gen.provider;
+          }
+          output = chatModelOutputOf(chat, data ?? defaultModelOutput());
+        }
+        usage = {
+          tokensIn: usage.tokensIn + callUsage.tokensIn,
+          tokensOut: usage.tokensOut + callUsage.tokensOut,
+        };
+        cost += callCost;
+        if (callModel) model = callModel;
+        if (callProvider) provider = callProvider;
+        const turnTokensNow = usage.tokensIn + usage.tokensOut;
+        if (perTurnBudget?.tokens !== undefined && turnTokensNow > perTurnBudget.tokens) {
+          throw new ChatRegenerationError(
+            'chat.budget_exceeded',
+            `Per-turn token cap exceeded (${perTurnBudget.tokens})`,
+          );
+        }
+        if (perTurnBudget?.costUsd !== undefined && cost > perTurnBudget.costUsd) {
+          throw new ChatRegenerationError(
+            'chat.budget_exceeded',
+            `Per-turn cost cap exceeded (${perTurnBudget.costUsd})`,
+          );
+        }
+
+        // The post-turn guards check every draft. A regeneration rewrites the
+        // reply; it never proposes an action, so `requestedAction` is cleared.
+        guardState.modelOutput = {
+          ...(output as unknown as Record<string, unknown>),
+          requestedAction: null,
+        };
+        trace?.recordModelOutput(guardState.modelOutput);
+        for (const guard of postTurnGuards) {
+          const verdict = await guard(turnCtx, guardState);
+          trace?.recordGuard(guard.name || 'anonymous', verdict);
+          if (verdict.decision === 'block') await onPostGuardBlock(verdict, output);
+        }
+        output = coherentScope(output);
+        const cited = Array.isArray(guardState.modelOutput?.citedSources)
+          ? (guardState.modelOutput.citedSources as string[]).filter((id) => allowedHandles.has(id))
+          : [];
+        return {
+          text:
+            typeof guardState.modelOutput?.answer === 'string'
+              ? guardState.modelOutput.answer
+              : (output.answer ?? ''),
+          inScope: output.inScope,
+          refusalReason: output.refusalReason ?? null,
+          sources: resolvedRaw.sourceRefs.filter((src) => cited.includes(src.id)),
+          clientActions: normalizeClientActions(chat, clientActionsFromOutput(data), emit),
+          modelOutput: data,
+          toolsExecuted,
+        };
+      };
+
       // Validate before persist: the app's check runs on the finished reply, and
       // only the accepted or replacement text is written below.
       const finalized = await finalizeReply({
         ctx,
         chat,
         validateReply: opts?.validateReply,
+        maxRegenerations: opts?.maxRegenerations,
+        regenerate,
+        shownText: streamedText,
         emit,
         reply: {
           text: guardedAnswer ?? '',
@@ -1187,13 +1396,14 @@ export async function* runChatTurn(
         return;
       }
       const finalAnswer = finalized.text;
-      if (finalAnswer !== streamedText) {
+      if (finalAnswer !== finalized.shownText) {
         emit({
           type: 'message.replaced',
           text: finalAnswer,
           code: finalized.moderation?.code ?? 'chat.reply_rewritten',
         });
       }
+      const finalReply = finalized.reply;
       const clientActions = finalized.clientActions;
 
       // Ephemeral mode: no chat_session anchor row exists, so we can't FK
@@ -1228,9 +1438,9 @@ export async function* runChatTurn(
             ordinal: 0,
             role: 'assistant',
             content: finalAnswer,
-            inScope: modelOutput.inScope,
-            refusalReason: modelOutput.refusalReason ?? undefined,
-            sources: citedSourceRefs,
+            inScope: finalReply.inScope,
+            refusalReason: finalReply.refusalReason ?? undefined,
+            sources: finalReply.sources,
             toolsExecuted: toolsExecuted.length > 0 ? toolsExecuted : undefined,
             ...(clientActions.length > 0 ? { clientActions } : {}),
             ...(finalized.moderation ? { moderation: finalized.moderation } : {}),
@@ -1259,11 +1469,12 @@ export async function* runChatTurn(
         cost,
         model,
         provider,
-        inScope: modelOutput.inScope,
-        refusalReason: modelOutput.refusalReason ?? null,
-        sources: citedSourceRefs,
+        inScope: finalReply.inScope,
+        refusalReason: finalReply.refusalReason ?? null,
+        sources: finalReply.sources,
         ...(chat.clientActions ? { clientActions } : {}),
         ...(finalized.moderation ? { moderation: finalized.moderation } : {}),
+        ...(regenerationCalls > 0 ? { regenerations: regenerationCalls } : {}),
       });
     } catch (err) {
       // Raw err.message can carry provider/database detail — log it, send a safe message.
@@ -1288,6 +1499,11 @@ export interface ResumeToolLoopArgs {
   signal?: AbortSignal;
   /** Restored server-owned prompt fields for agent orchestration. */
   promptInput?: Record<string, unknown>;
+  /**
+   * A regeneration: the drafts and the app's feedback, appended to `messages`
+   * for this call only. The call is tagged `chat.<name>.regenerate`.
+   */
+  regeneration?: ChatMessage[];
 }
 
 export type ResumeToolLoopResult =
@@ -1346,27 +1562,23 @@ export async function resumeToolLoop(
       agentOrchestration && args.promptInput
         ? args.promptInput
         : { userMessage: 'Continue after tool execution' },
-    messages: args.messages,
+    messages: args.regeneration ? [...args.messages, ...args.regeneration] : args.messages,
     ...(agentOrchestration ? { outputValidation: 'none' as const } : {}),
-    ...(chat.policy?.toolCalling?.ai?.provider
-      ? { provider: chat.policy.toolCalling.ai.provider }
-      : {}),
-    ...(chat.policy?.toolCalling?.ai?.model ? { model: chat.policy.toolCalling.ai.model } : {}),
-    ...(chat.policy?.toolCalling?.ai?.reasoning !== undefined
-      ? { reasoning: chat.policy.toolCalling.ai.reasoning }
-      : {}),
-    ...(chat.policy?.toolCalling?.ai?.reasoningEffort !== undefined
-      ? { reasoningEffort: chat.policy.toolCalling.ai.reasoningEffort }
-      : {}),
+    ...toolAiOverrides(chat),
     signal: args.signal,
-    costContext: { serviceArea: 'chat', operationName: `chat.${chat.name}.resume` },
+    costContext: {
+      serviceArea: 'chat',
+      operationName: args.regeneration
+        ? `chat.${chat.name}.regenerate`
+        : `chat.${chat.name}.resume`,
+    },
   });
   const modelOutput = agentOrchestration
     ? {
         ...defaultModelOutput(),
-        answer: String(gen.data?.content ?? ''),
+        answer: chat.answerOf ? answerTextOf(chat, gen.data) : String(gen.data?.content ?? ''),
       }
-    : (gen.data as ChatTurnModelOutput);
+    : chatModelOutputOf(chat, gen.data);
   args.counters.inputTokensUsed += gen.usage?.inputTokens ?? 0;
   args.counters.outputTokensUsed += gen.usage?.outputTokens ?? 0;
   args.counters.costUsed += gen.cost ?? 0;
