@@ -76,6 +76,17 @@ function validateToolName(name: string): void {
   }
 }
 
+/**
+ * A configured capability is either its canonical registered name
+ * (`<domain>.<name>`, which core's runtime resolver looks up) or, for callers that
+ * supply their own `resolveCapability`, a bare name. A canonical name is resolved
+ * as written; the provider sees the contract's own `name`, which must be portable.
+ */
+function isCanonicalConfiguredName(name: string): boolean {
+  const dot = name.lastIndexOf('.');
+  return dot > 0 && dot < name.length - 1;
+}
+
 function buildAnnotations(cap: CapabilityContract, mode: BoundToolMode): ChatToolAnnotations {
   const e = cap.effects;
   const hasExternal = e.external.length > 0;
@@ -134,22 +145,38 @@ export function bindChatCapabilityTools(
   }
 
   const bound: BoundChatTool[] = [];
+  const toolNames = new Set<string>();
   for (const name of names) {
-    validateToolName(name);
+    const canonical = isCanonicalConfiguredName(name);
+    if (!canonical) validateToolName(name);
     const cap = resolve(name);
     if (!cap) {
       throw new ChatToolBindError(
         'chat.tool_unknown_capability',
-        `Configured capability "${name}" cannot be resolved`,
+        canonical
+          ? `Configured capability "${name}" cannot be resolved`
+          : `Configured capability "${name}" cannot be resolved. The runtime resolves capabilities by canonical name "<domain>.<name>"; list it that way in policy.toolCalling.capabilities`,
       );
     }
-    const { schema } = zodToProviderJsonSchema(cap.input, { promptName: name });
+    // The provider tool name is the configured bare name, or the capability's own
+    // name for a canonical entry. Resolution, execution and pending actions keep
+    // using the configured name (targetName).
+    const toolName = canonical ? cap.name : name;
+    if (canonical) validateToolName(toolName);
+    if (toolNames.has(toolName)) {
+      throw new ChatToolBindError(
+        'chat.tool_name_invalid',
+        `Two configured capabilities bind to the same tool name "${toolName}"`,
+      );
+    }
+    toolNames.add(toolName);
+    const { schema } = zodToProviderJsonSchema(cap.input, { promptName: toolName });
     const inputSchemaHash = capabilityInputSchemaHashV2(schema);
     const mode: BoundToolMode = isConfirmCapability(cap) ? 'confirm' : 'auto';
     const targetVersion = cap.version ?? inputSchemaHash;
     const tool: AITool = {
-      name,
-      description: cap.description ?? name,
+      name: toolName,
+      description: cap.description ?? toolName,
       parameters: schema,
     };
     bound.push({

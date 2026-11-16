@@ -261,7 +261,9 @@ Staged Path B needs two one-time app setup steps—prompt re-exports and a `Chat
      policy: {
        toolCalling: {
          enabled: true,
-         capabilities: ['lookupOrder', 'openSupportTicket'],
+         // Canonical `<domain>.<name>` (what the server resolves); the model sees
+         // the bare names. A bare entry fails over HTTP: see policies.md.
+         capabilities: ['orders.lookupOrder', 'support.openSupportTicket'],
          autoStartFlows: ['issueRefund'],   // bound as flow__issueRefund (flow name <= 57 chars)
          maxToolRounds: 5,
        },
@@ -279,7 +281,7 @@ Staged Path B needs two one-time app setup steps—prompt re-exports and a `Chat
    ```ts
    toolCalling: {
      enabled: true,
-     capabilities: ['explainProcess'],
+     capabilities: ['interview.explainProcess'],
      orchestration: 'agent',
      scopePreflight: false,
    }
