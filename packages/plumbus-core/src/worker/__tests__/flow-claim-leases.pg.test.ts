@@ -179,12 +179,14 @@ describe('polling flow leases', () => {
       const later = await pool.flowEngine.start('lease-probe', { work: 'later' }, auth);
       await pool.start();
       // Both quick flows finish on the second slot while the slow one holds the first.
+      // The status turns `completed` inside the drain, a moment before the slot lets the
+      // execution go, so the in-flight list is awaited too rather than read once.
       await vi.waitFor(async () => {
         expect((await pool.flowEngine.status(quick.id)).status).toBe('completed');
         expect((await pool.flowEngine.status(later.id)).status).toBe('completed');
+        expect(pool.flowExecutionsInFlight).toEqual([slow.id]);
       });
       expect((await pool.flowEngine.status(slow.id)).status).toBe('running');
-      expect(pool.flowExecutionsInFlight).toEqual([slow.id]);
       // Heartbeats keep the slow lease: nothing reclaims it while it runs.
       await new Promise((resolve) => setTimeout(resolve, 600));
       release();
