@@ -183,8 +183,8 @@ it('does not treat a stream without usage or pricing as free', async () => {
 });
 
 it.each([
-  ['2026-11-21T23:59:59.999Z', 1.81],
-  ['2026-11-22T00:00:00.000Z', 2.27],
+  ['2026-11-28T23:59:59.999Z', 1.81],
+  ['2026-11-29T00:00:00.000Z', 2.27],
 ])('uses Sol alias pricing consistently in results and the budget ledger at %s', async (at, expectedCost) => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(at));
@@ -217,8 +217,8 @@ it.each([
 });
 
 it.each([
-  ['2026-11-21T23:59:59.999Z', 0.014],
-  ['2026-11-22T00:00:00.000Z', 0.02],
+  ['2026-11-28T23:59:59.999Z', 0.014],
+  ['2026-11-29T00:00:00.000Z', 0.02],
 ])('uses the same static Sol rate for stream results and ledger rows at %s', async (at, expectedCost) => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(at));

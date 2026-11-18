@@ -7,3 +7,8 @@ auditConfig:
     # which is a major upgrade of a type core re-exports (`@plumbus/core/zod`), so it cannot
     # ship on the 0.8.x line. Fixed in Plumbus 0.9 (zod 4). Remove this when main moves to zod 4.
     - GHSA-mrhx-c7xc-m3w5
+    # picomatch ReDoS on single-branch repeated extglobs (`+(*)`). No patched release exists
+    # (<= 4.0.7 is every version). Reached only through dev/test tooling (core → vite/vitest →
+    # tinyglobby/fdir, ui → next-intl → @parcel/watcher), whose glob patterns come from app
+    # config, not request input. Remove once picomatch ships a fix.
+    - GHSA-fc5q-39xc-vjpf

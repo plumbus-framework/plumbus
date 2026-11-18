@@ -16,6 +16,9 @@ describe('OpenAI GPT-5.6 and GPT-6 rules', () => {
   it.each([
     ['gpt-6-astra', { mode: 'disabled' }, 'reasoning_disabled_unsupported'],
     ['gpt-6.1-sol-2026-10-01', { mode: 'disabled' }, 'reasoning_disabled_unsupported'],
+    ['gpt-6.2-astra', { mode: 'disabled' }, 'reasoning_disabled_unsupported'],
+    ['gpt-6.2-sol', { mode: 'disabled' }, 'reasoning_disabled_unsupported'],
+    ['gpt-6.2-sol', { mode: 'effort', effort: 'minimal' }, 'reasoning_effort_unsupported'],
     ['gpt-6-luna', { mode: 'effort', effort: 'minimal' }, 'reasoning_effort_unsupported'],
   ] as const)('rejects %s reasoning %j before I/O', async (model, reasoning, reason) => {
     const mockFetch = vi.fn();

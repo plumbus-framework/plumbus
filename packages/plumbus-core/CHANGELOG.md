@@ -1,5 +1,26 @@
 # @plumbus/core changelog
 
+## 0.8.7 — 2026-11-18
+
+GPT-6.2 Astra and GPT-6.2 Sol support, plus pricing updates for GPT-6 Cyber, GPT-6 Rosalind and GPT-5.6 Sol. No database migration, no API changes; peer ranges are unchanged.
+
+### Added
+
+- **GPT-6.2 Astra and GPT-6.2 Sol are priced.** `gpt-6.2-astra` costs $8 input, $0.40 cached input, $10 cache writes and $40 output per MTok; `gpt-6.2-sol` costs $2 / $0.10 / $2.50 / $10. Both double input and cache and charge 1.5× output above 272K input tokens. `gpt-6-cyber` (trusted access) is also priced: $20 / $2 / $25 / $100, with the same premium. Source: [OpenAI pricing](https://developers.openai.com/api/docs/pricing), checked 2026-11-18.
+
+### Changed
+
+- **GPT-6.2 reasoning rules.** Like GPT-6 Astra and GPT-6.1 Sol, `gpt-6.2-astra` and `gpt-6.2-sol` have no `none` effort: `{ mode: 'disabled' }` and effort `minimal` now fail with `AIInvalidRequestError` before any I/O instead of an HTTP 400.
+- **GPT-6.2 system prompts on the Responses API.** From GPT-6.2, OpenAI places top-level `instructions` after `input`. For `gpt-6.2-*` and later, Plumbus now sends the system prompt as the first `developer` input item, so it precedes the conversation and stays in the prompt-cache prefix. Earlier models and Chat Completions are unchanged.
+- **GPT-5.6 Sol promotion extended.** OpenAI extended Sol's promotional pricing until November 30, 2026. The bundled $4 / $0.40 cached / $20 window (also for the `gpt-5.6` alias and dated names) now ends on November 29, 2026 (`2026-11-29`, a plain date with no timezone) instead of `2026-11-22T00:00:00.000Z`; regular $5 / $0.50 / $30 rates apply from then. Ledger rows already written at regular rates on releases before this one are not repriced.
+- **GPT-6 Rosalind promotional pricing.** `gpt-6-rosalind` costs $10 / $1 cached / $50 per MTok before January 1, 2027 UTC (OpenAI guarantees the promotion at least through December 31, 2026), then reverts to the regular $15 / $1.50 / $75.
+
+### Upgrade
+
+1. Update `@plumbus/core` to `0.8.7`. Nothing else is required.
+2. If you send `{ mode: 'disabled' }` or effort `minimal` to `gpt-6.2-astra` or `gpt-6.2-sol`, use effort `low`; those requests now fail locally (OpenAI rejected them before).
+3. Ledger rows already written are not repriced; only new calls use the updated rates and the new GPT-5.6 Sol cutoff.
+
 ## 0.8.6 — 2026-11-15
 
 Schedule reconciliation can no longer stop a schedule without anyone noticing ([#94](https://github.com/plumbus-framework/plumbus/issues/94)). No database migration. Existing calls keep working; the only check that is on by default affects apps with a flow module that already fails to import.
