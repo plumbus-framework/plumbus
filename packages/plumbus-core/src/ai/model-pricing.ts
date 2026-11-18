@@ -5,7 +5,8 @@ import { validateTokenUsage } from './usage-validation.js';
 // Rates are in USD per 1 million tokens (MTok).
 // Source: https://developers.openai.com/api/docs/pricing
 //         https://platform.claude.com/docs/en/about-claude/pricing
-// Last updated: 2026-11-02 (GPT-6.1 Terra, GPT-6 Rosalind, GPT-Rosalind Research and
+// Last updated: 2026-11-18 (GPT-6.2 Astra and Sol, GPT-6 Cyber, GPT-6 Rosalind promotional
+// rate, GPT-5.6 Sol promotion extended to November 30; GPT-6 rows rechecked). 2026-11-02: GPT-6.1 Terra, GPT-6 Rosalind, GPT-Rosalind Research and
 // Discovery; OpenAI rows rechecked). 2026-10-08: GPT-6.1 Sol, GPT-6 Astra, Claude Sonnet 5.5
 // and Haiku 5.5, GPT-5.4 to GPT-5.6 long-context rows; current Anthropic rows rechecked.
 // Other entries last synced 2026-09-10.
@@ -55,6 +56,22 @@ export interface ModelRate {
 
 const MODEL_PRICING: Readonly<Record<string, ModelRate>> = {
   // ── OpenAI: Flagship ──
+  // https://developers.openai.com/api/docs/models/gpt-6.2-astra
+  'gpt-6.2-astra': {
+    kind: 'text',
+    inputPerMTok: 8,
+    outputPerMTok: 40,
+    cachedInputPerMTok: 0.4,
+    longContextThreshold: 272_000,
+  },
+  // https://developers.openai.com/api/docs/models/gpt-6.2-sol
+  'gpt-6.2-sol': {
+    kind: 'text',
+    inputPerMTok: 2,
+    outputPerMTok: 10,
+    cachedInputPerMTok: 0.1,
+    longContextThreshold: 272_000,
+  },
   'gpt-6-astra': {
     kind: 'text',
     inputPerMTok: 10,
@@ -166,6 +183,14 @@ const MODEL_PRICING: Readonly<Record<string, ModelRate>> = {
   'gpt-5.3-chat-latest': { kind: 'text', inputPerMTok: 1.75, outputPerMTok: 14 },
   'gpt-5.2-chat-latest': { kind: 'text', inputPerMTok: 1.75, outputPerMTok: 14 },
   'gpt-5.3-codex': { kind: 'text', inputPerMTok: 1.75, outputPerMTok: 14 },
+  // Trusted access (Daybreak). https://developers.openai.com/api/docs/models/gpt-6-cyber
+  'gpt-6-cyber': {
+    kind: 'text',
+    inputPerMTok: 20,
+    outputPerMTok: 100,
+    cachedInputPerMTok: 2,
+    longContextThreshold: 272_000,
+  },
   'gpt-5.6-cyber': { kind: 'text', inputPerMTok: 12.5, outputPerMTok: 75 },
   'gpt-5.5-cyber': { kind: 'text', inputPerMTok: 12.5, outputPerMTok: 75 },
   'gpt-6-rosalind': {
@@ -269,14 +294,23 @@ const MODEL_PRICING: Readonly<Record<string, ModelRate>> = {
   'claude-3-haiku': { kind: 'text', inputPerMTok: 0.25, outputPerMTok: 1.25 },
 };
 
-// OpenAI guarantees the special price at least through November 21, 2026.
-// November 22 UTC is our static fallback policy, not a confirmed vendor expiry.
+// OpenAI offers the promotional price until November 30, 2026 (extended from an earlier
+// "at least through November 21"). The page names no timezone, so the cutoff is the plain
+// date November 29 (parsed as midnight UTC): our static fallback policy, not a vendor expiry.
 // Source: https://developers.openai.com/api/docs/models/gpt-5.6-sol
-const SOL_SPECIAL_PRICE_END = Date.parse('2026-11-22T00:00:00.000Z');
+const SOL_SPECIAL_PRICE_END = Date.parse('2026-11-29');
+
+// OpenAI offers GPT-6 Rosalind promotional pricing at least through December 31, 2026.
+// January 1, 2027 UTC is our static fallback policy, after which the regular $15 / $1.50 /
+// $75 rates apply. Source: https://developers.openai.com/api/docs/pricing
+const ROSALIND_PROMOTIONAL_PRICE_END = Date.parse('2027-01-01T00:00:00.000Z');
 
 function effectiveRate(id: string, rate: ModelRate, now: number): ModelRate {
   if (id === 'gpt-5.6-sol' && now < SOL_SPECIAL_PRICE_END) {
     return { ...rate, inputPerMTok: 4, cachedInputPerMTok: 0.4, outputPerMTok: 20 };
+  }
+  if (id === 'gpt-6-rosalind' && now < ROSALIND_PROMOTIONAL_PRICE_END) {
+    return { ...rate, inputPerMTok: 10, cachedInputPerMTok: 1, outputPerMTok: 50 };
   }
   return rate;
 }

@@ -1111,9 +1111,22 @@ function isGpt6Family(model: string): boolean {
   return /^gpt-6(?:$|[-.])/.test(model.trim().toLowerCase());
 }
 
-/** GPT-6 Astra and GPT-6.1 Sol: lowest reasoning effort is `low`, not `none`. */
+/** GPT-6 Astra, GPT-6.1 Sol and GPT-6.2 Astra/Sol: lowest reasoning effort is `low`, not `none`. */
 function isGpt6WithoutNoneEffort(model: string): boolean {
-  return /^gpt-6(?:-astra|\.1-sol)(?:$|-)/.test(model.trim().toLowerCase());
+  return /^gpt-6(?:-astra|\.1-sol|\.2-(?:astra|sol))(?:$|-)/.test(model.trim().toLowerCase());
+}
+
+/**
+ * From GPT-6.2, the Responses API appends top-level `instructions` after `input`,
+ * so a system prompt sent there would follow the conversation and miss the
+ * prompt-cache prefix. These models receive it as the first `developer` input item.
+ */
+function placesOpenAIInstructionsAfterInput(model: string): boolean {
+  const match = /^gpt-(\d+)(?:\.(\d+))?(?:$|-)/.exec(model.trim().toLowerCase());
+  if (!match) return false;
+  const major = Number(match[1]);
+  const minor = Number(match[2] ?? 0);
+  return major > 6 || (major === 6 && minor >= 2);
 }
 
 /**
@@ -1256,13 +1269,15 @@ async function completeOpenAIResponses(args: {
     validateCallerTools(request.tools);
   }
 
+  const input = toOpenAIResponsesInput(request);
+  const systemAsInput = Boolean(request.system) && placesOpenAIInstructionsAfterInput(model);
   const body: Record<string, unknown> = {
     model,
-    input: toOpenAIResponsesInput(request),
+    input: systemAsInput ? [{ role: 'developer', content: request.system }, ...input] : input,
     store: false,
     include: ['reasoning.encrypted_content'],
   };
-  if (request.system) body.instructions = request.system;
+  if (request.system && !systemAsInput) body.instructions = request.system;
   applyOpenAITemperature(body, model, request);
   applyOpenAIResponsesReasoning(body, request, model);
   if (request.maxTokens) body.max_output_tokens = request.maxTokens;
