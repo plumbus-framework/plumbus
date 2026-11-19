@@ -119,7 +119,7 @@ In `@plumbus/chat-ui`, `useChat.confirm()` performs the real `POST /chat/:name/c
 policy: {
   toolCalling: {
     enabled: true,
-    capabilities: ['lookupOrder', 'openSupportTicket'],
+    capabilities: ['orders.lookupOrder', 'support.openSupportTicket'],
     autoStartFlows: ['issueRefund'],
     ai: {
       provider: 'anthropic',
@@ -135,6 +135,12 @@ policy: {
 },
 ```
 
+- List capabilities by canonical name, `<domain>.<name>`: that is the name the server's
+  runtime resolves. The model is offered the bare capability `name` (it must match
+  `^[A-Za-z][A-Za-z0-9_-]{0,63}$` and be unique in the chat); resolution, execution and
+  pending actions keep the canonical name. A bare entry such as `'lookupOrder'` resolves
+  only through a programmatic `runChatTurn` `resolveCapability`; over the HTTP routes it
+  fails every turn with `chat.tool_unknown_capability`.
 - **Read-only app function inside a turn** (e.g. "read an earlier conversation"): define it
   as a `kind: 'query'` capability that declares the entities it reads, list it in
   `capabilities`, set `readOnlyQueries: true` and a small `maxToolRounds`. The model calls

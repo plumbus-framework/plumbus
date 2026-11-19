@@ -217,6 +217,81 @@ describe('schedule planes on real databases', () => {
     expect(tenantRow).toMatchObject({ cron: 'every:3h', revision: 2 });
   });
 
+  it('guards removals across planes: refuses before writing any plane, warns per plane', async () => {
+    const seeded = setup({
+      spineJob: { cron: 'every:1h', plane: 'spine' },
+      tenantJob: { cron: 'every:1h' },
+    });
+    const planes = {
+      resolver: resolver({ 'tenant-a': tenantA }),
+      listTenantRefs: () => ['tenant-a'],
+    };
+    await createFlowScheduler({ db: pool.db, ...seeded, logger, ...planes }).syncSchedules();
+    // The next deployment changes the spine schedule and no longer has tenantJob.
+    const next = setup({ spineJob: { cron: 'every:2h', plane: 'spine' } });
+
+    const strict = createFlowScheduler({
+      db: pool.db,
+      ...next,
+      logger,
+      ...planes,
+      requireRemovalApproval: true,
+    });
+    const preview = await strict.reconcileSchedules();
+    expect(preview.changes).toMatchObject([
+      { flowName: 'spineJob', action: 'update' },
+      { flowName: 'tenantJob', action: 'remove', tenantRef: 'tenant-a' },
+    ]);
+    await expect(
+      strict.reconcileSchedules({ apply: true, expectedRevision: preview.revision }),
+    ).rejects.toThrow('would remove tenantJob');
+    // Refused before any plane was written: the spine update did not apply either.
+    const [spineRow] = await pool.db.select().from(flows.flowSchedulesTable);
+    expect(spineRow).toMatchObject({ cron: 'every:1h', revision: 1 });
+    const [tenantRow] = await tenantA.db.select().from(flows.flowSchedulesTable);
+    expect(tenantRow).toMatchObject({ removed: false });
+
+    // Approved: applies on every plane with no warning.
+    logger.warn.mockClear();
+    const approved = await strict.reconcileSchedules({
+      apply: true,
+      expectedRevision: preview.revision,
+      allowRemove: ['tenantJob'],
+    });
+    expect(approved.applied).toBe(true);
+    expect(logger.warn).not.toHaveBeenCalledWith(
+      expect.stringContaining('without approval'),
+      expect.anything(),
+    );
+    const [removedRow] = await tenantA.db.select().from(flows.flowSchedulesTable);
+    expect(removedRow).toMatchObject({ removed: true });
+  });
+
+  it('applies an unapproved removal on a tenant plane with a warning naming the plane', async () => {
+    const seeded = setup({ tenantJob: { cron: 'every:1h' } });
+    const planes = {
+      resolver: resolver({ 'tenant-a': tenantA }),
+      listTenantRefs: () => ['tenant-a'],
+    };
+    await createFlowScheduler({ db: pool.db, ...seeded, logger, ...planes }).syncSchedules();
+    const next = createFlowScheduler({
+      db: pool.db,
+      ...setup({}),
+      logger,
+      ...planes,
+      requireRemovalApproval: false,
+    });
+    const preview = await next.reconcileSchedules();
+    logger.warn.mockClear();
+    await next.reconcileSchedules({ apply: true, expectedRevision: preview.revision });
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('removed schedules without approval'),
+      { flowNames: ['tenantJob'], tenantRef: 'tenant-a' },
+    );
+    const [row] = await tenantA.db.select().from(flows.flowSchedulesTable);
+    expect(row).toMatchObject({ removed: true });
+  });
+
   it('places tenant runs on their plane with spine dispatch, claimable through the hint', async () => {
     const { registry, engine } = setup(
       { spineJob: { cron: 'every:1h', plane: 'spine' }, tenantJob: { cron: 'every:1h' } },

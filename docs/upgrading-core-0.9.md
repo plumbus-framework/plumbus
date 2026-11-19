@@ -6,10 +6,18 @@ The 0.8 numbers now belong to the stable **stabilization family** published from
 
 Core 0.9.0-beta.0 contains everything in the 0.8.0-beta.N line plus every stable change merged from `main`: the core 0.8.0 stabilization (PLB-01 to PLB-10), core 0.8.1, auth 0.3.1 and the Vitest 5.0.4 toolchain. See [Included in v0.9.0-beta.0](#included-in-v090-beta0).
 
-## Unreleased (next core beta, 0.9.0-beta.13): database load with many tenants, approval reads, safe migrations
+## v0.9.0-beta.14 (2026-11-20): many tenants, bounded reads, lazy transactions, stable 0.8.6 / 0.8.7 merged
 
-Not yet released. `@plumbus/core` changes; no peer range changes. Everything below is additive
-on the public API; three behaviours change by default and are called out.
+Prepared for repository release `v0.9.0-beta.14` under npm dist-tag `plumbus-next`. Three packages
+change: `@plumbus/core` **0.9.0-beta.12 → 0.9.0-beta.13**, `@plumbus/ui` **0.10.0-beta.4 →
+0.10.0-beta.5** and `@plumbus/chat` **0.4.0-beta.5 → 0.4.0-beta.6**. Every other package and all peer
+ranges stay unchanged. Core behaviour changes by default (data-plane capacity waits, migration lock
+timeouts, read ceiling warnings, exact `limit`, empty `in`, lazy capability transactions); each is
+called out below. A database migration is needed only for the new approval index.
+
+### Core: database load with many tenants, approval reads, safe migrations
+
+Additive on the public API; three behaviours change by default and are called out.
 
 **Data-plane leases.** `createPooledDataPlaneResolver` gains `acquire(tenantRef, { waitMs?,
 signal?, purpose? })` returning a lease, `stats()`, the `capacityWaitMs` option and
@@ -46,13 +54,12 @@ last statement, drop indexes a failed concurrent build left invalid, and are nev
 an invalid index exists (`MigrationInvalidIndexError`, `listInvalidIndexes`). See
 [Data layer: migrations](./sdk-reference/data-layer.md#lock-timeout-and-retry-core-090-beta13).
 
-## Unreleased (next core beta): bounded repository reads, capability transactions opened at the first write
+### Core: bounded repository reads, capability transactions opened at the first write
 
-Not yet released; prepared on the beta line for the next `@plumbus/core` beta. Both changes alter
-behaviour for every application. No migration (no schema change). Consumer agents: follow
+Both changes alter behaviour for every application. No migration (no schema change). Consumer agents: follow
 [`instructions/upgrading-bounded-reads-lazy-transactions.md`](../packages/plumbus-core/instructions/upgrading-bounded-reads-lazy-transactions.md).
 
-### Core: repository reads are bounded
+#### Repository reads are bounded
 
 - **Read ceiling.** One `findMany` / `findManyFields` / `findPage` / `aggregate` returns at most
   `data.readCeiling` rows (`PLUMBUS_READ_CEILING`, default **1000**) unless it passes
@@ -78,7 +85,7 @@ behaviour for every application. No migration (no schema change). Consumer agent
 - Repositories an app builds with `createRepository` directly use the framework default policy
   unless given `readCeiling` (`entities.getReadCeiling()` follows the host).
 
-### Core: capability transactions open at the first write
+#### Capability transactions open at the first write
 
 - **Behaviour change: lazy by default.** An action or event handler's transaction opens at its
   first data write, event, durable flow start or job enqueue, not before the handler runs. A handler
@@ -109,6 +116,32 @@ behaviour for every application. No migration (no schema change). Consumer agent
 
 **To restore the earlier transaction behaviour without code changes:** `PLUMBUS_TRANSACTION_BEGIN=eager`
 and `PLUMBUS_TRANSACTION_ACQUIRE_TIMEOUT_MS=0`. The empty-`in` and exact-`limit` fixes have no switch.
+
+### Merged from main: core 0.8.6 and 0.8.7, chat 0.3.4, UI 0.9.1
+
+- **Schedule removals need approval (core 0.8.6).** `plumbus flow schedule sync` loads `app/flows/`
+  strictly and fails with `Unable to load flow module: <file>` instead of removing the schedule of a
+  flow that failed to import. Approve intended removals with `--allow-remove <flows>` (or `'*'`) /
+  `reconcileSchedules({ allowRemove })`. An unapproved removal still applies and logs a warning;
+  `requireRemovalApproval: true` on `createFlowScheduler()` (or
+  `PLUMBUS_SCHEDULE_REQUIRE_REMOVAL_APPROVAL=true`) refuses it and writes nothing. With schedule
+  planes, a refusing apply checks every plane's removals before writing to any plane, and the
+  warning names each plane's `tenantRef`. See [flows](./core-concepts/flows.md).
+- **GPT-6.2 Astra and Sol (core 0.8.7):** priced, no `none` effort, system prompt sent as the first
+  `developer` input item on the Responses API; GPT-5.6 Sol and GPT-6 Rosalind promotional windows
+  updated. See [AI integration](./ai/ai-integration.md).
+- **Chat (0.3.4):** Path B tools accept canonical `<domain>.<name>` capability names, and a staged
+  chat with `scopePreflight: false` keeps its own `off_topic` refusals.
+- **UI (0.9.1):** opt-in `--split-client`, `--dedupe-queries` and `serverMessages` generator modes.
+  Split output covers the same API-only surface as the single-file client and keeps envelope
+  unwrapping, idempotency keys and `keepalive`.
+
+**Upgrade:** install `@plumbus/core@0.9.0-beta.13`, and `@plumbus/ui@0.10.0-beta.5` /
+`@plumbus/chat@0.4.0-beta.6` where used, from `plumbus-next`. Run `plumbus migrate generate` for
+`approval_request_live_idx`. Follow
+[`instructions/upgrading-bounded-reads-lazy-transactions.md`](../packages/plumbus-core/instructions/upgrading-bounded-reads-lazy-transactions.md).
+If `schedule sync` now fails with `Unable to load flow module`, fix that module; add
+`--allow-remove` where a deployment removes schedules on purpose.
 
 ## v0.9.0-beta.13 (2026-11-16): chat `regenerate` verdict and `answerOf`
 

@@ -8,7 +8,7 @@ import {
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
-  vi.setSystemTime(new Date('2026-11-22T00:00:00Z'));
+  vi.setSystemTime(new Date('2026-12-01T00:00:00Z'));
 });
 afterEach(() => vi.useRealTimers());
 
@@ -124,10 +124,6 @@ describe('calculateModelCost', () => {
     // GPT-Rosalind Research and Discovery (Life Sciences): input $5/MTok, output $25/MTok
     expect(calculateModelCost(1000, 500, 'gpt-rosalind-research')).toBe(0.0175);
     expect(calculateModelCost(1000, 500, 'gpt-rosalind-discovery')).toBe(0.0175);
-    // gpt-6-rosalind: input $15/MTok, output $75/MTok, then $30 / $112.50 above 272K input
-    expect(calculateModelCost(1000, 500, 'gpt-6-rosalind')).toBe(0.0525);
-    expect(calculateModelCost(272_000, 1000, 'gpt-6-rosalind')).toBe(4.155);
-    expect(calculateModelCost(272_001, 1000, 'gpt-6-rosalind')).toBe(8.27253);
     for (const model of ['chat-latest', 'gpt-5.3-chat-latest', 'gpt-5.2-chat-latest']) {
       expect(findModelRate(model)?.kind, model).toBe('text');
       expect(calculateModelCost(1000, 500, model), model).toBeGreaterThan(0);
@@ -341,7 +337,10 @@ it.each([
   'gpt-5.6-sol-20260910',
   'gpt-5.6-20260910',
 ])('switches %s from bundled special rates to regular rates at the UTC cutoff', (model) => {
-  vi.setSystemTime(new Date('2026-11-21T23:59:59.999Z'));
+  // The promotion was extended past the original November 22 fallback.
+  vi.setSystemTime(new Date('2026-11-22T00:00:00.000Z'));
+  expect(findModelRate(model)).toMatchObject({ inputPerMTok: 4, outputPerMTok: 20 });
+  vi.setSystemTime(new Date('2026-11-28T23:59:59.999Z'));
   expect(findModelRate(model)).toMatchObject({
     inputPerMTok: 4,
     cachedInputPerMTok: 0.4,
@@ -358,7 +357,7 @@ it.each([
     }),
   ).toBe(1.81);
   expect(new Map(allKnownModels()).get('gpt-5.6-sol')).toEqual(findModelRate(model));
-  vi.setSystemTime(new Date('2026-11-22T00:00:00.000Z'));
+  vi.setSystemTime(new Date('2026-11-29T00:00:00.000Z'));
   expect(findModelRate(model)).toMatchObject({
     inputPerMTok: 5,
     cachedInputPerMTok: 0.5,
@@ -371,8 +370,54 @@ it.each([
   expect(calculateModelCost(1000, 500, model)).toBe(0.02);
 });
 
+it.each([
+  'gpt-6-rosalind',
+  'gpt-6-rosalind-20261001',
+])('switches %s from promotional to regular rates at the UTC cutoff', (model) => {
+  // Promotional $10 / $1 cached / $50, then $20 / $75 above 272K input.
+  vi.setSystemTime(new Date('2026-12-31T23:59:59.999Z'));
+  expect(findModelRate(model)).toEqual({
+    kind: 'text',
+    inputPerMTok: 10,
+    cachedInputPerMTok: 1,
+    outputPerMTok: 50,
+    longContextThreshold: 272_000,
+  });
+  expect(calculateModelCost(1000, 500, model)).toBe(0.035);
+  expect(calculateModelCost(1000, 0, model, { cachedInputTokens: 1000 })).toBe(0.001);
+  expect(calculateModelCost(1000, 0, model, { cacheWriteTokens: 1000 })).toBe(0.0125);
+  expect(calculateModelCost(272_000, 1000, model)).toBe(2.77);
+  expect(calculateModelCost(272_001, 1000, model)).toBe(5.51502);
+  expect(new Map(allKnownModels()).get('gpt-6-rosalind')).toEqual(findModelRate(model));
+  // Regular $15 / $1.50 cached / $75, then $30 / $112.50 above 272K input.
+  vi.setSystemTime(new Date('2027-01-01T00:00:00.000Z'));
+  expect(findModelRate(model)).toMatchObject({
+    inputPerMTok: 15,
+    cachedInputPerMTok: 1.5,
+    outputPerMTok: 75,
+  });
+  expect(calculateModelCost(1000, 500, model)).toBe(0.0525);
+  expect(calculateModelCost(272_000, 1000, model)).toBe(4.155);
+  expect(calculateModelCost(272_001, 1000, model)).toBe(8.27253);
+  expect(new Map(allKnownModels()).get('gpt-6-rosalind')).toEqual(findModelRate(model));
+});
+
+it('prices GPT-6 Cyber with its long-context premium', () => {
+  // $20 / $2 cached / $100, then $40 / $150 above 272K input.
+  expect(findModelRate('gpt-6-cyber')).toEqual({
+    kind: 'text',
+    inputPerMTok: 20,
+    cachedInputPerMTok: 2,
+    outputPerMTok: 100,
+    longContextThreshold: 272_000,
+  });
+  expect(calculateModelCost(1000, 500, 'gpt-6-cyber')).toBe(0.07);
+  expect(calculateModelCost(272_000, 1000, 'gpt-6-cyber')).toBe(5.54);
+  expect(calculateModelCost(272_001, 1000, 'gpt-6-cyber')).toBe(11.03004);
+});
+
 it('does not apply Sol special pricing to other models or free/local providers', () => {
-  vi.setSystemTime(new Date('2026-11-21T23:59:59Z'));
+  vi.setSystemTime(new Date('2026-11-28T23:59:59Z'));
   expect(calculateModelCost(1000, 500, 'gpt-5.6-cyber')).toBe(0.05);
   expect(calculateModelCost(1000, 500, 'gpt-5.6-terra')).toBe(0.008);
   expect(calculateModelCost(1000, 0, 'omni-moderation-latest')).toBe(0);
@@ -394,6 +439,33 @@ it.each([
 });
 
 describe.each([
+  {
+    model: 'gpt-6.2-astra',
+    input: 8,
+    cached: 0.4,
+    output: 40,
+    shortCost: 0.028,
+    cacheCost: 0.0004,
+    writeCost: 0.01,
+    boundaryCost: 2.216,
+    premiumCost: 4.412016,
+    mixedShortCost: 1.556,
+    mixedLongCost: 3.54,
+  },
+  {
+    // Same rates as GPT-6.1 Sol.
+    model: 'gpt-6.2-sol',
+    input: 2,
+    cached: 0.1,
+    output: 10,
+    shortCost: 0.007,
+    cacheCost: 0.0001,
+    writeCost: 0.0025,
+    boundaryCost: 0.554,
+    premiumCost: 1.103004,
+    mixedShortCost: 0.389,
+    mixedLongCost: 0.885,
+  },
   {
     model: 'gpt-6-astra',
     input: 10,
@@ -496,7 +568,7 @@ describe.each([
   });
 
   it('is independent of the older GPT-5.6 Sol promotion cutoff', () => {
-    for (const at of ['2026-09-23T00:00:00Z', '2026-11-21T23:59:59.999Z', '2026-11-22T00:00:00Z']) {
+    for (const at of ['2026-09-23T00:00:00Z', '2026-11-28T23:59:59.999Z', '2026-11-29T00:00:00Z']) {
       vi.setSystemTime(new Date(at));
       expect(calculateModelCost(1000, 500, expected.model)).toBe(expected.shortCost);
     }

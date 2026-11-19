@@ -456,6 +456,7 @@ export type {
   FrameworkRetentionResult,
   PruneFrameworkTablesOptions,
   PublishCompiledFlowOptions,
+  ReconcileSchedulesOptions,
   SchedulerConfig,
   StepExecutorDeps,
   StepHistoryEntry,
@@ -564,6 +565,7 @@ export {
 export type {
   AppBootContext,
   BuildWorkerAiServiceOptions,
+  DiscoverResourcesOptions,
   OnBootHook,
   OnShutdownHook,
   RegisterCapabilityConsumersOptions,
@@ -572,6 +574,7 @@ export type {
   RuntimeQueues,
   ServerExtensions,
   ShutdownContext,
+  StrictDiscoveryDirectory,
 } from './runtime/index.js';
 export {
   buildStepDeps,

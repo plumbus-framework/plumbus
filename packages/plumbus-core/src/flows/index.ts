@@ -95,6 +95,7 @@ export {
 } from './scheduler.js';
 export type {
   MissedSchedulePlan,
+  ReconcileSchedulesOptions,
   SchedulerConfig,
   ScheduleChange,
   ScheduleReconciliation,

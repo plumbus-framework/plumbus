@@ -360,7 +360,7 @@ Flow scaffolding and dead-letter operations.
 ```bash
 plumbus flow new <name> [options]
 plumbus flow schedule list [options]
-plumbus flow schedule sync [--apply --expected-revision <revision>]
+plumbus flow schedule sync [--apply --expected-revision <revision> [--allow-remove <flows>]]
 plumbus flow dead-letter list [options]
 plumbus flow dead-letter retry <executionId> [--actor <id>] [--in-place]
 ```
@@ -378,6 +378,18 @@ Human output includes `synced=false` when a registered flow has no persisted sch
 #### `plumbus flow schedule sync`
 
 Preview additions, definition changes, removals, and the current revision using the complete intended flow registry. Apply the reviewed result with `--apply --expected-revision <revision>`; a changed revision rejects a stale plan. Use one deployment owner. Reconciliation preserves operator-disabled schedules, tombstones removed definitions, and records superseded overdue ticks. Review legacy database overrides before adoption. When `app/server.ts` exports `dataPlaneResolver` (it takes precedence over `schedulePlanes`, as in the worker) or `schedulePlanes`, the command reconciles the planes the worker schedules on: the pool when a flow is scheduled on `spine`, plus each tenant the matching list returns (the `listTenantRefs` export with `dataPlaneResolver`, `schedulePlanes.listTenantRefs` otherwise; a tenant the worker only resolved for claimed work is not reconciled). With `dataPlaneResolver` but no `listTenantRefs`, the command fails when any scheduled flow is on `tenants` (the default when `schedule.plane` is unset); export `listTenantRefs`. Tenant-plane changes carry `tenantRef`, the revision covers all planes, and apply is atomic per plane (re-run a fresh preview to converge after a partial failure). See the [upgrade guide](../upgrading-stabilization.md#schedules).
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--apply` | `boolean` | `false` | Apply the previewed changes |
+| `--expected-revision <revision>` | `string` | — | Revision from the preview; required with `--apply` |
+| `--allow-remove <flows>` | `string` | — | Comma-separated flow names whose schedules `--apply` may tombstone, or `'*'` (quoted) for any (0.8.6+; 0.9.0-beta.13+ on the beta line) |
+
+Guards against an incomplete registry (0.8.6+; 0.9.0-beta.13+ on the beta line):
+
+- Every module under `app/flows/` must import. A module that throws on import fails the command and names the file, instead of being skipped (its schedule would otherwise look removed). Test files (`*.test.*`, `*.spec.*`, `__tests__/`) are not imported.
+- Preview and apply print each removal to stderr; stdout stays JSON. Approve intended removals with `--allow-remove` (names or `'*'`); a preview marks covered removals `(approved)`.
+- By default an unapproved removal still applies and logs a warning naming the flows. Set `PLUMBUS_SCHEDULE_REQUIRE_REMOVAL_APPROVAL=true` to make `--apply` refuse it instead: the error names the flows and nothing is written.
 
 #### `plumbus flow dead-letter list`
 
@@ -543,11 +555,14 @@ plumbus ui generate [options]
 | `--include-jsdoc` | `boolean` | `false` | Emit JSDoc comments in generated modules |
 | `--split-locale-bundles` | `boolean` | `false` | Emit per-locale message bundles under `i18n/locales/` (default: single `i18n/messages.ts`) |
 | `--server-locale-cookie` | `boolean` | `false` | Resolve locale from the `plumbus-ui-locale` cookie in `i18n/request.ts` (dynamic rendering; not compatible with `output: 'export'`) |
+| `--server-messages` | `boolean` | `false` | Keep message catalogs out of the browser bundle: the root layout passes the active locale's catalog as `initialMessages`; other locales load when the reader switches (implies `--split-locale-bundles`). Core 0.8.5+ with `@plumbus/ui` 0.9.1+; core 0.9.0-beta.13+ with `@plumbus/ui` 0.10.0-beta.5+ on the beta line |
+| `--split-client` | `boolean` | `false` | One module per endpoint (`lib/client/*.ts`) and per hook (`hooks/generated/*.ts`) behind the same `lib/client.ts` / `hooks/hooks.ts` imports; the folders are marked side-effect free, so a page bundles only what it calls. Core 0.8.5+ with `@plumbus/ui` 0.9.1+; core 0.9.0-beta.13+ with `@plumbus/ui` 0.10.0-beta.5+ on the beta line |
+| `--dedupe-queries` | `boolean` | `false` | Concurrent identical GET calls share one request; each caller gets its own copy. Calls with an `AbortSignal` are never shared, and any POST makes later GETs go to the server. Core 0.8.5+ with `@plumbus/ui` 0.9.1+; core 0.9.0-beta.13+ with `@plumbus/ui` 0.10.0-beta.5+ on the beta line |
 | `--skip-locale-parity` | `boolean` | `false` | Skip translation coverage check before generating i18n (warns and continues; not recommended for CI) |
 | `--json` | `boolean` | `false` | Output in JSON format |
 
 Generates:
-- `lib/client.ts` — typed fetch clients for capabilities with `exposeAs: ['api']` (event handlers and unexposed flow triggers omitted)
+- `lib/client.ts` — typed fetch clients for capabilities with `exposeAs: ['api']` and flow triggers with an explicit `startPath` (event handlers omitted; with `--split-client`: a barrel over `lib/client/*.ts`)
 - `hooks/hooks.ts` — React hooks for those same HTTP-exposed capabilities
 - `lib/auth.ts` — frontend auth helpers
 - `lib/form-hints.ts` — extracted form metadata from those HTTP-exposed capability schemas

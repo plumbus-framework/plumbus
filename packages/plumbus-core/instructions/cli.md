@@ -208,6 +208,7 @@ plumbus flow dead-letter retry <executionId> --in-place     # reset the same exe
 plumbus flow schedule list --json # effective persisted schedules
 plumbus flow schedule sync        # preview complete deployment manifest
 plumbus flow schedule sync --apply --expected-revision <revision>
+plumbus flow schedule sync --apply --expected-revision <revision> --allow-remove <flows> # approve intended removals ('*' = any)
 plumbus seed                      # populate initial data
 ```
 

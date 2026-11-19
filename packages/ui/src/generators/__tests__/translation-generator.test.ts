@@ -48,7 +48,7 @@ describe('generateTranslationModule', () => {
     expect(aug).not.toMatch(/\sas\s+/);
   });
 
-  it('emits cast-free provider, request, and Zod-backed locale helpers', () => {
+  it('emits cast-free provider, request, and locale helpers', () => {
     const files = generateTranslationModule(sampleDefinitions);
     const provider = files.find((f) => f.path === 'i18n/provider.tsx')?.content ?? '';
     const request = files.find((f) => f.path === 'i18n/request.ts')?.content ?? '';
@@ -57,11 +57,10 @@ describe('generateTranslationModule', () => {
 
     expect(provider).not.toMatch(/\sas\s+Locale\b/);
     expect(request).not.toMatch(/\sas\s+Locale\b/);
-    expect(config).toContain('import { z } from "@plumbus/core/zod"');
-    expect(config).toContain('export const localeSchema = z.enum(locales)');
+    // zod stays out of config.ts: its schemas come from a side-effect-free module.
+    expect(config).not.toContain('@plumbus/core/zod');
+    expect(config).toContain('export { localeSchema, rtlLocaleSchema } from "./schema/locale"');
     expect(config).toContain('export function isLocale');
-    expect(config).toContain('localeSchema.safeParse(value).success');
-    expect(config).toContain('export const rtlLocaleSchema = z.enum(rtlLocales)');
     expect(config).toContain('export function localeDir');
     expect(config).toContain('? "rtl" : "ltr"');
     expect(config).toContain('export const defaultLocale = "en" as const satisfies Locale');
@@ -267,5 +266,74 @@ describe('generateTranslationModule defaultLocale consistency', () => {
       },
     ];
     expect(() => generateTranslationModule(diverging)).toThrow(/must share the same defaultLocale/);
+  });
+});
+
+describe('locale helpers without zod in config.ts', () => {
+  const files = generateTranslationModule(sampleDefinitions);
+  const config = files.find((f) => f.path === 'i18n/config.ts')?.content ?? '';
+  const schema = files.find((f) => f.path === 'i18n/schema/locale.ts')?.content ?? '';
+
+  it('keeps the zod schemas, in a module marked side-effect free', () => {
+    expect(schema).toContain('import { z } from "@plumbus/core/zod"');
+    expect(schema).toMatch(/export const localeSchema = z\.enum\(\[/);
+    expect(schema).toMatch(/export const rtlLocaleSchema = z\.enum\(\[/);
+    const pkg = files.find((f) => f.path === 'i18n/schema/package.json')?.content ?? '';
+    expect(JSON.parse(pkg)).toEqual({ sideEffects: false });
+  });
+
+  it('answers isLocale and localeDir exactly as the schemas do', async () => {
+    const ts = (await import('typescript')).default;
+    const { z } = await import('zod');
+    const js = ts.transpileModule(
+      config.replace(/^export \{[^}]*\} from "\.\/schema\/locale";$/m, ''),
+      {
+        compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+      },
+    ).outputText;
+    const mod: Record<string, any> = {};
+    new Function('exports', js)(mod);
+    const localeSchema = z.enum(mod.locales);
+    for (const value of [...mod.locales, 'xx', '', 'EN', 'he-IL']) {
+      expect(mod.isLocale(value)).toBe(localeSchema.safeParse(value).success);
+    }
+    for (const locale of mod.locales) {
+      expect(mod.localeDir(locale)).toBe(mod.rtlLocales.includes(locale) ? 'rtl' : 'ltr');
+    }
+  });
+});
+
+describe('serverMessages', () => {
+  const files = generateTranslationModule(sampleDefinitions, { serverMessages: true });
+  const provider = files.find((f) => f.path === 'i18n/provider.tsx')?.content ?? '';
+
+  it('emits per-locale bundles and keeps messages.ts for the server', () => {
+    expect(files.some((f) => f.path === 'i18n/locales/en.ts')).toBe(true);
+    expect(files.some((f) => f.path === 'i18n/messages.ts')).toBe(true);
+  });
+
+  it('keeps every catalog out of the provider: initialMessages, other locales on switch', () => {
+    expect(provider).toContain('import type { messages } from "./messages"');
+    expect(provider).not.toMatch(/^import \{ messages \}/m);
+    expect(provider).toContain('initialMessages?: LocaleCatalog');
+    expect(provider).toContain(
+      '() => import("./locales/en").then((m) => m.localeMessages as unknown as LocaleCatalog)',
+    );
+  });
+
+  it('switches the locale at once and shows the new catalog when it has loaded', () => {
+    expect(provider).toContain('setLocaleState(next);');
+    expect(provider).toContain('const contextValue = useMemo(() => ({ locale, setLocale })');
+    expect(provider).toContain('locale={shown.locale}');
+    expect(provider).toContain('messages={shown.messages}');
+    expect(provider).toContain('document.documentElement.lang = shown.locale;');
+  });
+
+  it('leaves the default provider unchanged', () => {
+    const plain =
+      generateTranslationModule(sampleDefinitions).find((f) => f.path === 'i18n/provider.tsx')
+        ?.content ?? '';
+    expect(plain).toContain('import { messages } from "./messages"');
+    expect(plain).not.toContain('initialMessages');
   });
 });

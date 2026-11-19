@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.0-beta.5 — 2026-11-20 — split client and deduplicated queries (stable 0.9.1 merged)
+
+Opt-in generator modes from main; output is unchanged unless they are turned on. Needs `@plumbus/core` 0.9.0-beta.13 for the `plumbus ui generate` flags.
+
+- **`generateSplitClientFiles` / `generateSplitHooksFiles`** (`plumbus ui generate --split-client`): one module per endpoint and per hook behind the same `lib/client.ts` and `hooks/hooks.ts` entry points, with the per-endpoint folders marked side-effect free so a page bundles only what it calls. They cover the same surface as `generateClientModule` (`exposeAs: ['api']` capabilities, flows with an explicit `startPath`), and the split modules keep envelope unwrapping, idempotency keys, `keepalive` and `requestId` on errors; the barrel also exports `clientIdempotencyKey` and `plumbusRequestIdOf`. `importExtension: '.js'` for node16/nodenext targets.
+- **`dedupeQueries`** (`--dedupe-queries`): concurrent identical GET calls share one request and each caller gets its own copy (`structuredClone`). A call with its own `AbortSignal` is never shared, and every state-changing call (and flow start) forgets in-flight GETs.
+- **`serverMessages`** translation option: the active locale's catalog comes from the server layout (`initialMessages`); another locale loads only when the reader switches. `i18n/config.ts` no longer imports zod (`localeSchema` / `rtlLocaleSchema` move to the side-effect-free `i18n/schema/locale.ts`).
+
 ## 0.10.0-beta.4 — 2026-11-16 — `keepalive` on generated client calls
 
 - **Generated client functions accept `keepalive?: boolean`** (`options` is now `{ headers?, signal?, keepalive? }`) and pass it to `fetch`, so a page that is closing (`pagehide`, `visibilitychange` to hidden) can still send one last write, such as saving a video position, through the same typed call. The request keeps everything an ordinary call sends: credentials and the CSRF header (session transport) or the bearer header, and the Idempotency-Key. Generated flow triggers accept `keepalive` too, and a generated mutation hook's `mutate(input, request?)` forwards `headers`, `signal` and `keepalive` to the client function. Browsers cap the bodies of all in-flight keepalive requests of a page at 64 KiB together, and refuse the request beyond that; keep these writes small. Additive: omit the option and nothing changes. Regenerate the client (`plumbus ui generate`).

@@ -22,6 +22,7 @@ export type {
   ClientAuthTransport,
   ClientGeneratorConfig,
   FlowTriggerInput,
+  GeneratedModuleFile,
 } from './generators/client-generator.js';
 // Client & Hooks Generators
 export {
@@ -35,6 +36,8 @@ export {
   generateMutationHook,
   generateQueryHook,
   generateReactHook,
+  generateSplitClientFiles,
+  generateSplitHooksFiles,
   generateTypedClient,
 } from './generators/client-generator.js';
 export type {

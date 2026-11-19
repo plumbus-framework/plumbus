@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0-beta.6 — 2026-11-20 — stable chat 0.3.4 merged
+
+Bug fixes from main. **No migration.** Peers unchanged.
+
+- **Path B tools resolve canonical capability names (0.3.4).** `policy.toolCalling.capabilities` accepts the canonical `<domain>.<name>` the server's runtime resolves; over the HTTP routes a bare name failed every turn with `chat.tool_unknown_capability`. The model is offered the bare capability `name` (it must match `^[A-Za-z][A-Za-z0-9_-]{0,63}$` and be unique in the chat); execution and pending actions keep the canonical name.
+- **A staged tool-calling chat with `scopePreflight: false` keeps its own `off_topic` refusals (0.3.4).** Scope coherence turns `off_topic` back into in-scope only when a preflight actually ran. This also applies to a regenerated reply.
+
 ## 0.4.0-beta.5 — 2026-11-16 — regenerate a refused reply; a prompt's own answer text
 
 Both additions are opt-in; chats that use neither behave as before. **No migration.** Peers unchanged.

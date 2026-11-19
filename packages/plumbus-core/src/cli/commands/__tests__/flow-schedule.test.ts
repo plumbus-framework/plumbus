@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { defineFlow } from '../../../define/defineFlow.js';
 import { formatFlowScheduleLine, mergeFlowScheduleList } from '../flow-schedule-list.js';
+import { parseAllowRemove, runScheduleSync } from '../flow.js';
 
 function scheduledFlow(name: string, domain: string, cron: string) {
   return defineFlow({
@@ -156,5 +157,100 @@ describe('formatFlowScheduleLine', () => {
     expect(line).toContain('next=2026-06-20T00:00:00.000Z');
     expect(line).toContain('last=2026-06-19T00:00:00.000Z');
     expect(line).toContain('synced=true');
+  });
+});
+
+describe('parseAllowRemove', () => {
+  it('returns undefined when the option is absent', () => {
+    expect(parseAllowRemove(undefined)).toBeUndefined();
+  });
+  it('treats * as allowing any removal', () => {
+    expect(parseAllowRemove(' * ')).toBe(true);
+  });
+  it('splits and trims comma-separated flow names, dropping empty entries', () => {
+    expect(parseAllowRemove('nightlyCleanup, weeklyReport,,')).toEqual([
+      'nightlyCleanup',
+      'weeklyReport',
+    ]);
+  });
+});
+
+describe('runScheduleSync', () => {
+  const resources = { flows: [], capabilities: [] } as any;
+  function deps(result: any) {
+    const out: string[] = [];
+    const err: string[] = [];
+    const reconcile = vi.fn(async () => result);
+    const discover = vi.fn(async () => resources);
+    return {
+      out,
+      err,
+      reconcile,
+      discover,
+      deps: {
+        discover,
+        reconcile,
+        stdout: (line: string) => out.push(line),
+        stderr: (line: string) => err.push(line),
+      },
+    };
+  }
+
+  it('discovers flows strictly and forwards the approval options', async () => {
+    const t = deps({ revision: 'r1', changes: [], applied: true });
+    const options = { apply: true, expectedRevision: 'r1', allowRemove: ['old'] };
+    await runScheduleSync(options, t.deps);
+    expect(t.discover).toHaveBeenCalledWith({ strict: ['flows'] });
+    expect(t.reconcile).toHaveBeenCalledWith(resources, options);
+  });
+
+  it('does not reconcile when a flow module fails to load', async () => {
+    const t = deps({ revision: 'r1', changes: [], applied: false });
+    t.discover.mockRejectedValueOnce(new Error('Unable to load flow module: broken.ts'));
+    await expect(runScheduleSync({ apply: true }, t.deps)).rejects.toThrow('broken.ts');
+    expect(t.reconcile).not.toHaveBeenCalled();
+    expect(t.out).toEqual([]);
+  });
+
+  it('keeps stdout JSON-only and reports removals on stderr', async () => {
+    const preview = {
+      revision: 'r1',
+      changes: [
+        { flowName: 'kept', action: 'update' },
+        { flowName: 'old', action: 'remove' },
+      ],
+      applied: false,
+    };
+    const t = deps(preview);
+    await runScheduleSync({}, t.deps);
+    expect(t.out).toHaveLength(1);
+    expect(JSON.parse(t.out[0] ?? '')).toEqual(preview);
+    expect(t.err).toEqual([
+      '⚠ Would remove schedule: old (if the flow was deleted on purpose, approve with --allow-remove old; otherwise fix the flow registry)',
+    ]);
+  });
+
+  it('marks removals already approved in a preview', async () => {
+    const t = deps({
+      revision: 'r1',
+      changes: [
+        { flowName: 'old', action: 'remove' },
+        { flowName: 'other', action: 'remove' },
+      ],
+      applied: false,
+    });
+    await runScheduleSync({ allowRemove: ['old'] }, t.deps);
+    expect(t.err[0]).toBe('⚠ Would remove schedule: old (approved)');
+    expect(t.err[1]).toContain('approve with --allow-remove other');
+  });
+
+  it('reports applied removals on stderr', async () => {
+    const t = deps({
+      revision: 'r1',
+      changes: [{ flowName: 'old', action: 'remove' }],
+      applied: true,
+    });
+    await runScheduleSync({ apply: true, expectedRevision: 'r1', allowRemove: true }, t.deps);
+    expect(t.err).toEqual(['⚠ Removed schedule: old']);
   });
 });

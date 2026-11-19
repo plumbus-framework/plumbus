@@ -117,6 +117,30 @@ describe('plumbus ui helpers', () => {
     expect(formCaps.map((cap) => cap.name)).toEqual(['listUsers']);
   });
 
+  it('passes only exposeAs api capabilities to the split client and hooks generators', () => {
+    let clientCaps: CapabilityContract[] = [];
+    let hookCaps: CapabilityContract[] = [];
+    const generators: UiGeneratorModule = {
+      ...mockUiGenerators(),
+      generateSplitClientFiles: (caps) => {
+        clientCaps = caps;
+        return [{ path: 'lib/client.ts', content: 'barrel' }];
+      },
+      generateSplitHooksFiles: (caps) => {
+        hookCaps = caps;
+        return [{ path: 'hooks/hooks.ts', content: 'barrel' }];
+      },
+    };
+    const http = mockCapability({ name: 'listUsers', exposeAs: ['api'] });
+    const operator = mockCapability({ name: 'closeTenant' });
+
+    const files = generateUiModuleFiles([http, operator], [], generators, { splitClient: true });
+
+    expect(clientCaps.map((cap) => cap.name)).toEqual(['listUsers']);
+    expect(hookCaps.map((cap) => cap.name)).toEqual(['listUsers']);
+    expect(files.map((file) => file.path)).toContain('lib/client.ts');
+  });
+
   it('generates a Next.js scaffold with generated modules', () => {
     const files = generateNextjsAppFiles(
       'AcmeApp',
@@ -249,6 +273,83 @@ describe('plumbus ui helpers', () => {
 
     expect(authConfig?.transport).toBe('session');
     expect(clientConfig?.authTransport).toBe('session');
+  });
+
+  it('writes the split client and hooks with --split-client, and the single files without', () => {
+    const generators: UiGeneratorModule = {
+      ...mockUiGenerators(),
+      generateSplitClientFiles: () => [
+        { path: 'lib/client.ts', content: 'barrel' },
+        { path: 'lib/client/getUser.ts', content: 'module' },
+      ],
+      generateSplitHooksFiles: () => [
+        { path: 'hooks/hooks.ts', content: 'hooks-barrel' },
+        { path: 'hooks/generated/useGetUser.ts', content: 'hook' },
+      ],
+    };
+    const split = generateUiModuleFiles(
+      [mockCapability()],
+      [],
+      generators,
+      { splitClient: true },
+      'frontend',
+    );
+    expect(split.map((f) => f.path)).toEqual(
+      expect.arrayContaining([
+        'frontend/lib/client.ts',
+        'frontend/lib/client/getUser.ts',
+        'frontend/hooks/generated/useGetUser.ts',
+      ]),
+    );
+    expect(split.find((f) => f.path === 'frontend/lib/client.ts')?.content).toBe('barrel');
+    const single = generateUiModuleFiles([mockCapability()], [], generators, {}, 'frontend');
+    expect(single.find((f) => f.path === 'frontend/lib/client.ts')?.content).toBe('client-module');
+    expect(single.some((f) => f.path.includes('lib/client/'))).toBe(false);
+  });
+
+  it('refuses --split-client and --dedupe-queries with a @plumbus/ui that cannot do them', () => {
+    expect(() => generateUiModuleFiles([], [], mockUiGenerators(), { splitClient: true })).toThrow(
+      /0\.10\.0-beta\.5/,
+    );
+    expect(() =>
+      generateUiModuleFiles([], [], mockUiGenerators(), { dedupeQueries: true }),
+    ).toThrow(/0\.10\.0-beta\.5/);
+  });
+
+  it('passes dedupeQueries to the client generator and serverMessages to translations', () => {
+    let clientConfig: { dedupeQueries?: boolean } | undefined;
+    let translationOptions: { serverMessages?: boolean } | undefined;
+    const generators: UiGeneratorModule = {
+      ...mockUiGenerators(),
+      generateSplitClientFiles: () => [],
+      generateSplitHooksFiles: () => [],
+      generateClientModule: (_caps, _flows, config) => {
+        clientConfig = config;
+        return 'client-module';
+      },
+      generateTranslationModule: (_defs, options) => {
+        translationOptions = options;
+        return [];
+      },
+    };
+    const translations: TranslationDefinition[] = [
+      {
+        name: 'common',
+        defaultLocale: 'en',
+        locales: ['en'],
+        messages: { en: { 'nav.home': 'Home' } },
+      },
+    ];
+    generateUiModuleFiles(
+      [],
+      [],
+      generators,
+      { dedupeQueries: true, serverMessages: true },
+      '',
+      translations,
+    );
+    expect(clientConfig?.dedupeQueries).toBe(true);
+    expect(translationOptions?.serverMessages).toBe(true);
   });
 });
 

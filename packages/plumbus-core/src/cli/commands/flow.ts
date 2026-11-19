@@ -4,6 +4,8 @@ import {
   createFlowScheduler,
   createFlowEngine,
 } from '../../flows/index.js';
+import type { ReconcileSchedulesOptions } from '../../flows/index.js';
+import type { DiscoveredResources, DiscoverResourcesOptions } from '../discover.js';
 import { discoverRuntimeResources, buildStepDeps } from '../../runtime/bootstrap.js';
 import { loadServerExtensions } from '../../runtime/load-extensions.js';
 import { CapabilityRegistry } from '../../execution/index.js';
@@ -11,6 +13,7 @@ import { CapabilityRegistry } from '../../execution/index.js';
 // Scaffold a new flow
 
 import type { Command } from 'commander';
+import { DataValidationError } from '../../errors/index.js';
 import * as path from 'node:path';
 import { desc } from 'drizzle-orm';
 import { loadAppConfig } from '../../config/index.js';
@@ -22,6 +25,60 @@ import { resolveRuntimeQueues } from '../../runtime/queue-factory.js';
 import { flowTemplate, flowTestTemplate } from '../templates/resources.js';
 import { error, exists, info, resolvePath, success, toKebabCase, writeFile } from '../utils.js';
 import { formatFlowScheduleLine, listFlowSchedules } from './flow-schedule-list.js';
+
+/** Parse `--allow-remove`: `*` allows any removal, otherwise a comma-separated list of flow names. */
+export function parseAllowRemove(value: string | undefined): readonly string[] | true | undefined {
+  if (value === undefined) return undefined;
+  if (value.trim() === '*') return true;
+  return value
+    .split(',')
+    .map((name) => name.trim())
+    .filter((name) => name.length > 0);
+}
+
+type ReconcileResult = Awaited<
+  ReturnType<ReturnType<typeof createFlowScheduler>['reconcileSchedules']>
+>;
+
+export interface ScheduleSyncDeps {
+  discover: (options: DiscoverResourcesOptions) => Promise<DiscoveredResources>;
+  reconcile: (
+    resources: DiscoveredResources,
+    options: ReconcileSchedulesOptions,
+  ) => Promise<ReconcileResult>;
+  stdout?: (line: string) => void;
+  stderr?: (line: string) => void;
+}
+
+/**
+ * `plumbus flow schedule sync`: discover flows strictly (a module that fails to
+ * import would otherwise look like a removed schedule), reconcile, print the JSON
+ * result to stdout and each removal to stderr.
+ */
+export async function runScheduleSync(
+  options: ReconcileSchedulesOptions,
+  deps: ScheduleSyncDeps,
+): Promise<ReconcileResult> {
+  const stdout = deps.stdout ?? ((line: string) => console.log(line));
+  const stderr = deps.stderr ?? ((line: string) => console.error(line));
+  const resources = await deps.discover({ strict: ['flows'] });
+  const result = await deps.reconcile(resources, options);
+  stdout(JSON.stringify(result, null, 2));
+  const approved = (flowName: string) =>
+    options.allowRemove === true || (options.allowRemove ?? []).includes(flowName);
+  for (const change of result.changes.filter((c) => c.action === 'remove')) {
+    if (result.applied) {
+      stderr(`⚠ Removed schedule: ${change.flowName}`);
+      continue;
+    }
+    stderr(
+      approved(change.flowName)
+        ? `⚠ Would remove schedule: ${change.flowName} (approved)`
+        : `⚠ Would remove schedule: ${change.flowName} (if the flow was deleted on purpose, approve with --allow-remove ${change.flowName}; otherwise fix the flow registry)`,
+    );
+  }
+  return result;
+}
 
 export function registerFlowCommand(program: Command): void {
   const cmd = program.command('flow').description('Manage flows');
@@ -86,52 +143,76 @@ export function registerFlowCommand(program: Command): void {
     .description('Preview or apply the complete deployed schedule manifest')
     .option('--apply', 'Apply the previewed changes')
     .option('--expected-revision <revision>', 'Revision from the preview; required with --apply')
-    .action(async (options: { apply?: boolean; expectedRevision?: string }) => {
+    .option(
+      '--allow-remove <flows>',
+      'Comma-separated flow names whose schedules --apply may remove, or "*" for any',
+    )
+    .action(async (opts: { apply?: boolean; expectedRevision?: string; allowRemove?: string }) => {
+      const options = {
+        apply: opts.apply,
+        expectedRevision: opts.expectedRevision,
+        allowRemove: parseAllowRemove(opts.allowRemove),
+      };
       const config = await loadAppConfig();
       const connection = await resolveDatabaseConnection(config.database, {});
       let ext: Awaited<ReturnType<typeof loadServerExtensions>> | undefined;
+      let refused = false;
       try {
-        const resources = await discoverRuntimeResources();
-        const registry = new FlowRegistry();
-        for (const flow of resources.flows) registry.register(flow);
-        const capabilities = new CapabilityRegistry();
-        capabilities.registerAll(resources.capabilities);
-        const engine = createFlowEngine({
-          db: connection.db,
-          registry,
-          stepDeps: buildStepDeps(capabilities),
-        });
-        // Reconcile every plane the worker schedules on (the same planes `app/server.ts` gives it).
-        ext = await loadServerExtensions(process.cwd());
-        if (ext.dataPlaneResolver && !ext.listTenantRefs) {
-          // The worker schedules `tenants` flows on every plane it resolves; this command can
-          // only reach the planes the host lists. Refuse rather than report a clean result.
-          const tenantScheduled = registry
-            .getScheduled()
-            .filter((flow) => (flow.schedule?.plane ?? 'tenants') === 'tenants');
-          if (tenantScheduled.length > 0) {
-            error(
-              `app/server.ts exports dataPlaneResolver without listTenantRefs; the tenant-plane schedules (${tenantScheduled
-                .map((flow) => flow.name)
-                .join(', ')}) cannot be enumerated for reconciliation. Export listTenantRefs.`,
-            );
-            process.exitCode = 1;
-            return;
-          }
-        }
-        // Same precedence as the worker (worker/bootstrap.ts): a data-plane resolver wins over
-        // schedulePlanes, and tenant-plane runs live on their plane (spine dispatch).
-        const planes = ext.dataPlaneResolver
-          ? {
-              resolver: ext.dataPlaneResolver,
-              listTenantRefs: ext.listTenantRefs ?? (() => []),
-              tenantExecutions: 'schedule-plane' as const,
+        await runScheduleSync(options, {
+          discover: discoverRuntimeResources,
+          reconcile: async (resources, reconcileOptions) => {
+            const registry = new FlowRegistry();
+            for (const flow of resources.flows) registry.register(flow);
+            const capabilities = new CapabilityRegistry();
+            capabilities.registerAll(resources.capabilities);
+            const engine = createFlowEngine({
+              db: connection.db,
+              registry,
+              stepDeps: buildStepDeps(capabilities),
+            });
+            // Reconcile every plane the worker schedules on (the same planes `app/server.ts`
+            // gives it).
+            ext = await loadServerExtensions(process.cwd());
+            if (ext.dataPlaneResolver && !ext.listTenantRefs) {
+              // The worker schedules `tenants` flows on every plane it resolves; this command
+              // can only reach the planes the host lists. Refuse rather than report a clean
+              // result.
+              const tenantScheduled = registry
+                .getScheduled()
+                .filter((flow) => (flow.schedule?.plane ?? 'tenants') === 'tenants');
+              if (tenantScheduled.length > 0) {
+                refused = true;
+                throw new DataValidationError(
+                  `app/server.ts exports dataPlaneResolver without listTenantRefs; the tenant-plane schedules (${tenantScheduled
+                    .map((flow) => flow.name)
+                    .join(', ')}) cannot be enumerated for reconciliation. Export listTenantRefs.`,
+                  { flowNames: tenantScheduled.map((flow) => flow.name) },
+                );
+              }
             }
-          : ext.schedulePlanes
-            ? { ...ext.schedulePlanes, tenantExecutions: 'pool' as const }
-            : {};
-        const scheduler = createFlowScheduler({ db: connection.db, registry, engine, ...planes });
-        console.log(JSON.stringify(await scheduler.reconcileSchedules(options), null, 2));
+            // Same precedence as the worker (worker/bootstrap.ts): a data-plane resolver wins
+            // over schedulePlanes, and tenant-plane runs live on their plane (spine dispatch).
+            const planes = ext.dataPlaneResolver
+              ? {
+                  resolver: ext.dataPlaneResolver,
+                  listTenantRefs: ext.listTenantRefs ?? (() => []),
+                  tenantExecutions: 'schedule-plane' as const,
+                }
+              : ext.schedulePlanes
+                ? { ...ext.schedulePlanes, tenantExecutions: 'pool' as const }
+                : {};
+            return createFlowScheduler({
+              db: connection.db,
+              registry,
+              engine,
+              ...planes,
+            }).reconcileSchedules(reconcileOptions);
+          },
+        });
+      } catch (err) {
+        if (!refused) throw err;
+        error(err instanceof Error ? err.message : String(err));
+        process.exitCode = 1;
       } finally {
         // A pooled resolver holds a connection per plane it resolved; release them.
         for (const resolver of [ext?.dataPlaneResolver, ext?.schedulePlanes?.resolver]) {

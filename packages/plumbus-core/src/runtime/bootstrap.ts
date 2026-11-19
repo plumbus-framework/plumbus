@@ -10,7 +10,8 @@ import { createCostTracker } from '../ai/cost-tracker.js';
 import type { PromptRegistry } from '../ai/prompt-registry.js';
 import { createProviderAdapter } from '../ai/provider.js';
 import { buildAISecurityConfig } from '../ai/security.js';
-import type { DiscoveredResources } from '../cli/discover.js';
+import type { DiscoveredResources, DiscoverResourcesOptions } from '../cli/discover.js';
+export type { DiscoverResourcesOptions, StrictDiscoveryDirectory } from '../cli/discover.js';
 import type { EntityRegistry } from '../data/registry.js';
 import { getCanonicalCapabilityName } from '../execution/canonical-name.js';
 import { executeCapability } from '../execution/capability-executor.js';
@@ -43,9 +44,11 @@ export type RuntimeRole = (typeof RuntimeRole)[keyof typeof RuntimeRole];
 export type RuntimeCommand = 'dev' | 'start' | 'worker';
 
 /** Discover app resources from app/ directories. */
-export async function discoverRuntimeResources(): Promise<DiscoveredResources> {
+export async function discoverRuntimeResources(
+  options?: DiscoverResourcesOptions,
+): Promise<DiscoveredResources> {
   const { discoverResources } = await import('../cli/discover.js');
-  return discoverResources();
+  return discoverResources(process.cwd(), options);
 }
 
 /**

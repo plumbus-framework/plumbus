@@ -211,7 +211,8 @@ export const supportChat = defineChat({
   policy: {
     toolCalling: {
       enabled: true,
-      capabilities: ['lookupOrder', 'openSupportTicket'],
+      // Canonical `<domain>.<name>`; the model sees the bare names (lookupOrder, …).
+      capabilities: ['orders.lookupOrder', 'support.openSupportTicket'],
       autoStartFlows: ['issueRefund'],
       ai: {
         provider: 'anthropic',

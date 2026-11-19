@@ -323,6 +323,52 @@ describe('provider tool calling', () => {
       vi.unstubAllGlobals();
     });
 
+    it.each([
+      'gpt-6.2-sol',
+      'gpt-6.2-astra-2026-11-01',
+    ])('sends the %s system prompt as the first developer input item', async (model) => {
+      const mockFetch = vi.fn().mockResolvedValue(mockOpenAIResponsesResponse({ output: [] }));
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test', model });
+      await adapter.complete({
+        prompt: 'Run tool',
+        system: 'Use tools when needed',
+        tools: [sampleTool],
+        temperature: 0.2,
+        reasoning: { mode: 'effort', effort: 'medium' },
+      });
+
+      expect(mockFetch.mock.calls[0]?.[0]).toBe('https://api.openai.com/v1/responses');
+      expect(JSON.parse(mockFetch.mock.calls[0]?.[1].body)).toEqual({
+        model,
+        input: [
+          { role: 'developer', content: 'Use tools when needed' },
+          { role: 'user', content: 'Run tool' },
+        ],
+        store: false,
+        include: ['reasoning.encrypted_content'],
+        reasoning: { effort: 'medium' },
+        tools: [{ type: 'function', ...sampleTool, strict: false }],
+      });
+
+      vi.unstubAllGlobals();
+    });
+
+    it('keeps the system prompt in top-level instructions before GPT-6.2', async () => {
+      const mockFetch = vi.fn().mockResolvedValue(mockOpenAIResponsesResponse({ output: [] }));
+      vi.stubGlobal('fetch', mockFetch);
+
+      const adapter = createOpenAIAdapter({ apiKey: 'sk-test', model: 'gpt-6.1-sol' });
+      await adapter.complete({ prompt: 'Run tool', system: 'Be brief', tools: [sampleTool] });
+
+      const body = JSON.parse(mockFetch.mock.calls[0]?.[1].body);
+      expect(body.instructions).toBe('Be brief');
+      expect(body.input).toEqual([{ role: 'user', content: 'Run tool' }]);
+
+      vi.unstubAllGlobals();
+    });
+
     it('sends GPT-6.1 Sol tool calls through Responses and reports cache writes', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,

@@ -243,6 +243,71 @@ describe('runChatTurn — Path B tool calling', () => {
     });
   });
 
+  it('runs a canonical-name tool with the runtime resolver; the model sees the bare name', async () => {
+    const handler = vi.fn(async () => ({ value: 'page text' }));
+    const readCap = {
+      ...makeReadCap('readHelpPage'),
+      domain: 'support',
+      handler,
+    } as CapabilityContract;
+    let call = 0;
+    const offeredTools: unknown[] = [];
+    const generateWithUsage = vi.fn(async (config: Record<string, unknown>) => {
+      call += 1;
+      if (call === 1) {
+        offeredTools.push(...((config.tools as Array<{ name: string }>) ?? []).map((t) => t.name));
+        return {
+          finishReason: 'tool_calls' as const,
+          toolCalls: [
+            {
+              id: 'tc-help',
+              name: 'readHelpPage',
+              argumentsStatus: 'parsed' as const,
+              arguments: {},
+            },
+          ],
+          usage: { inputTokens: 10, outputTokens: 4, totalTokens: 14 },
+          model: 'mock-agent',
+          provider: 'mock',
+          cost: 0.01,
+        };
+      }
+      return {
+        finishReason: 'stop' as const,
+        data: { content: 'Here is how.' },
+        usage: { inputTokens: 12, outputTokens: 6, totalTokens: 18 },
+        model: 'mock-agent',
+        provider: 'mock',
+        cost: 0.01,
+      };
+    });
+    const ai: AIService = {
+      ...mockAI({ generate: inScopeAnswer }),
+      generateWithUsage: generateWithUsage as AIService['generateWithUsage'],
+    };
+    // No short-name shim: the same canonical-only resolver the HTTP server wires.
+    const ctx = createTestContext({ ai, auth: { roles: ['user'] }, capabilities: [readCap] });
+    const chat = agentToolCallingChat(['support.readHelpPage']);
+    const session = await createSession(ctx, {
+      chatName: chat.name,
+      userId: ctx.auth.userId ?? 'u1',
+      audience: 'user',
+      locale: 'en',
+    });
+    const events = await collectTurnEvents(ctx, chat, {
+      sessionId: session.id,
+      userMessage: 'How do I print?',
+    });
+
+    expect(events.find((e) => e.type === 'turn.failed')).toBeUndefined();
+    expect(offeredTools).toEqual(['readHelpPage']);
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: 'tool.completed', name: 'readHelpPage' }),
+    );
+    expect(events.at(-1)?.type).toBe('turn.completed');
+  });
+
   it('forwards toolCalling.ai provider, model, and reasoning overrides to the agent call', async () => {
     const readCap = makeReadCap('readThing');
     const generateWithUsage = vi.fn(async (config: Record<string, unknown>) => {
@@ -613,6 +678,58 @@ describe('runChatTurn — Path B tool calling', () => {
     if (unsafeCompleted?.type === 'turn.completed') {
       expect(unsafeCompleted.inScope).toBe(false);
       expect(unsafeCompleted.refusalReason).toBe('unsafe');
+    }
+  });
+
+  it('keeps a staged off_topic refusal when scopePreflight is off (no preflight to contradict)', async () => {
+    const offTopic = mockAI({
+      generate: {
+        inScope: false,
+        answer: '',
+        refusalReason: 'off_topic' as const,
+        citedSources: [],
+        requestedAction: null,
+      },
+    });
+    const prompts: unknown[] = [];
+    const ai: AIService = {
+      ...offTopic,
+      generateWithUsage: (async (config: Record<string, unknown>) => {
+        prompts.push(config.prompt);
+        return offTopic.generateWithUsage(config as never);
+      }) as AIService['generateWithUsage'],
+    };
+    const ctx = ctxWithCaps([], { ai });
+    const chat = defineChat({
+      name: 'toolchat',
+      access: {},
+      instructions: ['helpful'],
+      policy: {
+        toolCalling: {
+          enabled: true,
+          capabilities: [],
+          orchestration: 'staged',
+          scopePreflight: false,
+        },
+      },
+    });
+    const session = await createSession(ctx, {
+      chatName: 'toolchat',
+      userId: ctx.auth.userId ?? 'u1',
+      audience: 'user',
+      locale: 'en',
+    });
+    const events = await collectTurnEvents(ctx, chat, {
+      sessionId: session.id,
+      userMessage: 'A recipe for challah?',
+      registry: allPromptsRegistry(),
+    });
+    expect(prompts).not.toContain(chatScopeCheckPrompt.name);
+    const completed = events.find((e) => e.type === 'turn.completed');
+    expect(completed?.type).toBe('turn.completed');
+    if (completed?.type === 'turn.completed') {
+      expect(completed.inScope).toBe(false);
+      expect(completed.refusalReason).toBe('off_topic');
     }
   });
 

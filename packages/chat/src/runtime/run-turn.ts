@@ -1164,10 +1164,18 @@ export async function* runChatTurn(
 
       // Scope coherence (Path B): the answer phase already passed the preflight
       // scope gate. If it contradicts with `off_topic`, coerce back to in-scope.
-      // NEVER coerce `unsafe`/`pii_request` in either direction — honor those.
+      // Only when a preflight actually ran: with `scopePreflight: false` the
+      // answer's own `off_topic` is the only scope decision, so it stands
+      // (coercing it left an empty, in-scope answer). NEVER coerce
+      // `unsafe`/`pii_request` in either direction — honor those.
       const coherentScope = (output: ChatTurnModelOutput): ChatTurnModelOutput => {
         if (
-          !(toolCallingEnabled && scopeInScope === true && output.refusalReason === 'off_topic')
+          !(
+            toolCallingEnabled &&
+            scopePreflightEnabled &&
+            scopeInScope === true &&
+            output.refusalReason === 'off_topic'
+          )
         ) {
           return output;
         }

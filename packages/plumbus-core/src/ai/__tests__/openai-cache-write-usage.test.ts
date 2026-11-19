@@ -162,7 +162,6 @@ describe('cache-write pricing by model', () => {
     ['gpt-6.1-sol', 0.0025],
     ['gpt-6.1-terra', 0.00125],
     ['gpt-6-astra', 0.0125],
-    ['gpt-6-rosalind', 0.01875],
     ['gpt-5.6-terra', 0.0025],
     ['gpt-5.6-luna', 0.00025],
     ['gpt-5.6-cyber', 0.015625],
@@ -170,6 +169,19 @@ describe('cache-write pricing by model', () => {
     ['claude-sonnet-4', 0.00375],
   ])("charges %s's published cache-write rate (1.25× input)", (model, cost) => {
     expect(calculateModelCost(1000, 0, model, { cacheWriteTokens: 1000 })).toBe(cost);
+  });
+
+  it.each([
+    // Promotional $10 input before 2027-01-01 UTC, regular $15 from then.
+    ['2026-12-31T23:59:59.000Z', 0.0125],
+    ['2027-01-01T00:00:00.000Z', 0.01875],
+  ])("charges gpt-6-rosalind's cache-write rate (1.25× input) at %s", (now, cost) => {
+    vi.useFakeTimers({ now: new Date(now) });
+    try {
+      expect(calculateModelCost(1000, 0, 'gpt-6-rosalind', { cacheWriteTokens: 1000 })).toBe(cost);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it.each([

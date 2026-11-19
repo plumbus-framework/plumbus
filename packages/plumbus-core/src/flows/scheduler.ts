@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { and, eq, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { z } from 'zod';
 import { DataValidationError } from '../errors/index.js';
 import { acquireDataPlane } from '../tenancy/data-plane-resolver.js';
 import type { DataPlaneResolver } from '../tenancy/types.js';
@@ -87,7 +88,29 @@ export interface SchedulerConfig {
    * accepts it, so `plumbus flow schedule sync` can name the worker's planes with a plain engine.
    */
   tenantExecutions?: 'schedule-plane' | 'pool';
+  /**
+   * Opt-in (0.8.6+): `reconcileSchedules({ apply: true })` throws instead of
+   * removing a schedule that `allowRemove` does not cover. When omitted,
+   * `PLUMBUS_SCHEDULE_REQUIRE_REMOVAL_APPROVAL=true` enables it. Off by default:
+   * unapproved removals still apply and log a warning.
+   */
+  requireRemovalApproval?: boolean;
 }
+
+export interface ReconcileSchedulesOptions {
+  /** Write the previewed changes. Requires `expectedRevision`. */
+  apply?: boolean;
+  /** Revision returned by the preview; a different current revision rejects the apply. */
+  expectedRevision?: string;
+  /**
+   * Flow names whose stored schedules an apply may mark removed, or `true` for any.
+   * Unapproved removals log a warning, or throw with the scheduler's
+   * `requireRemovalApproval`. Guards against an incomplete registry (a flow module
+   * that failed to load, a renamed export).
+   */
+  allowRemove?: readonly string[] | true;
+}
+const allowRemoveSchema = z.union([z.literal(true), z.array(z.string())]).optional();
 
 /** Changes a reconciliation reports; `tenantRef` names the tenant plane a change belongs to. */
 export interface ScheduleChange {
@@ -110,6 +133,22 @@ interface SchedulePlane {
 }
 
 type ScheduleTick = typeof flowScheduleTicksTable.$inferInsert;
+
+/** Removed flow names `allowRemove` does not cover. */
+function unapprovedNames(
+  removed: readonly string[],
+  allowRemove: ReconcileSchedulesOptions['allowRemove'],
+): string[] {
+  if (allowRemove === true) return [];
+  return removed.filter((name) => !(allowRemove ?? []).includes(name));
+}
+
+function removalRefusal(flowNames: string[], revision: string, tenantRef?: string) {
+  return new DataValidationError(
+    `Schedule reconciliation would remove ${flowNames.join(', ')}; the registry has no scheduled flow with that name. Allow the removal explicitly (allowRemove / --allow-remove) or fix the registry`,
+    { flowNames, revision, ...(tenantRef === undefined ? {} : { tenantRef }) },
+  );
+}
 
 function scheduleDefinition(flow: FlowDefinition) {
   const schedule = flow.schedule;
@@ -177,6 +216,9 @@ export function createFlowScheduler(config: SchedulerConfig) {
   const placesTenantExecutions = engine.placesTenantExecutions === true;
   const tenantExecutions =
     config.tenantExecutions ?? (placesTenantExecutions ? 'schedule-plane' : 'pool');
+  const requireRemovalApproval =
+    config.requireRemovalApproval ??
+    process.env.PLUMBUS_SCHEDULE_REQUIRE_REMOVAL_APPROVAL === 'true';
   let timer: ReturnType<typeof setInterval> | undefined;
   let active: Promise<number> | undefined;
   let lastWarning = -Infinity;
@@ -332,12 +374,17 @@ export function createFlowScheduler(config: SchedulerConfig) {
   /** Main's revision-checked reconciliation, on one plane's database. */
   async function reconcilePlane(
     plane: SchedulePlane,
-    options: { apply: boolean; expectedRevision?: string },
+    options: {
+      apply: boolean;
+      expectedRevision?: string;
+      allowRemove?: ReconcileSchedulesOptions['allowRemove'];
+    },
   ): Promise<{ revision: string; changes: ScheduleChange[] }> {
     const desired = desiredOn(plane);
     const tenantChange = plane.tenantRef === undefined ? {} : { tenantRef: plane.tenantRef };
     // Superseded ticks of a pool-ticked tenant plane are recorded once its plane commits.
     const supersededOnPool: ScheduleTick[] = [];
+    let unapprovedRemovals: string[] = [];
     const result = await plane.db.transaction(async (tx) => {
       await tx.execute(
         sql`SELECT pg_advisory_xact_lock(hashtext('plumbus:schedule-reconciliation'))`,
@@ -359,6 +406,17 @@ export function createFlowScheduler(config: SchedulerConfig) {
         throw new DataValidationError('Schedule revision changed; preview reconciliation again', {
           revision,
         });
+      const removals = stored.filter(
+        (row) => !row.removed && !desired.some((flow) => flow.name === row.flowName),
+      );
+      const unapproved = unapprovedNames(
+        removals.map((row) => row.flowName),
+        options.allowRemove,
+      );
+      if (options.apply && unapproved.length > 0) {
+        if (requireRemovalApproval) throw removalRefusal(unapproved, revision, plane.tenantRef);
+        unapprovedRemovals = unapproved;
+      }
       const changes: ScheduleChange[] = [];
       const now = await databaseTime(tx);
       for (const flow of desired) {
@@ -419,8 +477,7 @@ export function createFlowScheduler(config: SchedulerConfig) {
             .where(eq(flowSchedulesTable.id, row.id));
         }
       }
-      for (const row of stored) {
-        if (row.removed || desired.some((flow) => flow.name === row.flowName)) continue;
+      for (const row of removals) {
         changes.push({
           flowName: row.flowName,
           action: 'remove',
@@ -437,6 +494,15 @@ export function createFlowScheduler(config: SchedulerConfig) {
     });
     if (supersededOnPool.length > 0)
       await db.insert(flowScheduleTicksTable).values(supersededOnPool).onConflictDoNothing();
+    // Logged only after commit: a rolled-back apply removed nothing.
+    if (unapprovedRemovals.length > 0)
+      logger.warn(
+        'Schedule reconciliation removed schedules without approval. Pass allowRemove (--allow-remove) for intended removals; set requireRemovalApproval (or PLUMBUS_SCHEDULE_REQUIRE_REMOVAL_APPROVAL=true) to refuse unapproved removals.',
+        {
+          flowNames: unapprovedRemovals,
+          ...(plane.tenantRef === undefined ? {} : { tenantRef: plane.tenantRef }),
+        },
+      );
     return result;
   }
 
@@ -450,13 +516,19 @@ export function createFlowScheduler(config: SchedulerConfig) {
    * again and re-apply; reconciliation converges.
    */
   async function reconcileSchedules(
-    options: { apply?: boolean; expectedRevision?: string } = {},
+    options: ReconcileSchedulesOptions = {},
   ): Promise<ScheduleReconciliation> {
+    // A string here would approve by substring (`'oldReport'.includes('old')`).
+    if (!allowRemoveSchema.safeParse(options.allowRemove).success)
+      throw new DataValidationError('allowRemove must be true or an array of flow names', {
+        allowRemove: options.allowRemove,
+      });
     const apply = options.apply === true;
+    const allowRemove = options.allowRemove;
     if (!multiPlane) {
       const { revision, changes } = await reconcilePlane(
         { db },
-        { apply, expectedRevision: options.expectedRevision },
+        { apply, expectedRevision: options.expectedRevision, allowRemove },
       );
       return { revision, changes, applied: apply };
     }
@@ -481,12 +553,23 @@ export function createFlowScheduler(config: SchedulerConfig) {
       throw new DataValidationError('Schedule revision changed; preview reconciliation again', {
         revision,
       });
+    // Refuse before any plane is written: the apply is atomic per plane only.
+    if (requireRemovalApproval) {
+      const unapproved = unapprovedNames(
+        previews.flatMap((preview) =>
+          preview.changes.filter((change) => change.action === 'remove').map((c) => c.flowName),
+        ),
+        allowRemove,
+      );
+      if (unapproved.length > 0) throw removalRefusal([...new Set(unapproved)], revision);
+    }
     const changes: ScheduleChange[] = [];
     for (const preview of previews) {
       const applyOn = async (plane: SchedulePlane) => {
         const applied = await reconcilePlane(plane, {
           apply: true,
           expectedRevision: preview.revision,
+          allowRemove,
         });
         changes.push(...applied.changes);
       };
