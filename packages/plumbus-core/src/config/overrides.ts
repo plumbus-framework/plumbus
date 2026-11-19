@@ -86,7 +86,19 @@ export const configOverridesSchema = z
       .partial()
       .strict(),
     execution: z
-      .object({ transactionalOutbox: z.boolean(), auditSuccessfulQueries: z.boolean() })
+      .object({
+        transactionalOutbox: z.boolean(),
+        auditSuccessfulQueries: z.boolean(),
+        transactionBegin: z.enum(['lazy', 'eager']),
+        transactionAcquireTimeoutMs: z.number().int().min(0).max(2_147_483_647),
+      })
+      .partial()
+      .strict(),
+    data: z
+      .object({
+        readCeiling: positive.int().max(2_147_483_647),
+        readCeilingMode: z.enum(['warn', 'error']),
+      })
       .partial()
       .strict(),
     ai,

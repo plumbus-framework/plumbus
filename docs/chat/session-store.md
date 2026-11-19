@@ -144,10 +144,9 @@ catch.
   sessions if this reflects other sessions' state.
 
 One divergence to be aware of: the DB-backed default goes through core's
-`Repository.findMany`, which clamps `limit` to the range 1–100. An adapter that honors
-the raw limit will return different results than the default for
-`includeLastTurns: 0` or values above 100. Clamp the same way if exact parity matters
-to you.
+`Repository.findMany`. Core 0.9.0-beta.12 and earlier clamped `limit` to the range 1–100;
+later cores honour `limit` exactly (0 included) up to the host's read ceiling
+(`data.readCeiling`, default 1000). An adapter should honour the raw limit the same way.
 
 ## Wiring it up
 

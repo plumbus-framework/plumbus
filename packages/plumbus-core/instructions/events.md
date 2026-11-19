@@ -47,7 +47,7 @@ handler: async (ctx, input) => {
 
 Events are **not** dispatched immediately. They are written to an outbox table in the **same database transaction** as the capability's data changes. This atomically persists data and event intent when transactional outbox applies. End-to-end handling also depends on durable queues, compatible consumer registrations, and the delivery policy.
 
-For `action` / `eventHandler` capabilities this is the default (**transactional outbox ON**). Opt out with `execution.transactionalOutbox: false`, `PLUMBUS_TRANSACTIONAL_OUTBOX=false`, or per-capability `transactional: false`. Auto-excluded: `kind: 'job'`, `effects.ai: true`, non-empty `effects.external`. See `capabilities.md` § Transactional outbox.
+For `action` / `eventHandler` capabilities this is the default (**transactional outbox ON**). The first `emit` opens the capability's transaction if nothing opened it yet (see `capabilities.md` § When the transaction opens). Opt out with `execution.transactionalOutbox: false`, `PLUMBUS_TRANSACTIONAL_OUTBOX=false`, or per-capability `transactional: false`. Auto-excluded: `kind: 'job'`, `effects.ai: true`, non-empty `effects.external`. See `capabilities.md` § Transactional outbox.
 
 A background dispatcher polls the outbox and publishes events to the queue system for delivery.
 

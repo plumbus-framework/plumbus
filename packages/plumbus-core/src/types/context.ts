@@ -50,8 +50,20 @@ import type { TranslationService } from './translation.js';
 
 // ── Query Options (pagination, sorting, date ranges) ──
 export interface QueryOptions {
-  /** Max rows to return (1–100). Omit for no limit. */
+  /**
+   * Max rows to return: a whole number, `0` or more, returned exactly as asked (no silent
+   * clamp). Omitted, the read returns every matching row up to the host's read ceiling
+   * (`data.readCeiling`, default 1000). A limit above the ceiling, or an unlimited read that
+   * matches more rows than the ceiling, is reported (`readCeilingMode: 'warn'`, the default)
+   * or refused with `DataReadCeilingError` (`'error'`) unless `unbounded` is set.
+   */
   limit?: number;
+  /**
+   * Opt this read out of the read ceiling: every matching row (or exactly `limit` rows) is
+   * loaded into the process. Greppable on purpose — use it only where the whole set is really
+   * needed and known to stay small, and prefer `findPage`, `count`, `exists` or `aggregate`.
+   */
+  unbounded?: boolean;
   /** Number of rows to skip (default 0) */
   offset?: number;
   /** Column name or multi-column sort spec — validated against entity table columns */
@@ -62,7 +74,11 @@ export interface QueryOptions {
   dateFilters?: Record<string, { gte?: Date; lte?: Date }>;
   /** OR-of-ILIKE across the given entity fields for a free-text term. */
   search?: { columns: string[]; term: string };
-  /** field → allowed values (SQL IN). Empty arrays ignored. */
+  /**
+   * field → allowed values (SQL IN). An empty list allows no value, so the read matches no
+   * rows (core 0.9.0-beta.12 and earlier ignored an empty list, so the read matched every row).
+   * To make a filter optional, leave the key out when there is nothing to filter by.
+   */
   in?: Record<string, Array<string | number>>;
   /** field → value the row must NOT equal (SQL <>). */
   notEq?: Record<string, string | number>;
@@ -117,8 +133,45 @@ export interface AggregateOptions
   orderBy?: string | Array<{ column: string; dir?: 'asc' | 'desc' }>;
   /** Default sort direction for `orderBy` (default 'desc'). */
   orderDir?: 'asc' | 'desc';
-  /** Max number of group rows to return (clamped to 1–1000). */
+  /**
+   * Max number of group rows to return, honoured as given. The read ceiling applies to group
+   * rows exactly as to `findMany` rows (see {@link QueryOptions.limit}).
+   */
   limit?: number;
+  /** Opt this aggregate out of the read ceiling (see {@link QueryOptions.unbounded}). */
+  unbounded?: boolean;
+}
+
+// ── Keyset paging ──
+
+/**
+ * One `findPage` call: the same filters as `findMany`, a page size, a sort, and the cursor
+ * the previous page returned. Paging is keyset ("after this row"), not OFFSET, so a deep page
+ * costs the same as the first and rows inserted meanwhile do not shift the pages.
+ */
+export interface PageOptions extends Pick<QueryOptions, 'dateFilters' | 'search' | 'in' | 'notEq'> {
+  /** Rows per page: a whole number from 1 to the read ceiling. */
+  limit: number;
+  /**
+   * Sort keys. `id` is always added as the last key (in the direction of the last given key)
+   * so the order is total. Every key must be a column of the entity, not encrypted, and never
+   * NULL in a row the page ends on. Default: `id` ascending.
+   */
+  orderBy?: string | Array<{ column: string; dir?: 'asc' | 'desc' }>;
+  /** Direction for a string `orderBy` and for array specs without `dir` (default 'asc'). */
+  orderDir?: 'asc' | 'desc';
+  /** `nextCursor` of the previous page. Omit for the first page. */
+  after?: string;
+}
+
+/** One page of a keyset read. */
+export interface Page<T> {
+  rows: T[];
+  /**
+   * Opaque cursor for the next page, or `null` when this page is the last one. A cursor only
+   * fits the same sort it came from; another sort refuses it.
+   */
+  nextCursor: string | null;
 }
 
 // ── Conditional (CAS) update result ──
@@ -191,6 +244,21 @@ export interface Repository<
     options?: Pick<QueryOptions, 'dateFilters' | 'search' | 'in' | 'notEq'>,
   ): Promise<number>;
   /**
+   * Whether any row matches, without loading one (`SELECT 1 … LIMIT 1`). Same filters as
+   * `count`. Optional, like `updateWhere`, so a custom `Repository` written before it existed
+   * still satisfies this interface; the framework's repositories (drizzle + in-memory) provide it.
+   */
+  exists?(
+    query?: Partial<T>,
+    options?: Pick<QueryOptions, 'dateFilters' | 'search' | 'in' | 'notEq'>,
+  ): Promise<boolean>;
+  /**
+   * Keyset paging: one page of at most `options.limit` rows after `options.after`, in a total
+   * order (`orderBy` plus `id`), and the cursor of the next page. Use it to walk a set that may
+   * outgrow the read ceiling. Optional for the same reason as `exists`.
+   */
+  findPage?(query: Partial<T> | undefined, options: PageOptions): Promise<Page<T>>;
+  /**
    * Compute SUM / AVG / MIN / MAX / COUNT / COUNT(DISTINCT) aggregates in the
    * database, optionally grouped — so callers stop loading whole tables to
    * reduce/group in memory. Filtering matches `findMany`/`count` exactly (the
@@ -234,8 +302,18 @@ export interface DurableAcceptanceInput {
 }
 
 export interface TransactionScope {
-  /** @internal Database handle for durable job intent within this transaction. */
+  /**
+   * @internal Database handle for durable job intent within this transaction. On a lazily
+   * opened scope it is `undefined` until something opened the transaction; use `acquire`.
+   */
   db?: PostgresJsDatabase;
+  /**
+   * @internal Open the transaction if it is not open yet (a lazily opened scope) and return
+   * its handle. Absent on an eagerly opened scope built by a custom runner: use `db`.
+   */
+  acquire?: () => Promise<PostgresJsDatabase>;
+  /** @internal Whether the transaction is open (or opening). Absent means always open. */
+  isOpen?: () => boolean;
   /**
    * @internal The database this transaction runs on (not the transaction), for work that
    * follows its commit: deleting the durable flow-start intent once the flow started.
@@ -267,7 +345,26 @@ export interface TransactionScope {
   enqueueDispatch?: (input: DurableDispatchEnqueueInput) => Promise<{ outboxId: string }>;
 }
 
-export type WithTransactionFn = <T>(fn: (scope: TransactionScope) => Promise<T>) => Promise<T>;
+/** How one `withTransaction` call opens its transaction. */
+export interface TransactionRunOptions {
+  /**
+   * `'eager'` (default for a direct call): open before `fn` runs. `'lazy'`: open at the first
+   * use of the scope that needs the transaction (a data write, an event, a durable flow start
+   * or job, `acquire()`); reads before it run on the pool. A runner that does not know the
+   * option opens eagerly, which is always correct.
+   */
+  begin?: 'lazy' | 'eager';
+  /**
+   * Longest wait for a pool connection to open the transaction, in milliseconds. Past it the
+   * open fails with `DataPoolAcquireTimeoutError`. `0` or absent: no limit.
+   */
+  acquireTimeoutMs?: number;
+}
+
+export type WithTransactionFn = <T>(
+  fn: (scope: TransactionScope) => Promise<T>,
+  options?: TransactionRunOptions,
+) => Promise<T>;
 
 // ── Event Service ──
 export interface EventService {

@@ -92,6 +92,12 @@ export async function loadAppConfig(
     execution: {
       transactionalOutbox: ['PLUMBUS_TRANSACTIONAL_OUTBOX'],
       auditSuccessfulQueries: ['PLUMBUS_AUDIT_SUCCESSFUL_QUERIES'],
+      transactionBegin: ['PLUMBUS_TRANSACTION_BEGIN'],
+      transactionAcquireTimeoutMs: ['PLUMBUS_TRANSACTION_ACQUIRE_TIMEOUT_MS'],
+    },
+    data: {
+      readCeiling: ['PLUMBUS_READ_CEILING'],
+      readCeilingMode: ['PLUMBUS_READ_CEILING_MODE'],
     },
   };
   for (const [section, fields] of Object.entries(fieldEnv)) {

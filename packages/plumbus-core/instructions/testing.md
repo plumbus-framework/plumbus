@@ -139,6 +139,8 @@ const ctx = createTestContext({
 });
 ```
 
+The in-memory repositories behave like the database ones for reads: an empty `in` list matches nothing, `limit` is honoured exactly, `exists` and `findPage` work, and the read ceiling applies (1000 rows, `warn`). To make a test fail on an unbounded read, pass `readCeiling: createReadCeilingPolicy({ maxRows: 50, mode: 'error' })` (from `@plumbus/core`) with fixtures larger than 50 rows.
+
 Use **canonical names** (`users.getUser`, `billing.getInvoice`) in flow `capabilityResults` keys and invoke calls. Pass `capabilities` to `simulateFlow` when you need production-like step execution (including job blocking for `kind: 'job'` steps):
 
 ```ts

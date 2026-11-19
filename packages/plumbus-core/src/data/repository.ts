@@ -6,15 +6,18 @@ import {
   countDistinct,
   desc,
   eq,
+  gt,
   gte,
   ilike,
   inArray,
   isNull,
+  lt,
   lte,
   max,
   min,
   ne,
   or,
+  sql,
   sum,
   type SQL,
 } from 'drizzle-orm';
@@ -28,9 +31,21 @@ import type {
   AggregateRow,
   AggregateValue,
   ConditionalUpdateResult,
+  Page,
+  PageOptions,
   QueryOptions,
   Repository,
 } from '../types/context.js';
+import {
+  decodeKeysetCursor,
+  defaultReadCeilingPolicy,
+  encodeKeysetCursor,
+  type KeysetKey,
+  planReadBound,
+  type ReadCeilingOperation,
+  type ReadCeilingPolicy,
+  resolveKeysetKeys,
+} from './read-ceiling.js';
 import type { EntityDefinition } from '../types/entity.js';
 import { ErrorHints } from '../errors/hints.js';
 import {
@@ -64,6 +79,12 @@ export interface RepositoryOptions {
   bypassTenantScope?: boolean;
   /** AES-256-GCM key for `encrypted: true` string fields (from PLUMBUS_ENCRYPTION_KEY) */
   encryptionKey?: Buffer;
+  /**
+   * Rows one read may return without `{ unbounded: true }`, and what happens past it.
+   * Default: {@link defaultReadCeilingPolicy} (1000 rows, `warn`). `EntityRegistry` passes the
+   * host's policy (`data.readCeiling` / `data.readCeilingMode`).
+   */
+  readCeiling?: ReadCeilingPolicy;
 }
 
 /**
@@ -86,6 +107,7 @@ export function createRepository<
     bypassTenantScope = false,
     encryptionKey,
   } = options;
+  const readCeiling = options.readCeiling ?? defaultReadCeilingPolicy();
 
   const maskedFields = getMaskedFields(entity);
   const auditSilentFields = new Set(getAuditSilentFields(entity));
@@ -261,7 +283,10 @@ export function createRepository<
     if (options?.in) {
       for (const [k, vals] of Object.entries(options.in)) {
         const c = (table as any)[k];
-        if (c && vals.length) conditions.push(inArray(c, vals));
+        if (!c) continue;
+        // An empty allow-list allows nothing. Dropping the filter instead (as earlier
+        // releases did) turned "rows for none of these ids" into "every row".
+        conditions.push(vals.length ? inArray(c, vals) : sql`false`);
       }
     }
     if (options?.notEq) {
@@ -306,13 +331,60 @@ export function createRepository<
     return cols.length ? qb.orderBy(...cols) : qb;
   }
 
+  /** Only the WHERE filters of a call (no order, limit or aggregate keys). */
+  function filtersOf(
+    options?: Pick<QueryOptions, 'dateFilters' | 'search' | 'in' | 'notEq'>,
+  ): QueryOptions | undefined {
+    return options
+      ? {
+          dateFilters: options.dateFilters,
+          search: options.search,
+          in: options.in,
+          notEq: options.notEq,
+        }
+      : undefined;
+  }
+
+  /** A `findPage` sort key's column: it must exist and be queryable (never encrypted). */
+  function keysetColumn(key: KeysetKey): any {
+    assertQueryableField(key.column, 'findPage');
+    const column = (table as any)[key.column];
+    if (!column) {
+      throw new DataValidationError(
+        `findPage on "${entity.name}": "${key.column}" is not a column of the entity`,
+        { entity: entity.name, field: key.column, operation: 'findPage' },
+      );
+    }
+    return column;
+  }
+
+  /**
+   * Rows strictly after the cursor row in the order `keys`:
+   * (k1 > v1) OR (k1 = v1 AND k2 > v2) OR … — `<` for a descending key.
+   */
+  function keysetAfter(
+    keys: KeysetKey[],
+    columns: any[],
+    values: Array<string | number | boolean | Date>,
+  ): SQL {
+    const branches: SQL[] = keys.map((key, i) => {
+      const parts: SQL[] = [];
+      for (let j = 0; j < i; j++) parts.push(eq(columns[j], values[j]));
+      parts.push(key.dir === 'asc' ? gt(columns[i], values[i]) : lt(columns[i], values[i]));
+      return (parts.length === 1 ? parts[0] : and(...parts)) as SQL;
+    });
+    return (branches.length === 1 ? branches[0] : or(...branches)) as SQL;
+  }
+
   /** Shared by findMany and findManyFields; `fields` narrows the SQL columns. */
   async function queryMany(
     query: Partial<T> | undefined,
     options: QueryOptions | undefined,
     fields?: readonly unknown[],
+    operation: ReadCeilingOperation = 'findMany',
   ): Promise<Record<string, unknown>[]> {
     await assertTenantContext('findMany');
+    const bound = planReadBound(readCeiling, entity.name, operation, options);
     const columns = getTableColumns(table);
     const selected = resolveSelectedFields(fields, new Set(Object.keys(columns)));
     const selection = selected
@@ -321,14 +393,15 @@ export function createRepository<
     const where = combine(buildConditions(query, options));
     let qb = (selection ? db.select(selection as any) : db.select()).from(table).where(where);
     qb = applyOrder(qb, options);
-    if (options?.limit != null) {
-      qb = qb.limit(Math.max(1, Math.min(100, options.limit))) as typeof qb;
+    if (bound.sqlLimit !== undefined) {
+      qb = qb.limit(bound.sqlLimit) as typeof qb;
     }
     if (options?.offset != null) {
       qb = qb.offset(Math.max(0, options.offset)) as typeof qb;
     }
     const result = await qb;
     const rows = Array.isArray(result) ? result : [];
+    bound.check(rows.length);
     return rows.flatMap((row) => {
       const decrypted = decryptRow(row as T);
       return decrypted ? [decrypted] : [];
@@ -527,7 +600,57 @@ export function createRepository<
       fields: readonly K[],
       options?: QueryOptions,
     ): Promise<Pick<T, K>[]> {
-      return queryMany(query, options, fields ?? null) as Promise<Pick<T, K>[]>;
+      return queryMany(query, options, fields ?? null, 'findManyFields') as Promise<Pick<T, K>[]>;
+    },
+
+    async exists(
+      query?: Partial<T>,
+      options?: Pick<QueryOptions, 'dateFilters' | 'search' | 'in' | 'notEq'>,
+    ): Promise<boolean> {
+      await assertTenantContext('exists');
+      const where = combine(buildConditions(query, filtersOf(options)));
+      const rows = await db.select({ one: sql<number>`1` }).from(table).where(where).limit(1);
+      return Array.isArray(rows) && rows.length > 0;
+    },
+
+    async findPage(query: Partial<T> | undefined, options: PageOptions): Promise<Page<T>> {
+      await assertTenantContext('findPage');
+      if (!Number.isInteger(options?.limit) || options.limit < 1) {
+        throw new DataValidationError('findPage needs limit: a whole number of at least 1', {
+          entity: entity.name,
+          operation: 'findPage',
+          field: 'limit',
+        });
+      }
+      const bound = planReadBound(readCeiling, entity.name, 'findPage', { limit: options.limit });
+      const pageSize = bound.sqlLimit ?? options.limit;
+      const keys = resolveKeysetKeys(options.orderBy, options.orderDir);
+      const keyColumns = keys.map((key) => keysetColumn(key));
+      const conditions = buildConditions(query, filtersOf(options));
+      if (options.after !== undefined) {
+        const values = decodeKeysetCursor(entity.name, keys, options.after);
+        conditions.push(keysetAfter(keys, keyColumns, values));
+      }
+      const order = keys.map((key, i) =>
+        key.dir === 'asc' ? asc(keyColumns[i]) : desc(keyColumns[i]),
+      );
+      const result = await db
+        .select()
+        .from(table)
+        .where(combine(conditions))
+        .orderBy(...order)
+        .limit(pageSize + 1);
+      const rows = (Array.isArray(result) ? result : []) as Record<string, unknown>[];
+      const more = rows.length > pageSize;
+      const pageRows = more ? rows.slice(0, pageSize) : rows;
+      const last = pageRows[pageRows.length - 1];
+      return {
+        rows: pageRows.flatMap((row) => {
+          const decrypted = decryptRow(row as T);
+          return decrypted ? [decrypted] : [];
+        }),
+        nextCursor: more && last ? encodeKeysetCursor(entity.name, keys, last) : null,
+      };
     },
 
     async count(
@@ -631,12 +754,14 @@ export function createRepository<
         if (orderExprs.length) qb = qb.orderBy(...orderExprs);
       }
 
-      if (options?.limit != null) {
-        qb = qb.limit(Math.max(1, Math.min(1000, options.limit)));
+      const bound = planReadBound(readCeiling, entity.name, 'aggregate', options);
+      if (bound.sqlLimit !== undefined) {
+        qb = qb.limit(bound.sqlLimit);
       }
 
       const result = await qb;
       const rows = Array.isArray(result) ? result : [];
+      bound.check(rows.length);
       return rows.map((row) => {
         const out: AggregateRow = {};
         for (const [k, v] of Object.entries(row as Record<string, unknown>)) {

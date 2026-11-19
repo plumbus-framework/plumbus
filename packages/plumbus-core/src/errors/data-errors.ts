@@ -22,6 +22,37 @@ export class DataInternalError extends PlumbusError {
   }
 }
 
+/**
+ * A repository read would return more rows than the read ceiling allows and the call did not
+ * opt out with `{ unbounded: true }` (`data.readCeilingMode: 'error'`). Nothing is returned:
+ * a partial result is never handed back as if it were the whole one. `metadata.reason` is
+ * `read-ceiling-exceeded`; `metadata.cause` says whether the result was larger than the
+ * ceiling (`result-over-ceiling`) or an explicit `limit` asked for more (`limit-over-ceiling`).
+ */
+export class DataReadCeilingError extends PlumbusError {
+  constructor(message: string, metadata?: Record<string, unknown>) {
+    super(ErrorCode.Internal, message, { reason: 'read-ceiling-exceeded', ...metadata });
+    this.name = 'DataReadCeilingError';
+  }
+}
+
+/**
+ * No pool connection became free within the configured wait while opening a capability's
+ * transaction (`execution.transactionAcquireTimeoutMs`). The request is refused with HTTP 503
+ * and `Retry-After` instead of queueing behind the pool without end. Nothing was written.
+ */
+export class DataPoolAcquireTimeoutError extends PlumbusError {
+  constructor(message: string, metadata?: Record<string, unknown>) {
+    super(ErrorCode.Internal, message, {
+      reason: 'pool-acquire-timeout',
+      httpStatus: 503,
+      retryAfter: 1,
+      ...metadata,
+    });
+    this.name = 'DataPoolAcquireTimeoutError';
+  }
+}
+
 export class EncryptionConfigError extends PlumbusError {
   constructor(message: string, metadata?: Record<string, unknown>) {
     super(ErrorCode.Validation, message, metadata);

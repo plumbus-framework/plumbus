@@ -192,7 +192,8 @@ export function createCapabilityInvokeService(
       }
 
       const parentScope = ctx.__runtime?.transactionScope;
-      if (parentScope && targetCap.effects.ai === true) {
+      // A lazily opened parent transaction that has not opened holds no connection.
+      if (parentScope && (parentScope.isOpen?.() ?? true) && targetCap.effects.ai === true) {
         const scopeWithFlag = parentScope as typeof parentScope & { aiTxnWarned?: boolean };
         if (!scopeWithFlag.aiTxnWarned) {
           ctx.logger.warn(

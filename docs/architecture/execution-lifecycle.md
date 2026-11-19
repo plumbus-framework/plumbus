@@ -141,6 +141,52 @@ Opt out globally with `execution.transactionalOutbox: false` (or `PLUMBUS_TRANSA
 
 Audit inside the transaction uses the transaction's connection (core 0.9.0-beta.5+): with the default audit service, the scope carries a transaction-bound audit service (`TransactionScope.audit`) that the handler sees as `ctx.audit` and that tx-scoped data and events use. A transaction therefore holds exactly one pool connection, however many rows it audits. On rollback, `failure`/`denied` records are re-written through the outer database after the connection is released; `success` records are discarded with the work. The capability's own success row is written after commit on the outer database, as before. A custom audit service keeps writing outside the transaction.
 
+### When the transaction opens
+
+The executor asks the runner for a **lazily opened** transaction (`execution.transactionBegin:
+'lazy'`, the default; a capability's `transactional: 'lazy' | 'eager'` overrides the host). Until
+something needs it, no `BEGIN` is sent and no pool connection is held. What opens it:
+
+| Handler call | Why it needs the transaction |
+|--------------|------------------------------|
+| `ctx.data.<E>.create` / `createMany` / `update` / `updateWhere` / `delete` | the write and its mutation audit row commit with the rest |
+| `ctx.events.emit` / `emitMany` (non-empty) | the `event_outbox` row commits with the data |
+| `ctx.flows.start` (durable start target) | the `flow_start_intents` row is written in it; the start runs after commit |
+| `ctx.jobs.enqueue` (built-in dispatcher) | the job intent row is written in it; publication runs after commit |
+| `scope.persistAcceptance` / `enqueueDispatch` (durable dispatch) | `execution_state` / `dispatch_outbox` rows |
+| `scope.acquire()` (framework-internal; raw SQL on the transaction) | returns the handle |
+
+Reads (`findById`, `findMany`, `findManyFields`, `findPage`, `count`, `exists`, `aggregate`) made
+before that run on the pool; from the moment the transaction starts opening, they run in it.
+`ctx.flows.wake` stays post-commit; `resume` / `cancel` / `terminate` / `status` are unchanged.
+`ctx.audit.record` with the default audit service: a `success` record made before the open is held
+and written into the transaction when it opens, through the outer writer when the handler returns
+without opening one, and dropped when the handler throws; `failure`/`denied` records are written at
+once. Nested capabilities that share the scope share the same lazy transaction. The HTTP
+idempotency completion (`beforeCommit`) is written in the transaction when it was opened, and after
+the call when it was not. When the handler returns, an opened transaction commits (and deferred
+post-commit work runs); when it throws or its output is invalid, it rolls back.
+
+**Isolation.** Reads before the first write no longer share the transaction. Under `READ
+COMMITTED` (PostgreSQL's default, and what the framework uses: it sets no isolation level) every
+statement takes its own snapshot inside or outside a transaction, a plain `SELECT` takes no row
+lock, and the repository has no `FOR UPDATE`, so nothing a handler can observe through `ctx.data`
+changes. It differs when the database or role defaults to `REPEATABLE READ` or `SERIALIZABLE` (the
+early read is outside the transaction's snapshot and serializability checks), and for code that
+used the internal `transactionScope.db` handle directly (`undefined` until the transaction opens;
+`acquire()` opens it). Those capabilities set `transactional: 'eager'`.
+
+**Bounded wait.** `execution.transactionAcquireTimeoutMs` (`PLUMBUS_TRANSACTION_ACQUIRE_TIMEOUT_MS`,
+default 10 000, `0` = no limit) bounds the wait for the pool connection `BEGIN` needs. Past it the
+open fails with `DataPoolAcquireTimeoutError` (`internal`, `httpStatus: 503`, `retryAfter: 1`,
+`reason: 'pool-acquire-timeout'`), the handler sees the error at the call that needed the
+transaction, and nothing it wrote in the transaction exists. When the connection frees later, the
+abandoned `BEGIN` is rolled back at once. The failure audit row of such a refusal is written in the
+background, so the 503 does not wait for the same pool. The bound applies to opening a capability
+transaction only: other queries on a saturated pool (reads, audit inserts, the idempotency claim)
+still wait in postgres.js's queue, which has no time limit; set
+`DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS` so an idle transaction cannot hold a connection forever.
+
 ### Nested capability invocation
 
 When a capability handler calls `ctx.capabilities.invoke`, the framework runs the callee through the same pipeline (access, validation, audit) with inherited auth and correlation metadata. Targets must be listed in the caller's `effects.capabilities`. Undeclared calls, cycles, missing targets, and synchronous job invokes return `dependencyViolation`. Handler-visible `ctx.__runtime` does not expose internal invokers — only `ctx.capabilities.invoke` is supported in application code. (`stripHandlerRuntime` makes one framework-internal exception, keyed on the canonical name `chat.chatConfirmAction`, so that confirming a pending chat action can re-enter the capability pipeline; application capabilities cannot request it.) Prefer flows for multi-step orchestration; use invoke when a callee's result is needed in the same execution path.

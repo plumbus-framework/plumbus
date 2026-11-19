@@ -95,6 +95,8 @@ await ctx.data.User.delete("usr_123");
 For paginated list capabilities, push pagination + search to SQL with `findMany` + `count` (never fetch-all-then-slice):
 
 ```ts
+// input: z.object({ page: z.number().int().min(1), limit: z.number().int().min(1).max(100), search: z.string() })
+// Bound `limit` in the schema: the repository honours it exactly.
 const filters = {
   search: { columns: ["displayName", "email"], term: input.search },
   in: { role: ["staff", "admin"] },
@@ -108,6 +110,15 @@ const total = await ctx.data.User.count({ active: true }, filters);
 ```
 
 `findMany` applies `limit`/`offset`/`orderBy`; `count` returns the matching row count over the same filters (so page totals stay correct). `search` uses case-insensitive `ILIKE` (OR across columns), `in` is SQL `IN`, `notEq` is `<>`. Multi-column sort: `orderBy: [{ column: "name", dir: "asc" }, { column: "createdAt", dir: "desc" }]`. Tenant isolation and soft-delete filters are applied automatically.
+
+**Every read has a ceiling.** One read may return at most the host's read ceiling (`data.readCeiling`, default 1000 rows) unless it passes `{ unbounded: true }`. `limit` is honoured exactly (no hidden cap at 100). An unlimited read that matches more rows than the ceiling, or a `limit` above it, is returned in full and logged with its call site (`readCeilingMode: 'warn'`, the default) or refused with `DataReadCeilingError` (`'error'`) — it is never cut short. In `warn` mode nothing caps a `limit`, so bound a caller-supplied page size in the input schema (`z.number().int().min(1).max(100)`). So:
+
+- Need a number? `count`, `exists!` (`SELECT 1 … LIMIT 1`) or `aggregate` — never `(await findMany()).length` or a sum in JS.
+- Need one row? Filter on the key and pass `limit: 1`, or `findById`.
+- Need to walk a set that can grow (all seats of a course, all rows of a tenant)? Keyset paging with `findPage!(query, { limit, orderBy, after })`, which returns `{ rows, nextCursor }`; loop until `nextCursor` is `null`. See [data-layer](../../../docs/sdk-reference/data-layer.md#findpagequery-options--keyset-paging).
+- Really need every row, and the set is known to stay small? `{ unbounded: true }` — greppable on purpose.
+
+`in: { field: [] }` (an empty list) matches **no** rows. To make an `in` filter optional, leave the key out when there is nothing to filter by: `...(ids.length ? { in: { id: ids } } : {})`.
 
 ### Reading only some fields (core 0.8.3+)
 
@@ -142,7 +153,7 @@ const byProvider = await ctx.data.ProjectCostLedger.aggregate(
 await ctx.data.WorkflowStep.aggregate({}, { countDistinct: "projectId" }); // [{ countDistinct_projectId: 7 }]
 ```
 
-Result rows (`AggregateRow`) key each `groupBy` column by its value, plus `count` (when `count: true`), `sum_<col>`, `avg_<col>`, `min_<col>`, `max_<col>`, and `countDistinct_<col>` per requested column. `sum_*`, `count`, and `countDistinct_*` are numbers (an empty `SUM` is `0`, not `null`); `avg_*`/`min_*`/`max_*` are `null` over an empty set. Without `groupBy` you always get exactly one grand-total row; with `groupBy`, one row per group that has matching records. `orderBy` may reference a group column or an aggregate alias (e.g. `"sum_cost"`); `limit` is clamped to 1–1000. Requesting neither a group column nor an aggregate throws. Aggregating an `encrypted: true` field is rejected. Add a matching composite index (e.g. `indexes: [["projectId", "recordedAt"]]`) so the aggregate runs as an index scan.
+Result rows (`AggregateRow`) key each `groupBy` column by its value, plus `count` (when `count: true`), `sum_<col>`, `avg_<col>`, `min_<col>`, `max_<col>`, and `countDistinct_<col>` per requested column. `sum_*`, `count`, and `countDistinct_*` are numbers (an empty `SUM` is `0`, not `null`); `avg_*`/`min_*`/`max_*` are `null` over an empty set. Without `groupBy` you always get exactly one grand-total row; with `groupBy`, one row per group that has matching records. `orderBy` may reference a group column or an aggregate alias (e.g. `"sum_cost"`); `limit` is honoured exactly and the read ceiling applies to group rows as to `findMany` rows. Requesting neither a group column nor an aggregate throws. Aggregating an `encrypted: true` field is rejected. Add a matching composite index (e.g. `indexes: [["projectId", "recordedAt"]]`) so the aggregate runs as an index scan.
 
 Repositories automatically:
 - Inject `tenantId` from `ctx.auth.tenantId` (if `tenantScoped: true`)

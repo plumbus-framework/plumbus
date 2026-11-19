@@ -246,7 +246,9 @@ describe('audit inside a transactional capability on a one-connection pool', () 
   }, 60_000);
 
   it('keeps a custom audit writer on the outer pool (and so on a second connection)', async () => {
-    const write = action('write', async (ctx) => {
+    const write = action('write', async (ctx, input) => {
+      // The write opens the transaction, which then holds the pool's only connection.
+      await ctx.data.Note?.create({ title: (input as { title: string }).title });
       await ctx.audit.record('note.custom', { outcome: 'success' });
       return { ok: true };
     });
@@ -258,6 +260,42 @@ describe('audit inside a transactional capability on a one-connection pool', () 
     // The app's own writer is not re-routed: on a one-connection pool it waits behind the
     // transaction that holds the connection — the behaviour the default service no longer has.
     await expect(withinSeconds(2, env.run(write, { title: 'x' }))).rejects.toThrow(
+      'did not settle',
+    );
+  }, 60_000);
+
+  it('opens no transaction for a handler that writes nothing (lazy default), so its own pool work runs', async () => {
+    const recordOnly = action('recordOnly', async (ctx) => {
+      await ctx.audit.record('note.custom', { outcome: 'success' });
+      return { ok: true };
+    });
+    const env = await fixture({
+      capabilities: [recordOnly],
+      audit: (db) => createAuditService({ db, auth, writer: createDatabaseAuditWriter(db) }),
+    });
+
+    // Before lazily opened transactions, BEGIN took the only connection before the handler ran
+    // and this call never settled (the custom writer waited behind it).
+    await expect(withinSeconds(5, env.run(recordOnly, { title: 'x' }))).resolves.toMatchObject({
+      success: true,
+    });
+    expect((await env.auditActions()).map((row) => row.action)).toContain('note.custom');
+  }, 60_000);
+
+  it("transactional: 'eager' opens before the handler, as earlier releases did", async () => {
+    const recordOnly = {
+      ...action('recordOnlyEager', async (ctx) => {
+        await ctx.audit.record('note.custom', { outcome: 'success' });
+        return { ok: true };
+      }),
+      transactional: 'eager',
+    } as CapabilityContract;
+    const env = await fixture({
+      capabilities: [recordOnly],
+      audit: (db) => createAuditService({ db, auth, writer: createDatabaseAuditWriter(db) }),
+    });
+
+    await expect(withinSeconds(2, env.run(recordOnly, { title: 'x' }))).rejects.toThrow(
       'did not settle',
     );
   }, 60_000);

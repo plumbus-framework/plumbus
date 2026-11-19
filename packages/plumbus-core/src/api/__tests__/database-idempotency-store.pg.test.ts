@@ -124,7 +124,9 @@ function placeOrder(probe: Probe, transactional = true): CapabilityContract {
     async handler(ctx, input: { orderRef: string }) {
       const orderId = `${input.orderRef}-${probe.runs.length + 1}`;
       probe.runs.push(orderId);
-      const tx = ctx.__runtime?.transactionScope?.db;
+      // A lazily opened transaction opens here (the raw handle is `undefined` until then).
+      const scope = ctx.__runtime?.transactionScope;
+      const tx = scope ? await (scope.acquire?.() ?? scope.db) : undefined;
       if (tx) {
         await tx.execute(
           sql`INSERT INTO orders (id, order_ref) VALUES (${orderId}, ${input.orderRef})`,
@@ -299,10 +301,17 @@ describe('database idempotency store over HTTP', () => {
     const state = probe();
     const failing = {
       ...placeOrder(state),
-      async handler(ctx: { __runtime?: { transactionScope?: { db?: PostgresJsDatabase } } }) {
-        await ctx.__runtime?.transactionScope?.db?.execute(
-          sql`INSERT INTO orders (id, order_ref) VALUES ('X', 'X')`,
-        );
+      async handler(ctx: {
+        __runtime?: {
+          transactionScope?: {
+            db?: PostgresJsDatabase;
+            acquire?: () => Promise<PostgresJsDatabase>;
+          };
+        };
+      }) {
+        const scope = ctx.__runtime?.transactionScope;
+        const tx = scope ? await (scope.acquire?.() ?? scope.db) : undefined;
+        await tx?.execute(sql`INSERT INTO orders (id, order_ref) VALUES ('X', 'X')`);
         throw new Error('business rule failed after a write');
       },
     } as unknown as CapabilityContract;

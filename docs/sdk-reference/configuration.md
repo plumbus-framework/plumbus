@@ -23,6 +23,16 @@ interface PlumbusConfig {
     transactionalOutbox?: boolean;
     /** false = no audit row for a successful `query` call (default: true). Env: PLUMBUS_AUDIT_SUCCESSFUL_QUERIES=false */
     auditSuccessfulQueries?: boolean;
+    /** When an action/event handler opens its transaction (default 'lazy'). Env: PLUMBUS_TRANSACTION_BEGIN */
+    transactionBegin?: "lazy" | "eager";
+    /** Longest wait (ms) for a pool connection to open it; 0 = no limit (default 10000). Env: PLUMBUS_TRANSACTION_ACQUIRE_TIMEOUT_MS */
+    transactionAcquireTimeoutMs?: number;
+  };
+  data?: {
+    /** Rows one repository read may return without { unbounded: true } (default 1000). Env: PLUMBUS_READ_CEILING */
+    readCeiling?: number;
+    /** 'warn' (default): log reads past it; 'error': refuse them with DataReadCeilingError. Env: PLUMBUS_READ_CEILING_MODE */
+    readCeilingMode?: "warn" | "error";
   };
   ai?: AIProviderConfig;               // Single provider (legacy)
   aiProviders?: AIProvidersConfig;      // Multi-provider (takes precedence)
@@ -119,6 +129,14 @@ DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS=60000  # optional: server ends a session
 
 - `execution.transactionalOutbox` (`PLUMBUS_TRANSACTIONAL_OUTBOX`, default `true`) — global kill switch for the transactional outbox; see [execution lifecycle](../architecture/execution-lifecycle.md#transactional-outbox-default-on).
 - `execution.auditSuccessfulQueries` (`PLUMBUS_AUDIT_SUCCESSFUL_QUERIES`, default `true`, core 0.9.0-beta.5+) — set `false` to stop writing an audit row for every **successful** `query` capability call, which is most audit volume in a read-heavy app. A query that sets `audit: { enabled: true, event: '...' }` keeps its success row; failed and denied calls of every kind are always recorded; `action`, `eventHandler` and `job` capabilities are unaffected.
+
+- `execution.transactionBegin` (`PLUMBUS_TRANSACTION_BEGIN`, `lazy` | `eager`, default `lazy`) — when an `action` / `eventHandler` capability opens its transaction: `lazy` at the handler's first write (data mutation, event, durable flow start, job), so a handler that writes nothing holds no connection and reads before the first write run outside the transaction; `eager` before the handler runs (earlier releases). A capability's `transactional: 'lazy' | 'eager'` overrides it. See [execution lifecycle](../architecture/execution-lifecycle.md#when-the-transaction-opens).
+- `execution.transactionAcquireTimeoutMs` (`PLUMBUS_TRANSACTION_ACQUIRE_TIMEOUT_MS`, default `10000`, `0` = no limit) — longest wait for a pool connection to open a capability's transaction. Past it the call fails with `DataPoolAcquireTimeoutError` (HTTP 503, `Retry-After`) and writes nothing. It bounds opening the transaction only; other queries on a saturated pool still queue in the driver.
+
+## Data Configuration
+
+- `data.readCeiling` (`PLUMBUS_READ_CEILING`, default `1000`) — most rows one repository read (`findMany`, `findManyFields`, `findPage`, `aggregate` groups) returns unless the call passes `{ unbounded: true }`. A whole number of at least 1.
+- `data.readCeilingMode` (`PLUMBUS_READ_CEILING_MODE`, `warn` | `error`, default `warn`) — `warn`: a read past the ceiling returns what it did before and is logged with its call site (once a minute per call site); `error`: it is refused with `DataReadCeilingError` and an unlimited read is bounded in SQL (`LIMIT ceiling + 1`). Run with `warn`, fix what the log lists, then switch to `error`. See [data layer → read ceiling](./data-layer.md#read-ceiling).
 
 ## Runtime Role
 
@@ -368,6 +386,10 @@ Environment variables:
 
 ```bash
 PLUMBUS_TRANSACTIONAL_OUTBOX=false   # disable transactional outbox globally (default: true)
+PLUMBUS_TRANSACTION_BEGIN=eager      # open capability transactions before the handler (default: lazy)
+PLUMBUS_TRANSACTION_ACQUIRE_TIMEOUT_MS=10000  # bounded wait for a connection to open one (0 = no limit)
+PLUMBUS_READ_CEILING=1000            # most rows per repository read without { unbounded: true }
+PLUMBUS_READ_CEILING_MODE=warn       # warn | error
 
 AI_SECURITY_MODE=redact
 AI_SECURITY_WARN_THRESHOLD=sensitive

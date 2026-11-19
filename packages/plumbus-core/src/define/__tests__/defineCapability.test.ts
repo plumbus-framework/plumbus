@@ -25,6 +25,17 @@ describe('defineCapability', () => {
     expect(typeof cap.handler).toBe('function');
   });
 
+  it("accepts transactional true, false, 'lazy' and 'eager', and refuses anything else", () => {
+    for (const transactional of [true, false, 'lazy', 'eager'] as const) {
+      expect(defineCapability({ ...validConfig(), transactional }).transactional).toBe(
+        transactional,
+      );
+    }
+    expect(() => defineCapability({ ...validConfig(), transactional: 'later' as never })).toThrow(
+      /transactional must be/,
+    );
+  });
+
   it('freezes the returned contract', () => {
     const cap = defineCapability(validConfig());
     expect(Object.isFrozen(cap)).toBe(true);

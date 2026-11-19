@@ -87,7 +87,9 @@ spine (unqualified) for control-plane requests, `<framework schema>.request_idem
 - **Completion:** for a transactional capability (actions and event handlers, unless
   `transactional: false`, AI or external effects, or the outbox kill switch) it is written
   inside the capability's business transaction (`executeCapability(…, { beforeCommit })`), so
-  the business effect and the stored answer commit together or not at all. A run whose claim
+  the business effect and the stored answer commit together or not at all. A handler that never
+  opened its (lazily opened) transaction wrote nothing to be atomic with: its completion is
+  written after it returned, as for a capability without a transaction. A run whose claim
   was taken over by a retry (it outlived its lease) cannot record its completion: its
   transaction rolls back and it answers `409` (`idempotency-claim-lost`). Make `leaseMs` longer
   than the slowest idempotent capability.

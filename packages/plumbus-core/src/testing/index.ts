@@ -17,6 +17,7 @@ export { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 export type {
   AIResponse,
   MockAuditService,
+  InMemoryRepositoryOptions,
   MockEventService,
   MockFlowService,
   MockLoggerService,

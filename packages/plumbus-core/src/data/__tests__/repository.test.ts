@@ -559,7 +559,7 @@ describe('createRepository', () => {
       expect(chainable.offset).toHaveBeenCalledWith(10);
     });
 
-    it('caps limit at 100', async () => {
+    it('honours a limit above 100 as given (no silent clamp)', async () => {
       const entity = makeEntity();
       const table = generateDrizzleSchema(entity);
       const chainable = {
@@ -583,8 +583,8 @@ describe('createRepository', () => {
         auth: makeAuth(),
       });
 
-      await repo.findMany({}, { limit: 500 });
-      expect(chainable.limit).toHaveBeenCalledWith(100);
+      await repo.findMany({}, { limit: 500, offset: 0 });
+      expect(chainable.limit).toHaveBeenCalledWith(500);
     });
 
     it('clamps negative offset to 0', async () => {

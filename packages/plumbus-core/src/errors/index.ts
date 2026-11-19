@@ -10,6 +10,8 @@ export {
   type GovernedAiBlockedCode,
   DataForbiddenError,
   DataInternalError,
+  DataPoolAcquireTimeoutError,
+  DataReadCeilingError,
   DataValidationError,
   EncryptionConfigError,
   EncryptionPayloadError,

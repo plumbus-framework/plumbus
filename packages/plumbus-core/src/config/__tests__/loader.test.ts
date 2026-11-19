@@ -923,3 +923,59 @@ describe('Config Loader', () => {
     });
   });
 });
+
+describe('read ceiling and capability transaction settings', () => {
+  it('defaults: 1000 rows, warn; lazy transactions with a 10 s wait', () => {
+    const config = loadConfig({ env: {} });
+    expect(config.data).toEqual({ readCeiling: 1000, readCeilingMode: 'warn' });
+    expect(config.execution).toMatchObject({
+      transactionBegin: 'lazy',
+      transactionAcquireTimeoutMs: 10_000,
+    });
+  });
+
+  it('reads them from the environment', () => {
+    const config = loadConfig({
+      env: {
+        PLUMBUS_READ_CEILING: '250',
+        PLUMBUS_READ_CEILING_MODE: 'error',
+        PLUMBUS_TRANSACTION_BEGIN: 'eager',
+        PLUMBUS_TRANSACTION_ACQUIRE_TIMEOUT_MS: '0',
+      },
+    });
+    expect(config.data).toEqual({ readCeiling: 250, readCeilingMode: 'error' });
+    expect(config.execution).toMatchObject({
+      transactionBegin: 'eager',
+      transactionAcquireTimeoutMs: 0,
+    });
+  });
+
+  it('fails startup on a value it cannot use', () => {
+    for (const env of [
+      { PLUMBUS_READ_CEILING: '0' },
+      { PLUMBUS_READ_CEILING: 'many' },
+      { PLUMBUS_READ_CEILING_MODE: 'loud' },
+      { PLUMBUS_TRANSACTION_BEGIN: 'later' },
+      { PLUMBUS_TRANSACTION_ACQUIRE_TIMEOUT_MS: '-5' },
+    ]) {
+      expect(() => loadConfig({ env })).toThrow();
+    }
+    expect(() => loadConfig({ env: {}, data: { readCeilingMode: 'loud' as never } })).toThrow();
+    expect(() => loadConfig({ env: {}, execution: { transactionBegin: 'x' as never } })).toThrow();
+  });
+
+  it('validateConfig reports invalid values set in code', () => {
+    const base = loadConfig({ env: {} });
+    const result = validateConfig({
+      ...base,
+      data: { readCeiling: 0 },
+      execution: { ...base.execution, transactionAcquireTimeoutMs: -1 },
+    });
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('data.readCeiling'),
+        expect.stringContaining('execution.transactionAcquireTimeoutMs'),
+      ]),
+    );
+  });
+});

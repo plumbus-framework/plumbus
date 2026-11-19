@@ -238,8 +238,10 @@ being used for projected reads.
 
 ```typescript
 interface QueryOptions {
-  /** Max rows to return (1–100). Omit for no limit. */
+  /** Max rows to return, honoured exactly (0 or more). Omit: every match up to the read ceiling. */
   limit?: number;
+  /** Opt this read out of the read ceiling (every matching row is loaded). */
+  unbounded?: boolean;
   /** Number of rows to skip (default 0) */
   offset?: number;
   /** Column name or multi-column sort spec — validated against entity table columns */
@@ -250,7 +252,7 @@ interface QueryOptions {
   dateFilters?: Record<string, { gte?: Date; lte?: Date }>;
   /** OR-of-ILIKE across the given entity fields for a free-text term */
   search?: { columns: string[]; term: string };
-  /** field → allowed values (SQL IN). Empty arrays ignored */
+  /** field → allowed values (SQL IN). An empty array matches no row. */
   in?: Record<string, Array<string | number>>;
   /** field → value the row must NOT equal (SQL <>) */
   notEq?: Record<string, string | number>;
@@ -270,6 +272,42 @@ const matches = await ctx.data.User.findMany(
 );
 ```
 
+### Read ceiling
+
+One read may return at most **`data.readCeiling`** rows (`PLUMBUS_READ_CEILING`, default
+**1000**) unless it passes `{ unbounded: true }`; past it the read is reported (`warn`) or refused
+(`error`). The ceiling applies to `findMany`, `findManyFields`,
+`findPage` and the group rows of `aggregate`; `count` and `exists` return no rows and are not
+affected. A read never comes back cut short without a signal:
+
+| The call | `readCeilingMode: 'warn'` (default) | `readCeilingMode: 'error'` |
+|----------|-------------------------------------|----------------------------|
+| no `limit`, at most the ceiling matches | every row | every row (`LIMIT ceiling + 1` in SQL) |
+| no `limit`, more than the ceiling matches | every row, and a warning with the call site | `DataReadCeilingError`, nothing returned |
+| `limit` at or under the ceiling | exactly `limit` rows | exactly `limit` rows |
+| `limit` over the ceiling | exactly `limit` rows, and a warning with the call site | `DataReadCeilingError` before any query |
+| `unbounded: true` | every row (or exactly `limit`) | every row (or exactly `limit`) |
+
+Earlier releases applied no bound without a `limit` and cut any `limit` above 100 to 100
+without saying so (`aggregate`: above 1000). `limit` must be a whole number of 0 or more
+(`DataValidationError` otherwise); `limit: 0` returns no rows.
+
+The warning (`Repository read went past the read ceiling; …`) goes to the server's or worker's
+logger with `entity`, `operation`, `ceiling`, `cause` (`result-over-ceiling` or
+`limit-over-ceiling`), `rows` or `limit`, and `stack` (the calling code's frames); one call site
+is reported at most once a minute, with `repeats`. `DataReadCeilingError` is a `PlumbusError`
+with code `internal` and `metadata.reason: 'read-ceiling-exceeded'`.
+
+The policy is set per `EntityRegistry` (`registry.configureReadCeiling(createReadCeilingPolicy({
+maxRows, mode, report }))`); `createServer`, the worker pool and the CLI runtimes configure it from
+`config.data`. `createRepository({ readCeiling })` takes one directly; a repository built without
+one uses the framework default (1000 rows, `warn`, reported with `console.warn`), not the host's
+configuration — pass `readCeiling: entities.getReadCeiling()` to follow it. The in-memory test
+repository applies the same policy (`createTestContext({ readCeiling })`).
+
+When a read really needs every row of a set that can grow, walk it with `findPage`; when it
+needs a number, use `count`, `exists` or `aggregate`.
+
 ### `count(query?, options?)`
 
 Returns the number of rows matching `query` (or all rows when omitted). Tenant scoping and access policies apply identically to `findMany`. Use this in preference to `(await findMany()).length` when you only need a number — `count` issues a SQL `SELECT COUNT(*)` instead of streaming rows.
@@ -278,6 +316,46 @@ Returns the number of rows matching `query` (or all rows when omitted). Tenant s
 const total = await ctx.data.User.count();
 const active = await ctx.data.User.count({ status: "active" });
 ```
+
+### `exists(query?, options?)`
+
+Whether any row matches, without loading one (`SELECT 1 … LIMIT 1`). Same filters as `count`.
+Optional on the `Repository` type (custom repositories written before it compile); the
+framework's repositories always have it.
+
+```typescript
+if (await ctx.data.Membership.exists!({ accountId, scopeId })) { /* … */ }
+```
+
+### `findPage(query, options)` — keyset paging
+
+One page of at most `limit` rows after the cursor of the previous page, in a total order:
+the `orderBy` keys plus `id` (in the last key's direction). A deep page costs the same as the
+first, and rows inserted meanwhile do not shift the pages (unlike `offset`).
+
+```typescript
+interface PageOptions extends Pick<QueryOptions, 'dateFilters' | 'search' | 'in' | 'notEq'> {
+  limit: number;                    // 1 .. read ceiling
+  orderBy?: string | Array<{ column: string; dir?: 'asc' | 'desc' }>; // default: id asc
+  orderDir?: 'asc' | 'desc';        // default 'asc'
+  after?: string;                   // nextCursor of the previous page
+}
+interface Page<T> { rows: T[]; nextCursor: string | null }
+
+let after: string | undefined;
+do {
+  const page = await ctx.data.Submission.findPage!(
+    { assignmentId },
+    { limit: 200, orderBy: [{ column: 'createdAt', dir: 'desc' }], ...(after ? { after } : {}) },
+  );
+  for (const row of page.rows) { /* … */ }
+  after = page.nextCursor ?? undefined;
+} while (after);
+```
+
+Sort keys must be columns of the entity, not `encrypted`, and never NULL in a row a page ends
+on (`DataValidationError` otherwise). A cursor only fits the sort it came from. Add an index on
+the sort keys (`indexes: [['assignmentId', 'createdAt', 'id']]`) so each page is an index range.
 
 ### `aggregate(query?, options?)`
 
@@ -300,7 +378,8 @@ interface AggregateOptions
   countDistinct?: string | string[];
   orderBy?: string | Array<{ column: string; dir?: 'asc' | 'desc' }>;
   orderDir?: 'asc' | 'desc';
-  limit?: number; // clamped to 1–1000
+  limit?: number;      // honoured exactly; the read ceiling applies to group rows
+  unbounded?: boolean; // opt out of the read ceiling
 }
 ```
 
