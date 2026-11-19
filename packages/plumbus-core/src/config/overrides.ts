@@ -143,6 +143,10 @@ export const configOverridesSchema = z
       .object({
         enableScheduler: z.boolean().optional(),
         flowConcurrency: positive.int().max(MAX_FLOW_CONCURRENCY).optional(),
+        outboxPollIntervalMs: timeoutMs.optional(),
+        outboxIdleBackoffMaxMs: z.number().int().nonnegative().max(2_147_483_647).optional(),
+        flowPollIntervalMs: timeoutMs.optional(),
+        schedulerPollIntervalMs: timeoutMs.optional(),
         eventDelivery: z
           .object({
             retry: retryPolicySchema.optional(),

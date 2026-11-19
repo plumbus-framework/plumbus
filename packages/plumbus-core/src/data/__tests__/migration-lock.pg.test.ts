@@ -119,10 +119,10 @@ describe('migration advisory lock', () => {
         waited = true;
       },
     });
-    await until(
-      async () => (await advisoryLocks(probe, database)).some((lock) => !lock.granted),
-      'the second run to wait on the lock',
-    );
+    // The waiting run polls with pg_try_advisory_lock (no ungranted lock row): a blocked
+    // pg_advisory_lock would be an open transaction a CREATE INDEX CONCURRENTLY waits for.
+    await until(async () => waited, 'the second run to wait on the lock');
+    expect((await advisoryLocks(probe, database)).filter((lock) => !lock.granted)).toEqual([]);
 
     const [firstResult, secondResult] = await Promise.all([firstRun, secondRun]);
     expect(firstResult).toEqual({ applied: 2, tags: ['0000_first', '0001_second'] });

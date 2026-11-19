@@ -177,4 +177,51 @@ describe('request flow placement under a data-plane resolver', () => {
     expect(controlPlane.db).toBe(controlPlaneDb);
     expect(vi.mocked(resolver.resolve)).toHaveBeenCalledTimes(1);
   });
+
+  it('leases the request plane and hands the route generator a release for the end of the response', async () => {
+    let held = 0;
+    const resolver: DataPlaneResolver = {
+      resolve: vi.fn(async () => {
+        throw new Error('requests must lease, not resolve');
+      }),
+      acquire: vi.fn(async (tenantRef: string, options?: { purpose?: string }) => {
+        expect(options?.purpose).toBe('request');
+        held += 1;
+        return {
+          handle: {
+            db: tenantDb as never,
+            coreSchema: 'core_plumbus',
+            packageSchemaPrefix: 'pkg_',
+            tenantRef,
+          },
+          release: () => {
+            held -= 1;
+          },
+        };
+      }),
+    };
+    createServer(makeServerConfig({ dataPlaneResolver: resolver }));
+    const resolveDependencies = routeConfigOf().resolveDependencies as (
+      auth: Record<string, unknown>,
+      options?: { bypassTenantScope?: boolean },
+    ) => Promise<{ db: unknown; release?: () => void }>;
+    const resolved = await resolveDependencies({
+      userId: 'u',
+      tenantId: 'tenant-a',
+      roles: [],
+      scopes: [],
+      provider: 'jwt',
+    });
+    expect(resolved.db).toBe(tenantDb);
+    expect(held).toBe(1);
+    resolved.release?.();
+    expect(held).toBe(0);
+
+    // Control-plane work holds nothing.
+    const controlPlane = await resolveDependencies(
+      { userId: 'u', tenantId: 'tenant-a', roles: [], scopes: [], provider: 'jwt' },
+      { bypassTenantScope: true },
+    );
+    expect(controlPlane.release).toBeUndefined();
+  });
 });

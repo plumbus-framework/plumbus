@@ -46,7 +46,8 @@ import {
   getOriginalError,
   validatedTraceparent,
 } from '../observability/index.js';
-import type { DataPlaneResolver } from '../tenancy/types.js';
+import { acquireDataPlane } from '../tenancy/data-plane-resolver.js';
+import type { DataPlaneLease, DataPlaneResolver } from '../tenancy/types.js';
 import type { AuditService } from '../types/audit.js';
 import type {
   AIService,
@@ -432,6 +433,12 @@ export function createFlowEngine(config: FlowEngineConfig) {
   const maxClaimAttempts = spineDispatch?.maxClaimAttempts ?? 10;
   const untenantedOnControlPlane = spineDispatch?.untenanted === 'control-plane';
   const executionStores = new Map<string, PostgresJsDatabase>();
+  /**
+   * The tenant route each execution's plane was resolved by. An operation on the execution
+   * resolves (and leases) the plane again by it rather than trusting a `db` cached in
+   * `executionStores`, which the resolver may have closed since.
+   */
+  const executionRoutes = new Map<string, string>();
   const claimedHints = new Map<string, OpaqueDispatchRecord>();
   const scheduledRetries = new Map<string, { stepId: string; notBefore: string }>();
   const executionPins = new Map<
@@ -592,16 +599,23 @@ export function createFlowEngine(config: FlowEngineConfig) {
    * plane. Without a hint the execution is the engine's own (control-plane) row, or unknown,
    * and `db` answers as before.
    */
-  async function locateStore(executionId: string): Promise<PostgresJsDatabase> {
-    const cached = executionStores.get(executionId);
-    if (cached) return cached;
-    if (!spineDispatch) return db;
+  async function withLocatedStore<T>(
+    executionId: string,
+    work: (store: PostgresJsDatabase) => Promise<T>,
+  ): Promise<T> {
+    if (!spineDispatch) return work(executionStores.get(executionId) ?? db);
+    let lease: DataPlaneLease | undefined;
     try {
-      const tenantRouteId = await findSpineDispatchTenantRoute(spineDispatch.db, executionId);
-      if (!tenantRouteId) return db;
-      const handle = await spineDispatch.resolver.resolve(tenantRouteId);
-      executionStores.set(executionId, handle.db);
-      return handle.db;
+      let tenantRouteId = executionRoutes.get(executionId);
+      if (!tenantRouteId && !executionStores.has(executionId)) {
+        tenantRouteId = await findSpineDispatchTenantRoute(spineDispatch.db, executionId);
+        if (tenantRouteId) executionRoutes.set(executionId, tenantRouteId);
+      }
+      if (tenantRouteId) {
+        lease = await acquireDataPlane(spineDispatch.resolver, tenantRouteId, {
+          purpose: 'request',
+        });
+      }
     } catch (error) {
       logger?.warn(
         'could not locate the plane of a dispatched execution; using the engine database',
@@ -610,8 +624,32 @@ export function createFlowEngine(config: FlowEngineConfig) {
           error: error instanceof Error ? error.message : String(error),
         },
       );
-      return db;
+      return work(db);
     }
+    if (!lease) return work(executionStores.get(executionId) ?? db);
+    // Held for the whole operation, so the plane cannot be closed under it.
+    try {
+      executionStores.set(executionId, lease.handle.db);
+      return await work(lease.handle.db);
+    } finally {
+      lease.release();
+    }
+  }
+
+  /**
+   * Hold the plane a claimed execution lives on for as long as the caller drains it, and
+   * point the engine's per-execution store at the held handle. The worker calls it right
+   * after a claim and releases the lease when it stops draining; `undefined` when the
+   * execution is not on a resolved tenant plane.
+   */
+  async function acquireExecutionPlane(executionId: string): Promise<DataPlaneLease | undefined> {
+    const tenantRouteId = executionRoutes.get(executionId);
+    if (!spineDispatch || !tenantRouteId) return undefined;
+    const lease = await acquireDataPlane(spineDispatch.resolver, tenantRouteId, {
+      purpose: 'background',
+    });
+    executionStores.set(executionId, lease.handle.db);
+    return lease;
   }
 
   async function loadRow(
@@ -790,7 +828,13 @@ export function createFlowEngine(config: FlowEngineConfig) {
     pending: PendingFlowExecution,
     placement: { store: PostgresJsDatabase; auth: AuthContext },
   ): Promise<void> {
-    if (spineDispatch) executionStores.set(pending.id, placement.store);
+    if (spineDispatch) {
+      executionStores.set(pending.id, placement.store);
+      // A tenant's execution lives on the plane its tenant resolves to (as `start` places it).
+      if (placement.auth.tenantId && placement.store !== spineDispatch.db) {
+        executionRoutes.set(pending.id, placement.auth.tenantId);
+      }
+    }
     if (pending.pin) executionPins.set(pending.id, pending.pin);
 
     if (audit) {
@@ -836,18 +880,29 @@ export function createFlowEngine(config: FlowEngineConfig) {
     }
 
     // Placement: a tenant's flow lives on its plane; an untenanted one (when allowed) on the
-    // spine's own table; without spine dispatch everything lives on `db`.
-    let store = db;
-    let tenantPlaced = false;
-    if (spineDispatch) {
-      if (auth.tenantId) {
-        store = (await spineDispatch.resolver.resolve(auth.tenantId)).db;
-        tenantPlaced = true;
-      } else {
-        store = spineDispatch.db;
+    // spine's own table; without spine dispatch everything lives on `db`. The tenant's plane
+    // is held until the execution is created and announced.
+    if (spineDispatch && auth.tenantId) {
+      const lease = await acquireDataPlane(spineDispatch.resolver, auth.tenantId, {
+        purpose: 'request',
+      });
+      try {
+        return await startOn(lease.handle.db, true, flowName, input, auth, opts);
+      } finally {
+        lease.release();
       }
     }
+    return startOn(spineDispatch ? spineDispatch.db : db, false, flowName, input, auth, opts);
+  }
 
+  async function startOn(
+    store: PostgresJsDatabase,
+    tenantPlaced: boolean,
+    flowName: string,
+    input: unknown,
+    auth: AuthContext,
+    opts?: FlowStartOptions,
+  ): Promise<FlowExecution> {
     // The row and its acceptance commit together on the tenant's plane.
     let pending: PendingFlowExecution;
     try {
@@ -898,8 +953,14 @@ export function createFlowEngine(config: FlowEngineConfig) {
     // `persistAcceptance` may use its own ids), so the definition check waits for the tenant
     // row's flow name and pin, in runNext; a release there hands back both row and hint.
     for (const hint of hints) {
+      // The hint's plane is held only while this hint is claimed; the runner holds it again
+      // for the drain (`acquireExecutionPlane`).
+      let lease: DataPlaneLease | undefined;
       try {
-        const handle = await spineDispatch.resolver.resolve(hint.tenantRouteId);
+        lease = await acquireDataPlane(spineDispatch.resolver, hint.tenantRouteId, {
+          purpose: 'background',
+        });
+        const handle = lease.handle;
         const tenantState = await loadExecutionState(handle.db, hint.executionId, durableSchema);
         if (
           !tenantState ||
@@ -973,6 +1034,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
           continue;
         }
         executionStores.set(hint.executionId, handle.db);
+        executionRoutes.set(hint.executionId, hint.tenantRouteId);
         claimedHints.set(hint.executionId, hint);
         claims.set(hint.executionId, token);
         rows.push({
@@ -997,6 +1059,8 @@ export function createFlowEngine(config: FlowEngineConfig) {
             attempt: hint.attempt,
           });
         }
+      } finally {
+        lease?.release();
       }
     }
     return rows;
@@ -1757,7 +1821,9 @@ export function createFlowEngine(config: FlowEngineConfig) {
     signal?: unknown,
     expectedWaitToken?: string | null,
   ): Promise<void> {
-    return resumeOn(await locateStore(executionId), executionId, signal, expectedWaitToken);
+    return withLocatedStore(executionId, (store) =>
+      resumeOn(store, executionId, signal, expectedWaitToken),
+    );
   }
 
   async function resumeOn(
@@ -1882,10 +1948,20 @@ export function createFlowEngine(config: FlowEngineConfig) {
    * else, so a caller never reaches another tenant's plane. `undefined` when spine dispatch
    * refuses untenanted flows and the caller has no tenant: there is nothing it may wake.
    */
-  async function storeForCaller(auth: AuthContext): Promise<PostgresJsDatabase | undefined> {
-    if (!spineDispatch) return db;
-    if (auth.tenantId) return (await spineDispatch.resolver.resolve(auth.tenantId)).db;
-    return untenantedOnControlPlane ? spineDispatch.db : undefined;
+  async function withCallerStore<T>(
+    auth: AuthContext,
+    work: (store: PostgresJsDatabase | undefined) => Promise<T>,
+  ): Promise<T> {
+    if (!spineDispatch) return work(db);
+    if (!auth.tenantId) return work(untenantedOnControlPlane ? spineDispatch.db : undefined);
+    const lease = await acquireDataPlane(spineDispatch.resolver, auth.tenantId, {
+      purpose: 'request',
+    });
+    try {
+      return await work(lease.handle.db);
+    } finally {
+      lease.release();
+    }
   }
 
   /**
@@ -1934,9 +2010,16 @@ export function createFlowEngine(config: FlowEngineConfig) {
    * racing another wake, or the scheduled wake-up, exactly one changes the row.
    */
   async function wakeTimedWait(executionId: string, auth: AuthContext): Promise<FlowWakeResult> {
+    return withCallerStore(auth, (store) => wakeTimedWaitOn(store, executionId, auth));
+  }
+
+  async function wakeTimedWaitOn(
+    store: PostgresJsDatabase | undefined,
+    executionId: string,
+    auth: AuthContext,
+  ): Promise<FlowWakeResult> {
     const wellFormed = z.string().guid().safeParse(executionId).success;
     const recordedId = wellFormed ? executionId : MALFORMED_EXECUTION_ID;
-    const store = await storeForCaller(auth);
     if (!store) {
       await denyWake(recordedId, auth, 'untenanted-flow-wake');
       throw new PlumbusError(
@@ -1973,7 +2056,10 @@ export function createFlowEngine(config: FlowEngineConfig) {
     if (row.waitKind === RETRY_WAIT_KIND) return skip(FlowWakeSkipReason.RetryBackoff, row.status);
     const scheduledFor = row.wakeAt;
 
-    if (spineDispatch) executionStores.set(executionId, store);
+    if (spineDispatch) {
+      executionStores.set(executionId, store);
+      if (auth.tenantId) executionRoutes.set(executionId, auth.tenantId);
+    }
     // Placed as `start` places it: under spine dispatch a tenant's execution has a durable
     // acceptance and is claimed only through its spine hint, whichever handle the resolver
     // returned for the plane (it may be the spine's own). The row's tenant is the caller's.
@@ -2132,7 +2218,14 @@ export function createFlowEngine(config: FlowEngineConfig) {
     executionId: string,
     opts?: { actor?: string; skipCompensation?: boolean },
   ): Promise<void> {
-    const store = await locateStore(executionId);
+    return withLocatedStore(executionId, (store) => cancelOn(store, executionId, opts));
+  }
+
+  async function cancelOn(
+    store: PostgresJsDatabase,
+    executionId: string,
+    opts?: { actor?: string; skipCompensation?: boolean },
+  ): Promise<void> {
     const row = await loadRow(store, executionId);
     if (!row) throw new Error(`Flow execution "${executionId}" not found`);
 
@@ -2335,7 +2428,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
    * Get the current status of a flow execution.
    */
   async function status(executionId: string): Promise<FlowExecution> {
-    const row = await loadRow(await locateStore(executionId), executionId);
+    const row = await withLocatedStore(executionId, (store) => loadRow(store, executionId));
     if (!row) throw new Error(`Flow execution "${executionId}" not found`);
 
     return { id: row.id, flowName: row.flowName, status: row.status };
@@ -2347,15 +2440,17 @@ export function createFlowEngine(config: FlowEngineConfig) {
    */
   async function getExecutionOwner(executionId: string): Promise<FlowExecutionOwner | undefined> {
     // The same plane resume/cancel/status act on, so a tenant-plane execution is checked too.
-    const rows = await (await locateStore(executionId))
-      .select({
-        actor: flowExecutionsTable.actor,
-        tenantId: flowExecutionsTable.tenantId,
-        flowName: flowExecutionsTable.flowName,
-      })
-      .from(flowExecutionsTable)
-      .where(eq(flowExecutionsTable.id, executionId))
-      .limit(1);
+    const rows = await withLocatedStore(executionId, (store) =>
+      store
+        .select({
+          actor: flowExecutionsTable.actor,
+          tenantId: flowExecutionsTable.tenantId,
+          flowName: flowExecutionsTable.flowName,
+        })
+        .from(flowExecutionsTable)
+        .where(eq(flowExecutionsTable.id, executionId))
+        .limit(1),
+    );
     const row = rows[0] as FlowExecutionOwner | undefined;
     return row
       ? { actor: row.actor, tenantId: row.tenantId ?? null, flowName: row.flowName }
@@ -2680,21 +2775,23 @@ export function createFlowEngine(config: FlowEngineConfig) {
     status: 'cancelled' | 'failed',
   ): Promise<void> {
     if (!spineDispatch) return;
-    const store = await locateStore(executionId);
-    if (store === spineDispatch.db) return;
-    try {
-      await markExecutionStateTerminal(
-        store,
-        { executionId, status, nowIso: new Date().toISOString() },
-        durableSchema,
-      );
-    } catch (error) {
-      logger?.warn('could not close the durable state of a finished execution', {
-        executionId,
-        status,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+    const spineDb = spineDispatch.db;
+    await withLocatedStore(executionId, async (store) => {
+      if (store === spineDb) return;
+      try {
+        await markExecutionStateTerminal(
+          store,
+          { executionId, status, nowIso: new Date().toISOString() },
+          durableSchema,
+        );
+      } catch (error) {
+        logger?.warn('could not close the durable state of a finished execution', {
+          executionId,
+          status,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    });
   }
 
   /**
@@ -2850,19 +2947,21 @@ export function createFlowEngine(config: FlowEngineConfig) {
   ): Promise<{ strategy: DefinitionInFlightStrategyName; applied: true }> {
     assertSupportedDefinitionStrategy(strategy);
 
-    const row = await loadRow(await locateStore(executionId), executionId);
-    if (!row) throw new Error(`Flow execution "${executionId}" not found`);
+    return withLocatedStore(executionId, async (store) => {
+      const row = await loadRow(store, executionId);
+      if (!row) throw new Error(`Flow execution "${executionId}" not found`);
 
-    if (strategy === DefinitionInFlightStrategy.CompleteOnOriginal) {
-      restorePinFromRow(row);
-      return { strategy, applied: true };
-    }
+      if (strategy === DefinitionInFlightStrategy.CompleteOnOriginal) {
+        restorePinFromRow(row);
+        return { strategy, applied: true as const };
+      }
 
-    if (!isTerminal(row.status as FlowStatus)) {
-      await cancel(executionId);
-    }
-    await updateExecution(executionId, { lastError: DefinitionInFlightStrategy.StopAndRecover });
-    return { strategy: DefinitionInFlightStrategy.StopAndRecover, applied: true };
+      if (!isTerminal(row.status as FlowStatus)) {
+        await cancel(executionId);
+      }
+      await updateExecution(executionId, { lastError: DefinitionInFlightStrategy.StopAndRecover });
+      return { strategy: DefinitionInFlightStrategy.StopAndRecover, applied: true as const };
+    });
   }
 
   return {
@@ -2877,6 +2976,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
     listRunnable,
     claimNext,
     claimExecution,
+    acquireExecutionPlane,
     cancel,
     terminate,
     status,

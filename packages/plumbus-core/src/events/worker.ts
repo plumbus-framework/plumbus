@@ -9,7 +9,8 @@ import {
 import { DataValidationError } from '../errors/index.js';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { PlumbusMetrics } from '../observability/metrics.js';
-import type { DataPlaneResolver } from '../tenancy/types.js';
+import { acquireDataPlane } from '../tenancy/data-plane-resolver.js';
+import type { DataPlaneLease, DataPlaneResolver } from '../tenancy/types.js';
 import type { AuditService } from '../types/audit.js';
 import type { LoggerService } from '../types/context.js';
 import type { EventEnvelope } from '../types/event.js';
@@ -96,15 +97,41 @@ export function createEventWorker(config: WorkerConfig) {
     maxDelayMs: retryBackoffMaxMs,
   });
 
-  async function planeFor(envelope: EventEnvelope): Promise<{
+  interface DeliveryPlane {
     db: PostgresJsDatabase;
     idempotency: IdempotencyService;
-  }> {
-    if (!resolver || !envelope.tenantId) {
-      return { db, idempotency };
-    }
-    const handle = await resolver.resolve(envelope.tenantId);
-    return { db: handle.db, idempotency: createIdempotencyService(handle.db) };
+  }
+
+  /**
+   * The envelope's data plane for one delivery, taken on first use and held (leased, when
+   * the resolver supports it) until `release()` at the end of the delivery, so the consumers
+   * and the idempotency and dead-letter writes after them run on a plane that stays open.
+   */
+  function deliveryPlane(envelope: EventEnvelope): {
+    get(): Promise<DeliveryPlane>;
+    release(): void;
+  } {
+    let lease: DataPlaneLease | undefined;
+    let plane: Promise<DeliveryPlane> | undefined;
+    return {
+      get() {
+        if (!resolver || !envelope.tenantId) return Promise.resolve({ db, idempotency });
+        const tenantId = envelope.tenantId;
+        plane ??= acquireDataPlane(resolver, tenantId, { purpose: 'background' }).then(
+          (acquired) => {
+            lease = acquired;
+            return {
+              db: acquired.handle.db,
+              idempotency: createIdempotencyService(acquired.handle.db),
+            };
+          },
+        );
+        return plane;
+      },
+      release() {
+        lease?.release();
+      },
+    };
   }
 
   /** Persist a dead letter on `planeDb` (the envelope's data plane), then announce it. */
@@ -163,6 +190,18 @@ export function createEventWorker(config: WorkerConfig) {
   }
 
   async function deliver(envelope: EventEnvelope): Promise<void> {
+    const planes = deliveryPlane(envelope);
+    try {
+      await deliverOn(envelope, planes.get);
+    } finally {
+      planes.release();
+    }
+  }
+
+  async function deliverOn(
+    envelope: EventEnvelope,
+    planeFor: () => Promise<DeliveryPlane>,
+  ): Promise<void> {
     const matched = consumers.getConsumers(envelope.eventType, envelope.version);
     const deliveryStarted = Date.now();
 
@@ -181,7 +220,7 @@ export function createEventWorker(config: WorkerConfig) {
         ignored,
       });
       if (!ignored && config.unrouted !== 'acknowledge') {
-        const plane = await planeFor(envelope);
+        const plane = await planeFor();
         await deadLetter(
           plane.db,
           envelope,
@@ -194,7 +233,7 @@ export function createEventWorker(config: WorkerConfig) {
       return;
     }
 
-    const plane = await planeFor(envelope);
+    const plane = await planeFor();
     for (const consumer of matched) {
       // A consumer skipped by subscription policy is not unrouted: no dead letter.
       const policyAllowed = await resolveConsumerDeliveryPolicy(consumer, envelope);

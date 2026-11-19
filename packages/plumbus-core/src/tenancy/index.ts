@@ -5,24 +5,34 @@
 // application owns routing lookup and connection creation.
 //
 // Key exports: createSingleDataPlaneResolver (back-compat single database),
-// createPooledDataPlaneResolver (host-routed, cached), openDataPlaneConnection
+// createPooledDataPlaneResolver (host-routed, cached, leased), withDataPlane /
+// acquireDataPlane (hold a plane for one unit of use), openDataPlaneConnection
 // (the connect step it routes through), applyDataPlaneMigrations (owner-role
 // apply of generated migrations to a named tenant database), UnknownTenantError.
 
 export {
+  acquireDataPlane,
   createPooledDataPlaneResolver,
   createSingleDataPlaneResolver,
+  DataPlaneCapacityError,
   UnknownTenantError,
+  withDataPlane,
   DEFAULT_CORE_SCHEMA,
   DEFAULT_DATA_PLANE_CACHE_SIZE,
+  DEFAULT_DATA_PLANE_CAPACITY_WAIT_MS,
   DEFAULT_PACKAGE_SCHEMA_PREFIX,
 } from './data-plane-resolver.js';
 export type {
+  DataPlaneAcquireOptions,
   DataPlaneConnectRequest,
   DataPlaneConnection,
   DataPlaneDescriptor,
   DataPlaneHandle,
+  DataPlaneLease,
+  DataPlanePurpose,
+  DataPlaneResolveOptions,
   DataPlaneResolver,
+  DataPlaneResolverStats,
   PooledDataPlaneResolver,
   PooledDataPlaneResolverOptions,
   SingleDataPlaneResolverOptions,

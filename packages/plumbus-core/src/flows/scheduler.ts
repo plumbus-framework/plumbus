@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { and, eq, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { DataValidationError } from '../errors/index.js';
+import { acquireDataPlane } from '../tenancy/data-plane-resolver.js';
 import type { DataPlaneResolver } from '../tenancy/types.js';
 import type { LoggerService } from '../types/context.js';
 import { type FlowDefinition, ScheduleCatchUpPolicy } from '../types/flow.js';
@@ -215,34 +216,55 @@ export function createFlowScheduler(config: SchedulerConfig) {
   }
 
   /**
-   * The planes to sync, reconcile and poll: the pool database when a registered flow is
-   * scheduled on the spine, plus every resolved tenant plane when the pool has schedule planes.
-   * The pool is skipped entirely when nothing is scheduled there, so a tenant-only host never
-   * reads it. A tenant plane that cannot be resolved is skipped with a warning, unless `strict`
-   * (reconciliation must cover every plane or fail).
+   * Visit the planes to sync, reconcile and poll, one at a time: the pool database when a
+   * registered flow is scheduled on the spine, plus every listed tenant plane when the pool
+   * has schedule planes. The pool is skipped entirely when nothing is scheduled there, so a
+   * tenant-only host never reads it. Each tenant plane is held (leased, when the resolver
+   * supports it) only while `visit` runs on it and given back before the next is taken, so
+   * the walk never holds more than one plane — a fleet larger than the resolver's cache no
+   * longer closes the first planes before they are used. A tenant plane that cannot be
+   * resolved is skipped with a warning, unless `strict` (reconciliation must cover every
+   * plane or fail).
    */
-  async function tenantPlanes(strict = false): Promise<SchedulePlane[]> {
+  async function forEachPlane(
+    visit: (plane: SchedulePlane) => Promise<void>,
+    strict = false,
+  ): Promise<void> {
     if (!resolver || !listTenantRefs) {
-      return [{ db }];
+      await visit({ db });
+      return;
     }
-    const planes: SchedulePlane[] = [];
     if (registry.getScheduled().some((flow) => planeOf(flow) === 'spine')) {
-      planes.push({ db });
+      await visit({ db });
     }
-    const refs = [...(await listTenantRefs())];
-    for (const tenantRef of refs) {
-      try {
-        const handle = await resolver.resolve(tenantRef);
-        planes.push({ db: handle.db, tenantRef: handle.tenantRef });
-      } catch (err: unknown) {
-        if (strict) throw err;
-        logger.warn('Scheduler skipped a tenant plane it could not resolve', {
-          tenantRef,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
+    for (const tenantRef of [...(await listTenantRefs())]) {
+      await onTenantPlane(tenantRef, visit, strict);
     }
-    return planes;
+  }
+
+  /** Hold one tenant's plane while `visit` runs on it. */
+  async function onTenantPlane(
+    tenantRef: string,
+    visit: (plane: SchedulePlane) => Promise<void>,
+    strict: boolean,
+  ): Promise<void> {
+    if (!resolver) return;
+    let lease: Awaited<ReturnType<typeof acquireDataPlane>>;
+    try {
+      lease = await acquireDataPlane(resolver, tenantRef, { purpose: 'background' });
+    } catch (err: unknown) {
+      if (strict) throw err;
+      logger.warn('Scheduler skipped a tenant plane it could not resolve', {
+        tenantRef,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+    try {
+      await visit({ db: lease.handle.db, tenantRef: lease.handle.tenantRef });
+    } finally {
+      lease.release();
+    }
   }
 
   async function syncPlane(plane: SchedulePlane): Promise<number> {
@@ -294,7 +316,7 @@ export function createFlowScheduler(config: SchedulerConfig) {
    */
   async function syncSchedules(): Promise<number> {
     let synced = 0;
-    for (const plane of await tenantPlanes()) {
+    await forEachPlane(async (plane) => {
       try {
         synced += await syncPlane(plane);
       } catch (err: unknown) {
@@ -303,7 +325,7 @@ export function createFlowScheduler(config: SchedulerConfig) {
           error: describeError(err),
         });
       }
-    }
+    });
     return synced;
   }
 
@@ -438,15 +460,18 @@ export function createFlowScheduler(config: SchedulerConfig) {
       );
       return { revision, changes, applied: apply };
     }
-    const planes = await tenantPlanes(true);
-    const previews: Array<{ plane: SchedulePlane; revision: string; changes: ScheduleChange[] }> =
-      [];
-    for (const plane of planes) {
-      previews.push({ plane, ...(await reconcilePlane(plane, { apply: false })) });
-    }
+    // Previews keep the tenant reference, not the plane: each plane is held only while it is
+    // previewed, and taken again for its apply.
+    const previews: Array<{ tenantRef?: string; revision: string; changes: ScheduleChange[] }> = [];
+    await forEachPlane(async (plane) => {
+      previews.push({
+        ...(plane.tenantRef === undefined ? {} : { tenantRef: plane.tenantRef }),
+        ...(await reconcilePlane(plane, { apply: false })),
+      });
+    }, true);
     const revision = hash(
       previews
-        .map((preview): [string, string] => [preview.plane.tenantRef ?? '', preview.revision])
+        .map((preview): [string, string] => [preview.tenantRef ?? '', preview.revision])
         .sort((a, b) => a[0].localeCompare(b[0])),
     );
     if (!apply) {
@@ -458,11 +483,15 @@ export function createFlowScheduler(config: SchedulerConfig) {
       });
     const changes: ScheduleChange[] = [];
     for (const preview of previews) {
-      const applied = await reconcilePlane(preview.plane, {
-        apply: true,
-        expectedRevision: preview.revision,
-      });
-      changes.push(...applied.changes);
+      const applyOn = async (plane: SchedulePlane) => {
+        const applied = await reconcilePlane(plane, {
+          apply: true,
+          expectedRevision: preview.revision,
+        });
+        changes.push(...applied.changes);
+      };
+      if (preview.tenantRef === undefined) await applyOn({ db });
+      else await onTenantPlane(preview.tenantRef, applyOn, true);
     }
     return { revision, changes, applied: true };
   }
@@ -640,20 +669,20 @@ export function createFlowScheduler(config: SchedulerConfig) {
       );
     let created = 0;
     let poolFailure: { error: unknown } | undefined;
-    for (const plane of await tenantPlanes()) {
+    await forEachPlane(async (plane) => {
       const result = await pollPlane(plane);
       created += result.created;
-      if (!('error' in result)) continue;
+      if (!('error' in result)) return;
       if (plane.tenantRef === undefined) {
         // The pool's failure rejects the poll once the other planes ran (the timer logs it).
         poolFailure = { error: result.error };
-        continue;
+        return;
       }
       logger.error('Scheduler could not read schedules on a plane', {
         tenantRef: plane.tenantRef,
         error: describeError(result.error),
       });
-    }
+    });
     if (poolFailure) throw poolFailure.error;
     return created;
   }

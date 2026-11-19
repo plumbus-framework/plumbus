@@ -9,7 +9,15 @@ interface PlumbusConfig {
   environment: "development" | "staging" | "production";
   database: DatabaseConfig;
   queue: QueueConfig;
-  workers?: { enableScheduler?: boolean; flowConcurrency?: number; eventDelivery?: EventDeliveryOptions };
+  workers?: {
+    enableScheduler?: boolean;
+    flowConcurrency?: number;
+    outboxPollIntervalMs?: number;
+    outboxIdleBackoffMaxMs?: number;
+    flowPollIntervalMs?: number;
+    schedulerPollIntervalMs?: number;
+    eventDelivery?: EventDeliveryOptions;
+  };
   execution?: {
     /** Global kill switch for transactional outbox (default: true). Env: PLUMBUS_TRANSACTIONAL_OUTBOX=false */
     transactionalOutbox?: boolean;
@@ -182,6 +190,10 @@ Timing environment variables are `QUEUE_VISIBILITY_TIMEOUT_SEC`, `QUEUE_POLL_INT
 workers: {
   enableScheduler: true, // PLUMBUS_ENABLE_SCHEDULER=false disables it during cutover
   flowConcurrency: 1, // PLUMBUS_FLOW_CONCURRENCY; flow executions one worker pool runs at once
+  outboxPollIntervalMs: 1000, // PLUMBUS_OUTBOX_POLL_INTERVAL_MS
+  outboxIdleBackoffMaxMs: 0, // PLUMBUS_OUTBOX_IDLE_BACKOFF_MAX_MS; 0 = every tenant plane every poll
+  flowPollIntervalMs: 1000, // PLUMBUS_FLOW_POLL_INTERVAL_MS (≥ 30000 with durable queues)
+  schedulerPollIntervalMs: 60000, // PLUMBUS_SCHEDULER_POLL_INTERVAL_MS
   eventDelivery: {
     retry: { maxAttempts: 3, backoff: "exponential", baseDelayMs: 1000, maxDelayMs: 30000 },
     unrouted: "deadLetter", // default; "acknowledge" is explicit legacy behavior
@@ -661,7 +673,7 @@ await server.start();
 
 ## Worker Pool Configuration
 
-CLI startup (`plumbus dev` / `plumbus start`, role `all`) starts the worker pool when background work is registered. `plumbus worker` runs a dedicated pool; role `api` leaves workers to a separate process. The runtime selects the configured shared backend outside deliberate development/memory mode. The settings below are programmatic `WorkerPoolConfig` options; application files expose `workers.enableScheduler`, `workers.flowConcurrency` and `workers.eventDelivery`, while the other pool settings are supplied to `createWorkerPool()` or the documented worker environment variables.
+CLI startup (`plumbus dev` / `plumbus start`, role `all`) starts the worker pool when background work is registered. `plumbus worker` runs a dedicated pool; role `api` leaves workers to a separate process. The runtime selects the configured shared backend outside deliberate development/memory mode. The settings below are programmatic `WorkerPoolConfig` options; application files expose `workers.enableScheduler`, `workers.flowConcurrency`, `workers.eventDelivery` and the poll intervals (`workers.outboxPollIntervalMs`, `workers.outboxIdleBackoffMaxMs`, `workers.flowPollIntervalMs`, `workers.schedulerPollIntervalMs`; core 0.9.0-beta.13+, each also an environment variable), while the other pool settings are supplied to `createWorkerPool()` or the documented worker environment variables.
 
 No manual wiring is required. The following config options are available when using `createWorkerPool()` directly:
 
@@ -692,9 +704,10 @@ interface WorkerPoolConfig {
   onCapabilityError?: (info: CapabilityErrorInfo) => void | Promise<void>;
   onEventDeadLetter?: (info: EventDeadLetterInfo) => void | Promise<void>;
   eventDelivery?: EventDeliveryOptions;
-  outboxPollIntervalMs?: number;      // Default: 1000
-  schedulerPollIntervalMs?: number;   // Default: 60000
-  flowPollIntervalMs?: number;        // Default: 1000
+  outboxPollIntervalMs?: number;      // Default: config.workers.outboxPollIntervalMs, else 1000
+  outboxIdleBackoffMaxMs?: number;    // Default: config.workers.outboxIdleBackoffMaxMs, else 0 (off)
+  schedulerPollIntervalMs?: number;   // Default: config.workers.schedulerPollIntervalMs, else 60000
+  flowPollIntervalMs?: number;        // Default: config.workers.flowPollIntervalMs, else 1000
   enableDispatcher?: boolean;         // Default: true
   enableEventWorker?: boolean;        // Default: true
   enableScheduler?: boolean;          // Default: true
@@ -707,6 +720,8 @@ interface WorkerPoolConfig {
 ```
 
 Additional hooks (`onQueuesClose`, `redisClient`, `flowsPrefix`, `refreshQueueDepths`, `onFlowStepEnqueue`) are available for durable split deployments — see `packages/plumbus-core/src/worker/bootstrap.ts`. Per-unit data-plane resolution (`dataPlaneResolver`, `listTenantRefs`, `untenantedDataPlane`, `unitDataPlane`, `resolveTenantRef`) is documented in [Tenant Data Planes](tenant-data-planes.md); `plumbus start` / `dev` / `worker` take those from `app/server.ts` exports, and a host that supplies a resolver must not also supply `createDataService`.
+
+The poll intervals take the pool option first, then `config.workers` (which the environment variables `PLUMBUS_OUTBOX_POLL_INTERVAL_MS`, `PLUMBUS_OUTBOX_IDLE_BACKOFF_MAX_MS`, `PLUMBUS_FLOW_POLL_INTERVAL_MS` and `PLUMBUS_SCHEDULER_POLL_INTERVAL_MS` fill), then the default. Under a data-plane resolver every outbox poll visits each listed tenant plane in turn; `outboxIdleBackoffMaxMs` lets planes with an empty outbox be visited less often, at the cost of that much extra latency for the first event on an idle plane. See [Tenant data planes: what polling every tenant costs](tenant-data-planes.md#what-polling-every-tenant-costs-and-how-to-tune-it).
 
 The pool auto-registers a `plumbus:flow-trigger` consumer that maps incoming events to flow starts via `createFlowTriggerHandler`.
 

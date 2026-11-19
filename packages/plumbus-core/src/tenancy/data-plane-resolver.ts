@@ -8,8 +8,9 @@
 //
 //   createPooledDataPlaneResolver — the host supplies how to look up a tenant's
 //     placement (`describe`) and how to open a connection (`connect`); the
-//     framework owns the LRU cache, generation-based revalidation, explicit
-//     invalidation and fail-closed behavior on an unknown tenant.
+//     framework owns the bounded cache, leases (a plane in use is never closed),
+//     generation-based revalidation, explicit invalidation and fail-closed
+//     behavior on an unknown tenant.
 //
 // Fail-closed is the load-bearing rule: an unresolvable tenant reference throws
 // and no code path substitutes another tenant's database.
@@ -19,9 +20,11 @@ import { logHookError } from '../errors/hook-log.js';
 import { PlumbusError } from '../errors/plumbus-error.js';
 import { ErrorCode } from '../types/enums.js';
 import type {
+  DataPlaneAcquireOptions,
   DataPlaneConnection,
   DataPlaneDescriptor,
   DataPlaneHandle,
+  DataPlaneLease,
   DataPlaneResolver,
   PooledDataPlaneResolver,
   PooledDataPlaneResolverOptions,
@@ -42,6 +45,12 @@ export const DEFAULT_PACKAGE_SCHEMA_PREFIX = 'pkg_';
 export const DEFAULT_DATA_PLANE_CACHE_SIZE = 32;
 
 /**
+ * Default time a resolution waits for a free connection slot when every open plane is
+ * leased, before `DataPlaneCapacityError`.
+ */
+export const DEFAULT_DATA_PLANE_CAPACITY_WAIT_MS = 10_000;
+
+/**
  * How many times a resolution restarts when an `invalidate` lands while it is
  * in flight. Bounded so a pathological invalidation loop surfaces as an error
  * instead of spinning.
@@ -56,6 +65,28 @@ export class UnknownTenantError extends PlumbusError {
       ...metadata,
     });
     this.name = 'UnknownTenantError';
+  }
+}
+
+/**
+ * Every open data plane is leased and none was released within the wait: opening another
+ * would exceed `cacheSize`, the connection budget the host sized its database for. Nothing
+ * was closed or opened. Served as HTTP 503 on the request path; background loops skip the
+ * plane until their next cycle.
+ */
+export class DataPlaneCapacityError extends PlumbusError {
+  constructor(
+    tenantRef: string,
+    metadata: { cacheSize: number; leases: number; waitedMs: number },
+  ) {
+    super(
+      ErrorCode.Conflict,
+      `No data plane slot for tenant reference "${tenantRef}": all ${metadata.cacheSize} open ` +
+        `planes are in use (${metadata.leases} leases) and none was released within ` +
+        `${metadata.waitedMs} ms`,
+      { tenantRef, ...metadata, reason: 'data-plane-capacity', httpStatus: 503 },
+    );
+    this.name = 'DataPlaneCapacityError';
   }
 }
 
@@ -105,16 +136,64 @@ export function createSingleDataPlaneResolver(
     async resolve(tenantRef: string): Promise<DataPlaneHandle> {
       return buildHandle(tenantRef, db, options);
     },
+    // One database owned by the caller: nothing to hold open, so the lease only carries it.
+    async acquire(tenantRef: string): Promise<DataPlaneLease> {
+      return { handle: buildHandle(tenantRef, db, options), release() {} };
+    },
   };
 }
 
 interface CacheEntry {
+  tenantRef: string;
   handle: DataPlaneHandle;
   connection: DataPlaneConnection;
   generation?: number;
   coreSchema: string;
   packageSchemaPrefix: string;
   resolvedAt: number;
+  /** Leases held on this plane now. A plane with leases is never closed (but by `close()`). */
+  leases: number;
+  /** Taken out of the cache while leased; closed when its last lease is released. */
+  retired: boolean;
+  /** Closed (or closing): nothing may lease it any more. */
+  ended: boolean;
+}
+
+/**
+ * Wraps every caller of `createPooledDataPlaneResolver`: a lease when the resolver can give
+ * one, else a plain `resolve` with a release that does nothing.
+ */
+export async function acquireDataPlane(
+  resolver: DataPlaneResolver,
+  tenantRef: string,
+  options?: DataPlaneAcquireOptions,
+): Promise<DataPlaneLease> {
+  if (resolver.acquire) return resolver.acquire(tenantRef, options);
+  const handle = await resolver.resolve(
+    tenantRef,
+    options?.purpose ? { purpose: options.purpose } : undefined,
+  );
+  return { handle, release() {} };
+}
+
+/**
+ * Run `work` with the tenant's plane held: leased for exactly the duration of `work` when the
+ * resolver supports leases, so the plane's connection cannot be closed under it, and released
+ * however `work` ends. Against a resolver without `acquire` this is `resolve` then `work`,
+ * with no protection beyond what that resolver gives.
+ */
+export async function withDataPlane<T>(
+  resolver: DataPlaneResolver,
+  tenantRef: string,
+  work: (handle: DataPlaneHandle) => Promise<T>,
+  options?: DataPlaneAcquireOptions,
+): Promise<T> {
+  const lease = await acquireDataPlane(resolver, tenantRef, options);
+  try {
+    return await work(lease.handle);
+  } finally {
+    lease.release();
+  }
 }
 
 /**
@@ -122,9 +201,13 @@ interface CacheEntry {
  *
  * The host answers two questions — where does this tenant live (`describe`) and
  * how do I open a connection to it (`connect`) — and the framework owns
- * everything else: an LRU of open data planes, deduplication of concurrent
- * resolutions, generation-based revalidation, explicit invalidation, and
- * throwing on an unknown tenant rather than falling back.
+ * everything else: a bounded set of open data planes, leases that keep a plane open while it
+ * is used, deduplication of concurrent resolutions, generation-based revalidation, explicit
+ * invalidation, and throwing on an unknown tenant rather than falling back.
+ *
+ * At most `cacheSize` connections are open at any moment. Opening a plane past that closes
+ * the least recently used plane nobody holds a lease on; with every plane leased the caller
+ * waits up to `capacityWaitMs` and is then refused with `DataPlaneCapacityError`.
  */
 export function createPooledDataPlaneResolver<TConnectionInfo = unknown>(
   options: PooledDataPlaneResolverOptions<TConnectionInfo>,
@@ -136,6 +219,8 @@ export function createPooledDataPlaneResolver<TConnectionInfo = unknown>(
       `Data plane cacheSize must be a positive integer (received ${String(options.cacheSize)})`,
     );
   }
+  const capacityWaitMs = options.capacityWaitMs ?? DEFAULT_DATA_PLANE_CAPACITY_WAIT_MS;
+  assertWaitMs(capacityWaitMs, 'capacityWaitMs');
   const now = options.now ?? Date.now;
   const revalidateAfterMs = options.revalidateAfterMs;
   const onCloseError =
@@ -145,10 +230,16 @@ export function createPooledDataPlaneResolver<TConnectionInfo = unknown>(
 
   /** Insertion-ordered LRU: least recently used first. */
   const entries = new Map<string, CacheEntry>();
+  /** Planes out of the cache that still have leases. */
+  const retired = new Set<CacheEntry>();
   /** One in-flight resolution per tenant reference. */
   const inFlight = new Map<string, Promise<DataPlaneHandle>>();
   /** Bumped by `invalidate` while a resolution for that tenant is in flight. */
   const epochs = new Map<string, number>();
+  /** Callers waiting for a slot; each is woken when a lease, a close or a connect ends. */
+  const waiters = new Set<() => void>();
+  let closing = 0;
+  let connecting = 0;
   let closed = false;
 
   function currentEpoch(tenantRef: string): number {
@@ -161,32 +252,111 @@ export function createPooledDataPlaneResolver<TConnectionInfo = unknown>(
     }
   }
 
+  function wakeWaiters(): void {
+    for (const wake of [...waiters]) wake();
+  }
+
+  function slotsInUse(): number {
+    return entries.size + retired.size + closing + connecting;
+  }
+
   async function closeQuietly(tenantRef: string, connection: DataPlaneConnection): Promise<void> {
+    closing += 1;
     try {
       await connection.close?.();
     } catch (error) {
       onCloseError({ tenantRef, error });
+    } finally {
+      closing -= 1;
+      wakeWaiters();
     }
+  }
+
+  /**
+   * Take `entry` out of service. Unleased (or when the whole resolver is closing) it is closed
+   * now; leased it is retired and closed by its last `release()`.
+   */
+  async function retire(entry: CacheEntry, force = false): Promise<void> {
+    if (entries.get(entry.tenantRef) === entry) entries.delete(entry.tenantRef);
+    if (entry.ended) return;
+    if (entry.leases > 0 && !force) {
+      entry.retired = true;
+      retired.add(entry);
+      return;
+    }
+    entry.ended = true;
+    retired.delete(entry);
+    await closeQuietly(entry.tenantRef, entry.connection);
   }
 
   async function evict(tenantRef: string): Promise<void> {
     const entry = entries.get(tenantRef);
-    if (!entry) return;
-    entries.delete(tenantRef);
-    await closeQuietly(tenantRef, entry.connection);
+    if (entry) await retire(entry);
   }
 
   /** Move an entry to the most-recently-used end of the LRU. */
-  function touch(tenantRef: string, entry: CacheEntry): void {
-    entries.delete(tenantRef);
-    entries.set(tenantRef, entry);
+  function touch(entry: CacheEntry): void {
+    entries.delete(entry.tenantRef);
+    entries.set(entry.tenantRef, entry);
   }
 
-  async function enforceCapacity(): Promise<void> {
-    while (entries.size > cacheSize) {
-      const oldest = entries.keys().next();
-      if (oldest.done) return;
-      await evict(oldest.value);
+  function oldestIdle(): CacheEntry | undefined {
+    for (const entry of entries.values()) {
+      if (entry.leases === 0) return entry;
+    }
+    return undefined;
+  }
+
+  function leaseCount(): number {
+    let count = 0;
+    for (const entry of entries.values()) count += entry.leases;
+    for (const entry of retired) count += entry.leases;
+    return count;
+  }
+
+  /** Resolve after `ms`, on the next wake-up, or on abort, whichever is first. */
+  function waitForSlot(ms: number, signal: AbortSignal | undefined): Promise<void> {
+    return new Promise((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        waiters.delete(done);
+        signal?.removeEventListener('abort', done);
+        resolve();
+      };
+      const timer = setTimeout(done, ms);
+      waiters.add(done);
+      signal?.addEventListener('abort', done, { once: true });
+    });
+  }
+
+  /**
+   * Hold one connection slot for a connect about to start. Closes the least recently used
+   * unleased plane when the ceiling is reached; with every plane leased, waits (bounded) for
+   * a release, then refuses. The caller gives the slot back with `connecting -= 1`.
+   */
+  async function reserveSlot(tenantRef: string, wait: SlotWait): Promise<void> {
+    const started = now();
+    for (;;) {
+      if (closed) throw closedError(tenantRef);
+      if (wait.signal?.aborted) throw abortedError(tenantRef);
+      if (slotsInUse() < cacheSize) {
+        connecting += 1;
+        return;
+      }
+      const idle = oldestIdle();
+      if (idle) {
+        await retire(idle);
+        continue;
+      }
+      const remaining = wait.waitMs - (now() - started);
+      if (remaining <= 0) {
+        throw new DataPlaneCapacityError(tenantRef, {
+          cacheSize,
+          leases: leaseCount(),
+          waitedMs: now() - started,
+        });
+      }
+      await waitForSlot(remaining, wait.signal);
     }
   }
 
@@ -213,8 +383,19 @@ export function createPooledDataPlaneResolver<TConnectionInfo = unknown>(
     tenantRef: string,
     descriptor: DataPlaneDescriptor<TConnectionInfo>,
     epoch: number,
+    wait: SlotWait,
   ): Promise<DataPlaneHandle | undefined> {
-    const connection = await options.connect({ tenantRef, descriptor });
+    await reserveSlot(tenantRef, wait);
+    let connection: DataPlaneConnection;
+    try {
+      connection = await options.connect({ tenantRef, descriptor });
+    } catch (error) {
+      connecting -= 1;
+      wakeWaiters();
+      throw error;
+    }
+    // The slot passes from the connect to whatever holds the connection next.
+    connecting -= 1;
     if (closed) {
       await closeQuietly(tenantRef, connection);
       throw closedError(tenantRef);
@@ -225,24 +406,28 @@ export function createPooledDataPlaneResolver<TConnectionInfo = unknown>(
     }
     const handle = buildHandle(tenantRef, connection.db, descriptor);
     const entry: CacheEntry = {
+      tenantRef,
       handle,
       connection,
       generation: descriptor.generation,
       coreSchema: handle.coreSchema,
       packageSchemaPrefix: handle.packageSchemaPrefix,
       resolvedAt: now(),
+      leases: 0,
+      retired: false,
+      ended: false,
     };
-    await evict(tenantRef);
+    const previous = entries.get(tenantRef);
     entries.set(tenantRef, entry);
-    await enforceCapacity();
+    if (previous && previous !== entry) await retire(previous);
     return handle;
   }
 
-  async function load(tenantRef: string): Promise<DataPlaneHandle> {
+  async function load(tenantRef: string, wait: SlotWait): Promise<DataPlaneHandle> {
     for (let attempt = 0; attempt < MAX_RESOLVE_ATTEMPTS; attempt += 1) {
       const epoch = currentEpoch(tenantRef);
       const descriptor = await describeChecked(tenantRef);
-      const handle = await connectAndStore(tenantRef, descriptor, epoch);
+      const handle = await connectAndStore(tenantRef, descriptor, epoch, wait);
       if (handle) return handle;
     }
     throw invalidationRaceError(tenantRef);
@@ -253,7 +438,7 @@ export function createPooledDataPlaneResolver<TConnectionInfo = unknown>(
    * lookup rather than trusted from before it, so an eviction or invalidation
    * that landed meanwhile cannot be overwritten with the older placement.
    */
-  async function revalidate(tenantRef: string): Promise<DataPlaneHandle> {
+  async function revalidate(tenantRef: string, wait: SlotWait): Promise<DataPlaneHandle> {
     for (let attempt = 0; attempt < MAX_RESOLVE_ATTEMPTS; attempt += 1) {
       const epoch = currentEpoch(tenantRef);
       let descriptor: DataPlaneDescriptor<TConnectionInfo>;
@@ -261,8 +446,7 @@ export function createPooledDataPlaneResolver<TConnectionInfo = unknown>(
         descriptor = await describeChecked(tenantRef);
       } catch (error) {
         if (error instanceof UnknownTenantError) {
-          // The tenant is gone: drop the cached data plane rather than keep
-          // serving it.
+          // The tenant is gone: stop serving its cached plane (closed once unleased).
           await evict(tenantRef);
         }
         throw error;
@@ -270,32 +454,30 @@ export function createPooledDataPlaneResolver<TConnectionInfo = unknown>(
       const current = entries.get(tenantRef);
       if (!current || currentEpoch(tenantRef) !== epoch) {
         // Invalidated or evicted while describing — resolve from scratch.
-        const handle = await connectAndStore(tenantRef, descriptor, currentEpoch(tenantRef));
+        const handle = await connectAndStore(tenantRef, descriptor, currentEpoch(tenantRef), wait);
         if (handle) return handle;
         continue;
       }
       if (descriptor.generation === current.generation) {
         const coreSchema = descriptor.coreSchema ?? DEFAULT_CORE_SCHEMA;
         const packageSchemaPrefix = descriptor.packageSchemaPrefix ?? DEFAULT_PACKAGE_SCHEMA_PREFIX;
-        const schemasUnchanged =
-          coreSchema === current.coreSchema && packageSchemaPrefix === current.packageSchemaPrefix;
-        const entry: CacheEntry = {
-          ...current,
-          coreSchema,
-          packageSchemaPrefix,
-          handle: schemasUnchanged
-            ? current.handle
-            : buildHandle(tenantRef, current.connection.db, descriptor),
-          resolvedAt: now(),
-        };
-        touch(tenantRef, entry);
-        return entry.handle;
+        if (
+          coreSchema !== current.coreSchema ||
+          packageSchemaPrefix !== current.packageSchemaPrefix
+        ) {
+          // Updated in place: leases count on this entry, so it must stay the same object.
+          current.handle = buildHandle(tenantRef, current.connection.db, descriptor);
+          current.coreSchema = coreSchema;
+          current.packageSchemaPrefix = packageSchemaPrefix;
+        }
+        current.resolvedAt = now();
+        touch(current);
+        return current.handle;
       }
-      // Generation moved: the cached connection points at a superseded
-      // placement. Close it before connecting to the new one.
-      entries.delete(tenantRef);
-      await closeQuietly(tenantRef, current.connection);
-      const handle = await connectAndStore(tenantRef, descriptor, epoch);
+      // Generation moved: the cached connection points at a superseded placement. Stop
+      // handing it out (closed now, or by its last lease) before connecting to the new one.
+      await retire(current);
+      const handle = await connectAndStore(tenantRef, descriptor, epoch, wait);
       if (handle) return handle;
     }
     throw invalidationRaceError(tenantRef);
@@ -305,6 +487,14 @@ export function createPooledDataPlaneResolver<TConnectionInfo = unknown>(
     return new PlumbusError(
       ErrorCode.Internal,
       'Data plane resolver is closed and cannot resolve further tenants',
+      { tenantRef },
+    );
+  }
+
+  function abortedError(tenantRef: string): PlumbusError {
+    return new PlumbusError(
+      ErrorCode.Cancelled,
+      `Waiting for a data plane slot for tenant reference "${tenantRef}" was aborted`,
       { tenantRef },
     );
   }
@@ -332,22 +522,60 @@ export function createPooledDataPlaneResolver<TConnectionInfo = unknown>(
     return promise;
   }
 
+  async function resolveWith(tenantRef: string, wait: SlotWait): Promise<DataPlaneHandle> {
+    if (closed) {
+      throw closedError(tenantRef);
+    }
+    assertTenantRef(tenantRef);
+
+    const cached = entries.get(tenantRef);
+    if (cached && !isStale(cached)) {
+      touch(cached);
+      return cached.handle;
+    }
+    if (cached) {
+      return start(tenantRef, () => revalidate(tenantRef, wait));
+    }
+    return start(tenantRef, () => load(tenantRef, wait));
+  }
+
+  function leaseOf(entry: CacheEntry): DataPlaneLease {
+    entry.leases += 1;
+    let released = false;
+    return Object.freeze({
+      handle: entry.handle,
+      release() {
+        if (released) return;
+        released = true;
+        entry.leases -= 1;
+        if (entry.leases > 0) return;
+        if (entry.retired && !entry.ended) {
+          entry.ended = true;
+          retired.delete(entry);
+          void closeQuietly(entry.tenantRef, entry.connection);
+        }
+        wakeWaiters();
+      },
+    });
+  }
+
   return {
     async resolve(tenantRef: string): Promise<DataPlaneHandle> {
-      if (closed) {
-        throw closedError(tenantRef);
-      }
-      assertTenantRef(tenantRef);
+      return resolveWith(tenantRef, { waitMs: capacityWaitMs });
+    },
 
-      const cached = entries.get(tenantRef);
-      if (cached && !isStale(cached)) {
-        touch(tenantRef, cached);
-        return cached.handle;
+    async acquire(tenantRef: string, acquireOptions?: DataPlaneAcquireOptions) {
+      const waitMs = acquireOptions?.waitMs ?? capacityWaitMs;
+      assertWaitMs(waitMs, 'waitMs');
+      const wait: SlotWait = { waitMs, signal: acquireOptions?.signal };
+      for (let attempt = 0; attempt < MAX_RESOLVE_ATTEMPTS; attempt += 1) {
+        const handle = await resolveWith(tenantRef, wait);
+        // Leased in the same turn the cache is read, so no eviction can come in between.
+        const entry = entries.get(tenantRef);
+        if (entry && entry.handle === handle && !entry.ended) return leaseOf(entry);
+        // Evicted or replaced between the resolution and here: resolve again.
       }
-      if (cached) {
-        return start(tenantRef, () => revalidate(tenantRef));
-      }
-      return start(tenantRef, () => load(tenantRef));
+      throw invalidationRaceError(tenantRef);
     },
 
     async invalidate(tenantRef: string): Promise<void> {
@@ -360,8 +588,8 @@ export function createPooledDataPlaneResolver<TConnectionInfo = unknown>(
       for (const tenantRef of [...entries.keys(), ...inFlight.keys()]) {
         bumpEpoch(tenantRef);
       }
-      for (const tenantRef of [...entries.keys()]) {
-        await evict(tenantRef);
+      for (const entry of [...entries.values()]) {
+        await retire(entry);
       }
     },
 
@@ -370,9 +598,36 @@ export function createPooledDataPlaneResolver<TConnectionInfo = unknown>(
       for (const tenantRef of [...inFlight.keys()]) {
         bumpEpoch(tenantRef);
       }
-      for (const tenantRef of [...entries.keys()]) {
-        await evict(tenantRef);
+      wakeWaiters();
+      for (const entry of [...entries.values(), ...retired]) {
+        await retire(entry, true);
       }
     },
+
+    stats() {
+      return {
+        capacity: cacheSize,
+        cached: entries.size,
+        retired: retired.size,
+        closing,
+        connecting,
+        leases: leaseCount(),
+        waiting: waiters.size,
+      };
+    },
   };
+}
+
+interface SlotWait {
+  waitMs: number;
+  signal?: AbortSignal;
+}
+
+function assertWaitMs(value: number, name: string): void {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new PlumbusError(
+      ErrorCode.Validation,
+      `Data plane ${name} must be a whole number of milliseconds, 0 or more (received ${String(value)})`,
+    );
+  }
 }

@@ -6,6 +6,46 @@ The 0.8 numbers now belong to the stable **stabilization family** published from
 
 Core 0.9.0-beta.0 contains everything in the 0.8.0-beta.N line plus every stable change merged from `main`: the core 0.8.0 stabilization (PLB-01 to PLB-10), core 0.8.1, auth 0.3.1 and the Vitest 5.0.4 toolchain. See [Included in v0.9.0-beta.0](#included-in-v090-beta0).
 
+## Unreleased (next core beta, 0.9.0-beta.13): database load with many tenants, approval reads, safe migrations
+
+Not yet released. `@plumbus/core` changes; no peer range changes. Everything below is additive
+on the public API; three behaviours change by default and are called out.
+
+**Data-plane leases.** `createPooledDataPlaneResolver` gains `acquire(tenantRef, { waitMs?,
+signal?, purpose? })` returning a lease, `stats()`, the `capacityWaitMs` option and
+`DataPlaneCapacityError`; `withDataPlane` / `acquireDataPlane` wrap any resolver. A leased plane
+is never closed; `cacheSize` is now a strict ceiling on open pools.
+- *Behaviour change:* when every open plane is leased, `resolve()` / `acquire()` wait up to
+  `capacityWaitMs` (10 s) and then throw `DataPlaneCapacityError` (HTTP 503) instead of closing a
+  plane in use. `invalidate` on a leased plane closes it after the last release instead of at once.
+- The framework leases every plane it uses, and the outbox dispatcher, scheduler (including
+  `plumbus flow schedule sync`), tenant sweeps and retention walk `listTenantRefs` one plane at a
+  time. A tenant that fails to resolve no longer stops the outbox poll for every tenant.
+- **Host action:** a host that exports its own `dataPlaneResolver` wrapping the pooled resolver
+  must forward `acquire` (and may use `options.purpose`), or it keeps only the protection of
+  `resolve()`. See [Tenant data planes: leases](./sdk-reference/tenant-data-planes.md#leases-and-the-connection-ceiling).
+- New config: `workers.outboxPollIntervalMs`, `workers.outboxIdleBackoffMaxMs` (default 0, off),
+  `workers.flowPollIntervalMs`, `workers.schedulerPollIntervalMs`, with
+  `PLUMBUS_OUTBOX_POLL_INTERVAL_MS`, `PLUMBUS_OUTBOX_IDLE_BACKOFF_MAX_MS`,
+  `PLUMBUS_FLOW_POLL_INTERVAL_MS`, `PLUMBUS_SCHEDULER_POLL_INTERVAL_MS`.
+
+**Approval store reads.** `ApprovalStore` gains optional `findRequests`, `listAllRequests`
+(paged) and `expireRequests`; the SQL and memory stores implement them and the approval service
+uses them, so no approval call reads the whole `approval_request` table. `listRequests()` is
+deprecated (still works). New partial index `approval_request_live_idx`: run
+`plumbus migrate generate` and apply it; on a large table make that generated file a
+`-- plumbus:no-transaction` migration with `CREATE INDEX CONCURRENTLY IF NOT EXISTS`. See
+[Approvals: store reads](./core-concepts/approvals.md#store-reads-core-090-beta13).
+
+**Migration runner.** *Behaviour change:* every migration statement runs under
+`lock_timeout = 5s`, retried 3 times with a doubling delay, then `MigrationLockTimeoutError`
+(`lockTimeoutMs: 0` / `--lock-timeout 0` restores waiting forever). A waiting concurrent run now
+polls for the migration lock. New `-- plumbus:no-transaction` migrations run statement by
+statement outside a transaction for `CREATE INDEX CONCURRENTLY`, are recorded only after their
+last statement, drop indexes a failed concurrent build left invalid, and are never recorded while
+an invalid index exists (`MigrationInvalidIndexError`, `listInvalidIndexes`). See
+[Data layer: migrations](./sdk-reference/data-layer.md#lock-timeout-and-retry-core-090-beta13).
+
 ## Unreleased (next core beta): bounded repository reads, capability transactions opened at the first write
 
 Not yet released; prepared on the beta line for the next `@plumbus/core` beta. Both changes alter

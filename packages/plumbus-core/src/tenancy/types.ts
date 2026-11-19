@@ -33,6 +33,42 @@ export interface DataPlaneHandle {
 }
 
 /**
+ * What a plane is resolved for. `'background'` is the framework's own periodic work (outbox
+ * pump, scheduler, sweeps, retention); `'request'` is work done for a caller. A host resolver
+ * may use it to choose a cheaper routing check for background work; it never changes which
+ * plane a tenant resolves to.
+ */
+export type DataPlanePurpose = 'request' | 'background';
+
+/** Options a resolver may receive with `resolve`. Resolvers that ignore them stay correct. */
+export interface DataPlaneResolveOptions {
+  purpose?: DataPlanePurpose;
+}
+
+/** Options for {@link DataPlaneResolver.acquire}. */
+export interface DataPlaneAcquireOptions extends DataPlaneResolveOptions {
+  /**
+   * How long to wait for a free connection slot when every open plane is leased, in
+   * milliseconds. Default: the resolver's `capacityWaitMs`.
+   */
+  waitMs?: number;
+  /** Abandons the wait (the acquire rejects) when aborted. */
+  signal?: AbortSignal;
+}
+
+/**
+ * A data plane held for one unit of use. While any lease on a plane is held, the resolver
+ * never closes that plane's connection: not to make room for another tenant, not on
+ * `invalidate`, not on a generation change (it stops handing the plane out and closes it
+ * after the last lease is released). Only `close()` of the whole resolver ends it.
+ */
+export interface DataPlaneLease {
+  readonly handle: DataPlaneHandle;
+  /** Give the plane back. Idempotent. The handle must not be used afterwards. */
+  release(): void;
+}
+
+/**
  * Resolves an opaque tenant reference to its data plane.
  *
  * Implementations MUST fail closed: an unresolvable reference throws, and no
@@ -40,7 +76,19 @@ export interface DataPlaneHandle {
  * cross-tenant leak.
  */
 export interface DataPlaneResolver {
-  resolve(tenantRef: string): Promise<DataPlaneHandle>;
+  /**
+   * The tenant's plane, without a lease. A pooled resolver may close the returned handle's
+   * connection once it is the least recently used unleased plane and another tenant needs
+   * the slot, so a caller that holds the handle across awaits should use `acquire`.
+   */
+  resolve(tenantRef: string, options?: DataPlaneResolveOptions): Promise<DataPlaneHandle>;
+  /**
+   * The tenant's plane under a lease: the connection stays open until `release()`. Optional
+   * so existing host resolvers keep compiling; the framework uses it when present
+   * (`withDataPlane`) and falls back to `resolve` otherwise. A host resolver that wraps
+   * `createPooledDataPlaneResolver` should forward it.
+   */
+  acquire?(tenantRef: string, options?: DataPlaneAcquireOptions): Promise<DataPlaneLease>;
   /**
    * Drop any cached handle for `tenantRef` so the next `resolve` re-reads the
    * host's routing. Absent on resolvers that hold no cache.
@@ -92,8 +140,22 @@ export interface PooledDataPlaneResolverOptions<TConnectionInfo = unknown> {
   describe(tenantRef: string): Promise<DataPlaneDescriptor<TConnectionInfo> | undefined | null>;
   /** Open a connection for a described tenant. */
   connect(request: DataPlaneConnectRequest<TConnectionInfo>): Promise<DataPlaneConnection>;
-  /** Maximum number of cached data planes (LRU, default 32). */
+  /**
+   * Most data-plane connections (pools) open at once, default 32. This is a ceiling, not a
+   * target: it counts cached planes, planes still leased after an invalidation, planes being
+   * closed and connections being opened. `cacheSize × the pool size per plane` is the
+   * connection budget a host sizes its database against. To open a plane when the ceiling
+   * is reached, the resolver closes the least recently used plane nobody holds a lease on;
+   * when every plane is leased it waits up to `capacityWaitMs` for one to be released and
+   * then refuses with `DataPlaneCapacityError`.
+   */
   cacheSize?: number;
+  /**
+   * How long `resolve` / `acquire` wait for a free slot when every open plane is leased, in
+   * milliseconds (default {@link DEFAULT_DATA_PLANE_CAPACITY_WAIT_MS}). `acquire` can
+   * override it per call (`waitMs`).
+   */
+  capacityWaitMs?: number;
   /**
    * Re-run `describe` for a cached tenant once its entry is older than this
    * many milliseconds. Omitted (the default) means cached entries are only
@@ -106,15 +168,42 @@ export interface PooledDataPlaneResolverOptions<TConnectionInfo = unknown> {
   onCloseError?: (info: { tenantRef: string; error: unknown }) => void;
 }
 
+/** What a pooled resolver holds right now (for health checks, metrics and tests). */
+export interface DataPlaneResolverStats {
+  /** `cacheSize`: the most connections open at once. */
+  capacity: number;
+  /** Planes in the cache (handed out by `resolve` / `acquire`). */
+  cached: number;
+  /** Planes taken out of the cache (invalidated, superseded) that still have leases. */
+  retired: number;
+  /** Connections being closed. */
+  closing: number;
+  /** Connections being opened. */
+  connecting: number;
+  /** Leases held now, over cached and retired planes. */
+  leases: number;
+  /** Callers waiting for a free slot. */
+  waiting: number;
+}
+
 /** A `DataPlaneResolver` that caches connections and can be invalidated. */
 export interface PooledDataPlaneResolver extends DataPlaneResolver {
-  resolve(tenantRef: string): Promise<DataPlaneHandle>;
-  /** Evict and close the cached data plane for one tenant. */
+  resolve(tenantRef: string, options?: DataPlaneResolveOptions): Promise<DataPlaneHandle>;
+  acquire(tenantRef: string, options?: DataPlaneAcquireOptions): Promise<DataPlaneLease>;
+  /**
+   * Drop the cached data plane for one tenant. Its connection is closed now when nobody holds
+   * a lease on it, else when the last lease is released.
+   */
   invalidate(tenantRef: string): Promise<void>;
-  /** Evict and close every cached data plane. */
+  /** `invalidate` for every cached data plane. */
   invalidateAll(): Promise<void>;
-  /** Close every cached data plane; further `resolve` calls throw. */
+  /**
+   * Close every data plane, leased or not; further `resolve` / `acquire` calls throw and
+   * callers waiting for a slot are refused. For shutdown.
+   */
   close(): Promise<void>;
+  /** A snapshot of open, leased and waiting counts. */
+  stats(): DataPlaneResolverStats;
 }
 
 /** Options for the single-data-plane (back-compat) resolver. */

@@ -272,3 +272,140 @@ describe('OutboxDispatcher', () => {
     });
   });
 });
+
+describe('OutboxDispatcher over tenant planes', () => {
+  /** A resolver with leases that records which planes were held, and how many at once. */
+  function leasingResolver(planes: Record<string, any>, failing: string[] = []) {
+    let held = 0;
+    let maxHeld = 0;
+    const visits: string[] = [];
+    const purposes: unknown[] = [];
+    return {
+      visits,
+      purposes,
+      get held() {
+        return held;
+      },
+      get maxHeld() {
+        return maxHeld;
+      },
+      resolver: {
+        resolve: async () => {
+          throw new Error('the dispatcher must lease, not resolve');
+        },
+        acquire: async (tenantRef: string, options?: { purpose?: string }) => {
+          if (failing.includes(tenantRef)) throw new Error(`no route for ${tenantRef}`);
+          purposes.push(options?.purpose);
+          visits.push(tenantRef);
+          held += 1;
+          maxHeld = Math.max(maxHeld, held);
+          let released = false;
+          return {
+            handle: {
+              db: planes[tenantRef],
+              coreSchema: 'core_plumbus',
+              packageSchemaPrefix: 'pkg_',
+              tenantRef,
+            },
+            release() {
+              if (!released) held -= 1;
+              released = true;
+            },
+          };
+        },
+      },
+    };
+  }
+
+  it('holds one plane at a time, for background work, and gives each back', async () => {
+    const planes = { a: mockDb([makeRow('e-a')]), b: mockDb([makeRow('e-b')]), c: mockDb([]) };
+    const tracked = leasingResolver(planes);
+    const dispatcher = createOutboxDispatcher({
+      db: mockDb([]),
+      queue: createInMemoryQueue(),
+      resolver: tracked.resolver,
+      listTenantRefs: () => ['a', 'b', 'c'],
+    });
+    expect(await dispatcher.poll()).toBe(2);
+    expect(tracked.visits).toEqual(['a', 'b', 'c']);
+    expect(tracked.maxHeld).toBe(1);
+    expect(tracked.held).toBe(0);
+    expect(new Set(tracked.purposes)).toEqual(new Set(['background']));
+  });
+
+  it('skips a tenant it cannot resolve and still pumps the others', async () => {
+    const planes = { a: mockDb([makeRow('e-a')]), c: mockDb([makeRow('e-c')]) };
+    const tracked = leasingResolver(planes, ['b']);
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+    const dispatcher = createOutboxDispatcher({
+      db: mockDb([]),
+      queue: createInMemoryQueue(),
+      logger,
+      resolver: tracked.resolver,
+      listTenantRefs: () => ['a', 'b', 'c'],
+    });
+    expect(await dispatcher.poll()).toBe(2);
+    expect(logger.error).toHaveBeenCalledWith(
+      'Outbox poll failed for one plane',
+      expect.objectContaining({ tenantRef: 'b', error: 'no route for b' }),
+    );
+    expect(tracked.held).toBe(0);
+  });
+
+  it('backs off idle planes up to idlePlaneBackoffMaxMs, keeps busy ones every poll, and wake() resets', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(0);
+      const planes = { busy: mockDb([makeRow('e-busy')]), idle: mockDb([]) };
+      const tracked = leasingResolver(planes);
+      const dispatcher = createOutboxDispatcher({
+        db: mockDb([]),
+        queue: createInMemoryQueue(),
+        pollIntervalMs: 1000,
+        idlePlaneBackoffMaxMs: 4000,
+        resolver: tracked.resolver,
+        listTenantRefs: () => ['busy', 'idle'],
+      });
+      const idleVisitsAt: number[] = [];
+      for (let at = 0; at <= 12_000; at += 1000) {
+        vi.setSystemTime(at);
+        const before = tracked.visits.filter((ref) => ref === 'idle').length;
+        await dispatcher.poll();
+        if (tracked.visits.filter((ref) => ref === 'idle').length > before) idleVisitsAt.push(at);
+      }
+      // Skipped for 1 s, 2 s, then 4 s (the cap) after each idle visit.
+      expect(idleVisitsAt).toEqual([0, 1000, 3000, 7000, 11_000]);
+      expect(tracked.visits.filter((ref) => ref === 'busy')).toHaveLength(13);
+
+      dispatcher.wake('idle');
+      vi.setSystemTime(12_000);
+      await dispatcher.poll();
+      expect(tracked.visits.at(-1)).toBe('idle');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('visits every plane every poll by default', async () => {
+    const planes = { idle: mockDb([]) };
+    const tracked = leasingResolver(planes);
+    const dispatcher = createOutboxDispatcher({
+      db: mockDb([]),
+      queue: createInMemoryQueue(),
+      resolver: tracked.resolver,
+      listTenantRefs: () => ['idle'],
+    });
+    for (let i = 0; i < 3; i += 1) await dispatcher.poll();
+    expect(tracked.visits).toEqual(['idle', 'idle', 'idle']);
+  });
+
+  it('refuses a negative idle back-off', () => {
+    expect(() =>
+      createOutboxDispatcher({
+        db: mockDb([]),
+        queue: createInMemoryQueue(),
+        idlePlaneBackoffMaxMs: -1,
+      }),
+    ).toThrow('idlePlaneBackoffMaxMs must be a whole number');
+  });
+});

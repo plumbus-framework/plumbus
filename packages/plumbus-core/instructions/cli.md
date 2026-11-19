@@ -150,6 +150,7 @@ plumbus migrate generate
 plumbus migrate apply
 plumbus migrate apply --create-db   # Create DB if it doesn't exist, then apply
 plumbus migrate apply --database tenant_alpha   # Named tenant database (owner role in config)
+plumbus migrate apply --lock-timeout 5000 --lock-retries 3   # The defaults: DDL waits ≤5 s for a lock, then retries
 
 # Push schema directly to DB (no migration files — ideal for rapid dev iteration)
 plumbus migrate push
@@ -171,6 +172,10 @@ All migration commands accept `--json` for machine-readable output.
 3. Run `plumbus migrate apply` to execute pending migrations. Database-per-tenant hosts apply the same `drizzle/` folder to each named database (`--database <name>` or `applyDataPlaneMigrations`) as the owner role — see `docs/sdk-reference/tenant-data-planes.md`.
 4. If schema already exists but history is missing: `plumbus migrate reconcile` (use `--dry-run` to preview)
 5. For rapid development, use `plumbus migrate push` to sync schema directly (no migration files)
+
+**Migrations against a live database (core 0.9.0-beta.13+):**
+- Every statement runs under `lock_timeout` (5 s, `--lock-timeout` / `PLUMBUS_MIGRATION_LOCK_TIMEOUT_MS`; `0` = wait forever). A DDL that cannot get its lock fails and the migration is retried (`--lock-retries`, default 3), then `apply` fails with `MigrationLockTimeoutError` and the migration stays pending. Do not raise the timeout to make a deploy pass; find the long transaction holding the lock.
+- To add an index to a large table, edit the generated migration: first line `-- plumbus:no-transaction`, then `CREATE INDEX CONCURRENTLY IF NOT EXISTS ...`. Keep other DDL for that table in a separate file. The file runs statement by statement outside a transaction and must be safe to run twice (`IF NOT EXISTS`). A failed concurrent build's invalid index is dropped for you; `apply` refuses to record such a migration while any invalid index exists (`MigrationInvalidIndexError`; drop it with `DROP INDEX CONCURRENTLY` and apply again).
 
 **Never run `drizzle-kit` manually** — the framework wraps it programmatically.
 

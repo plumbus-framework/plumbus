@@ -202,6 +202,29 @@ export interface WorkersConfig {
    * the others keep claiming. Default: `1` (one execution at a time, as before this setting).
    */
   flowConcurrency?: number;
+  /**
+   * How often the outbox dispatcher polls, in milliseconds (`PLUMBUS_OUTBOX_POLL_INTERVAL_MS`).
+   * Under a data-plane resolver each poll visits every listed tenant plane in turn. Default:
+   * `1000`.
+   */
+  outboxPollIntervalMs?: number;
+  /**
+   * Back off tenant planes whose outbox was empty (`PLUMBUS_OUTBOX_IDLE_BACKOFF_MAX_MS`): an
+   * idle plane is skipped for twice as long after each idle visit, up to this many
+   * milliseconds, and polled every interval again once it has work. This is also the longest
+   * an event written to an idle plane waits before dispatch. Default: `0` (no back-off).
+   */
+  outboxIdleBackoffMaxMs?: number;
+  /**
+   * How often the flow runner polls for claimable executions, in milliseconds
+   * (`PLUMBUS_FLOW_POLL_INTERVAL_MS`). Default: `1000` (at least 30 000 with durable queues).
+   */
+  flowPollIntervalMs?: number;
+  /**
+   * How often the flow scheduler polls due schedules, in milliseconds
+   * (`PLUMBUS_SCHEDULER_POLL_INTERVAL_MS`). Default: `60000`.
+   */
+  schedulerPollIntervalMs?: number;
 }
 
 // ── Plumbus Config ──

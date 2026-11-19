@@ -64,7 +64,12 @@ import { createJobDispatchService, publishPendingJobs } from '../jobs/index.js';
 import type { PlumbusMetrics } from '../observability/metrics.js';
 import { settleBy } from '../runtime/graceful-shutdown.js';
 import { registerCapabilityConsumers } from '../runtime/register-consumers.js';
-import type { DataPlaneResolver } from '../tenancy/types.js';
+import {
+  acquireDataPlane,
+  DataPlaneCapacityError,
+  withDataPlane,
+} from '../tenancy/data-plane-resolver.js';
+import type { DataPlaneLease, DataPlaneResolver } from '../tenancy/types.js';
 import type { AuditService } from '../types/audit.js';
 import type { PlumbusConfig } from '../types/config.js';
 import type { AIService, DataService, LoggerService } from '../types/context.js';
@@ -290,11 +295,16 @@ export interface WorkerPoolConfig {
   logger?: LoggerService;
   /** Runtime metrics (optional — wired to worker /metrics endpoint). */
   metrics?: PlumbusMetrics;
-  /** Outbox poll interval ms (default: 1000) */
+  /** Outbox poll interval ms. Default: `config.workers.outboxPollIntervalMs`, else 1000. */
   outboxPollIntervalMs?: number;
-  /** Scheduler poll interval ms (default: 60000) */
+  /**
+   * Longest idle back-off of a tenant plane's outbox, ms (see `DispatcherConfig`). Default:
+   * `config.workers.outboxIdleBackoffMaxMs`, else 0 (every plane every poll).
+   */
+  outboxIdleBackoffMaxMs?: number;
+  /** Scheduler poll interval ms. Default: `config.workers.schedulerPollIntervalMs`, else 60000. */
   schedulerPollIntervalMs?: number;
-  /** Flow execution poll interval ms (default: 1000) */
+  /** Flow execution poll interval ms. Default: `config.workers.flowPollIntervalMs`, else 1000. */
   flowPollIntervalMs?: number;
   /** Whether to start the outbox dispatcher (default: true) */
   enableDispatcher?: boolean;
@@ -495,9 +505,11 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     flows,
     stepDeps,
     audit,
-    outboxPollIntervalMs = 1000,
-    schedulerPollIntervalMs = 60_000,
-    flowPollIntervalMs: flowPollIntervalMsConfig = 1000,
+    outboxPollIntervalMs = poolConfig.config.workers?.outboxPollIntervalMs ?? 1000,
+    outboxIdleBackoffMaxMs = poolConfig.config.workers?.outboxIdleBackoffMaxMs ?? 0,
+    schedulerPollIntervalMs = poolConfig.config.workers?.schedulerPollIntervalMs ?? 60_000,
+    flowPollIntervalMs: flowPollIntervalMsConfig = poolConfig.config.workers?.flowPollIntervalMs ??
+      1000,
     frameworkSchema,
     enableDispatcher = true,
     enableEventWorker = true,
@@ -569,17 +581,24 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     );
   }
 
-  /** Resolve (and remember) the data plane a unit of work runs against. */
-  async function resolveUnitDataPlane(tenantRef: string | undefined): Promise<PostgresJsDatabase> {
+  /**
+   * Resolve (and remember) the data plane a unit of work runs against. The plane is leased
+   * for the unit: the lease goes into `leases`, which the caller releases when the unit ends.
+   */
+  async function resolveUnitDataPlane(
+    tenantRef: string | undefined,
+    leases: DataPlaneLease[],
+  ): Promise<PostgresJsDatabase> {
     if (!dataPlaneResolver || unitsOnControlPlane) return db;
     if (!tenantRef) {
       if (untenantedDataPlane === 'control-plane') return db;
       throw untenantedWorkError();
     }
-    const handle = await dataPlaneResolver.resolve(tenantRef);
-    resolvedDataPlanes.set(tenantRef, handle.db);
-    resolvedCoreSchemas.set(tenantRef, handle.coreSchema);
-    return handle.db;
+    const lease = await acquireDataPlane(dataPlaneResolver, tenantRef, { purpose: 'background' });
+    leases.push(lease);
+    resolvedDataPlanes.set(tenantRef, lease.handle.db);
+    resolvedCoreSchemas.set(tenantRef, lease.handle.coreSchema);
+    return lease.handle.db;
   }
 
   /**
@@ -630,6 +649,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     audit: workerAudit,
     logger,
     pollIntervalMs: outboxPollIntervalMs,
+    idlePlaneBackoffMaxMs: outboxIdleBackoffMaxMs,
     metrics,
     ...(dataPlaneResolver
       ? {
@@ -925,16 +945,28 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     }
     for (const tenantRef of tenantRefs) {
       if (!running) return;
-      let planeDb: PostgresJsDatabase;
+      // One plane held at a time, and only for its sweep and intent recovery.
+      let lease: DataPlaneLease;
       try {
-        planeDb = (await resolver.resolve(tenantRef)).db;
-        await sweepFailedFlows(planeDb);
+        lease = await acquireDataPlane(resolver, tenantRef, { purpose: 'background' });
       } catch (err) {
         warnSweepFailed(err, { tenantRef });
         continue;
       }
-      // Deferred flow starts a request or a step on this plane committed and never started.
-      if (enableFlowRunner && running) await recoverIntentsOn(planeDb, `tenant-plane:${tenantRef}`);
+      try {
+        try {
+          await sweepFailedFlows(lease.handle.db);
+        } catch (err) {
+          warnSweepFailed(err, { tenantRef });
+          continue;
+        }
+        // Deferred flow starts a request or a step on this plane committed and never started.
+        if (enableFlowRunner && running) {
+          await recoverIntentsOn(lease.handle.db, `tenant-plane:${tenantRef}`);
+        }
+      } finally {
+        lease.release();
+      }
     }
   }
 
@@ -1049,12 +1081,17 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     for (const tenantRef of tenantRefs) {
       if (!running) return;
       try {
-        const handle = await dataPlaneResolver.resolve(tenantRef);
-        const result = await pruneFrameworkTables(handle.db, {
-          ...options,
-          coreSchema: handle.coreSchema,
-          spineDb: db,
-        });
+        const result = await withDataPlane(
+          dataPlaneResolver,
+          tenantRef,
+          (handle) =>
+            pruneFrameworkTables(handle.db, {
+              ...options,
+              coreSchema: handle.coreSchema,
+              spineDb: db,
+            }),
+          { purpose: 'background' },
+        );
         reportRetention(`tenant-plane:${tenantRef}`, result);
       } catch (err) {
         warnRetentionFailed(err, `tenant-plane:${tenantRef}`);
@@ -1149,8 +1186,13 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     // This claim's own entries: removed in `finally` only while they are still this claim's.
     let unitPlane: { db: PostgresJsDatabase } | undefined;
     const draining = { executionId: row.id };
+    // The planes this drain holds (the execution's own, and its repositories' when resolved
+    // separately): leased until the drain ends, so no other tenant's work closes them.
+    const leases: DataPlaneLease[] = [];
     drainingExecutions.add(draining);
     try {
+      const executionPlane = await flowEngine.acquireExecutionPlane(row.id);
+      if (executionPlane) leases.push(executionPlane);
       // Resolving inside the per-row try means an unknown or absent tenant
       // fails this execution the same way a failing step does, instead of
       // aborting the cycle for every other tenant in the batch.
@@ -1161,7 +1203,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
         tenantId: claimedTenantRef(row),
       });
       const unitAuth = unitTenantRef ? { ...systemAuth, tenantId: unitTenantRef } : systemAuth;
-      const unitDb = baseCtx ? db : await resolveUnitDataPlane(unitTenantRef);
+      const unitDb = baseCtx ? db : await resolveUnitDataPlane(unitTenantRef, leases);
       unitPlane = { db: unitDb };
       unitPlanes.set(row.id, unitPlane);
       const ctx = baseCtx ?? buildFlowRunnerContext(unitAuth, unitDb);
@@ -1214,6 +1256,24 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
         });
       }
     } catch (err) {
+      // No free data-plane slot right now is not the flow's failure: hand the claim back so a
+      // later cycle runs it once a plane is released.
+      if (err instanceof DataPlaneCapacityError) {
+        logger.warn('No data-plane slot for a claimed flow execution; released for a later cycle', {
+          executionId: row.id,
+          workerId: flowEngine.workerId,
+          ...describeError(err),
+        });
+        try {
+          await flowEngine.releaseClaim(row.id, leaseToken);
+        } catch (releaseErr) {
+          logger.warn('Could not release the flow execution; its lease expires', {
+            executionId: row.id,
+            ...describeError(releaseErr),
+          });
+        }
+        return;
+      }
       // A missing definition is not a failure: the engine released the execution for a
       // worker that has it, and already logged `definition-unavailable`.
       if (!(err instanceof FlowDefinitionUnavailableError)) {
@@ -1241,6 +1301,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     } finally {
       drainingExecutions.delete(draining);
       if (unitPlane && unitPlanes.get(row.id) === unitPlane) unitPlanes.delete(row.id);
+      for (const lease of leases) lease.release();
     }
   }
 

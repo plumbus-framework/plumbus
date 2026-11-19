@@ -18,8 +18,10 @@ import {
   flowScheduleTicksTable,
   flowStartIntentsTable,
 } from '../flows/schema.js';
+import { PlumbusError } from '../errors/plumbus-error.js';
 import { jobExecutionsTable } from '../jobs/schema.js';
 import type { EntityDefinition } from '../types/entity.js';
+import { ErrorCode } from '../types/enums.js';
 import { FRAMEWORK_SCHEMA, generateDrizzleSchema } from './schema-generator.js';
 
 export interface MigrationConfig {
@@ -30,6 +32,230 @@ export interface MigrationConfig {
    * this run starts waiting for it (CLI: prints a waiting line).
    */
   onLockWait?: () => void;
+  /**
+   * PostgreSQL `lock_timeout` for every migration statement, in milliseconds. A DDL statement
+   * that waits longer than this for a table lock fails instead of queueing every later query
+   * on that table behind it; the runner then retries (`lockRetries`). `0` turns the timeout
+   * off (wait forever, the behaviour before core 0.9.0-beta.13). Default:
+   * {@link DEFAULT_MIGRATION_LOCK_TIMEOUT_MS}. The timeout is scoped to the migration's own
+   * transaction (or, for a `-- plumbus:no-transaction` migration, reset after it), so it never
+   * reaches the connection pool.
+   */
+  lockTimeoutMs?: number;
+  /**
+   * How many more times a migration (a transactional one from its first statement, a
+   * non-transactional one from the statement that timed out) is attempted after a lock
+   * timeout. Default: {@link DEFAULT_MIGRATION_LOCK_RETRIES}. Exhausted, the run fails with
+   * `MigrationLockTimeoutError` and the migration stays pending.
+   */
+  lockRetries?: number;
+  /**
+   * Wait before the first retry, in milliseconds; doubled for each later one and capped at
+   * 30 s. Default: {@link DEFAULT_MIGRATION_LOCK_RETRY_DELAY_MS}.
+   */
+  lockRetryDelayMs?: number;
+  /** Called before each retry after a lock timeout (CLI: prints a line to stderr). */
+  onLockRetry?: (info: MigrationLockRetryInfo) => void;
+}
+
+/** What `onLockRetry` is told before the runner tries a timed-out migration again. */
+export interface MigrationLockRetryInfo {
+  tag: string;
+  /** 1-based statement that timed out. */
+  statement: number;
+  /** 1-based retry about to run. */
+  retry: number;
+  retries: number;
+  delayMs: number;
+}
+
+/** Default `lock_timeout` for migration statements: five seconds. */
+export const DEFAULT_MIGRATION_LOCK_TIMEOUT_MS = 5_000;
+/** Default number of retries after a migration statement hits its lock timeout. */
+export const DEFAULT_MIGRATION_LOCK_RETRIES = 3;
+/** Default wait before the first lock-timeout retry (doubled for each later one). */
+export const DEFAULT_MIGRATION_LOCK_RETRY_DELAY_MS = 1_000;
+const MAX_MIGRATION_LOCK_RETRY_DELAY_MS = 30_000;
+/** How often a run waiting for the migration lock asks for it again. */
+const MIGRATION_LOCK_POLL_MS = 250;
+
+/**
+ * A line of its own in a migration file's leading comment block that makes the runner apply
+ * that file outside a transaction, one statement at a time (needed for
+ * `CREATE INDEX CONCURRENTLY`). See `applyMigrations`.
+ */
+export const MIGRATION_NO_TRANSACTION_DIRECTIVE = '-- plumbus:no-transaction';
+
+/** SQLSTATE `lock_not_available`: the statement waited longer than `lock_timeout`. */
+const LOCK_NOT_AVAILABLE = '55P03';
+
+/** A migration statement failed. The message names the migration, the statement and the SQL. */
+export class MigrationStatementError extends PlumbusError {
+  constructor(
+    message: string,
+    metadata: {
+      tag: string;
+      statement: number;
+      statements: number;
+      transactional: boolean;
+      invalidIndexesDropped?: string[];
+      invalidIndexesLeft?: string[];
+    },
+    readonly cause?: unknown,
+  ) {
+    super(ErrorCode.Internal, message, metadata);
+    this.name = 'MigrationStatementError';
+  }
+}
+
+/**
+ * A migration statement kept failing on its lock timeout after every retry. Nothing of a
+ * transactional migration was applied; a non-transactional one applied the statements before
+ * the one named here. Either way the migration is still pending and the next run starts it
+ * again.
+ */
+export class MigrationLockTimeoutError extends PlumbusError {
+  constructor(
+    message: string,
+    metadata: {
+      tag: string;
+      statement: number;
+      statements: number;
+      transactional: boolean;
+      attempts: number;
+      lockTimeoutMs: number;
+      invalidIndexesDropped?: string[];
+      invalidIndexesLeft?: string[];
+    },
+    readonly cause?: unknown,
+  ) {
+    super(ErrorCode.Conflict, message, metadata);
+    this.name = 'MigrationLockTimeoutError';
+  }
+}
+
+/**
+ * A non-transactional migration finished its statements, but the database holds indexes that
+ * PostgreSQL marks invalid (a `CREATE INDEX CONCURRENTLY` that failed earlier and left its
+ * index behind; `IF NOT EXISTS` then skips the broken one). The migration is not recorded as
+ * applied. Drop the named indexes (`DROP INDEX CONCURRENTLY`) and run the migration again.
+ */
+export class MigrationInvalidIndexError extends PlumbusError {
+  constructor(
+    tag: string,
+    readonly invalidIndexes: InvalidIndex[],
+  ) {
+    super(
+      ErrorCode.Conflict,
+      `Migration "${tag}" ran, but the database has invalid indexes: ` +
+        `${invalidIndexes.map(qualifiedIndexName).join(', ')}. The migration was not recorded ` +
+        'as applied. Drop them with DROP INDEX CONCURRENTLY and apply again (an index still ' +
+        'being built by another session also shows as invalid until it finishes).',
+      { tag, invalidIndexes: invalidIndexes.map(qualifiedIndexName) },
+    );
+    this.name = 'MigrationInvalidIndexError';
+  }
+}
+
+/** An index PostgreSQL has marked invalid (`pg_index.indisvalid = false`). */
+export interface InvalidIndex {
+  oid: string;
+  schema: string;
+  name: string;
+  table: string;
+}
+
+function qualifiedIndexName(index: InvalidIndex): string {
+  return `${index.schema}.${index.name}`;
+}
+
+function quoteIdent(name: string): string {
+  return `"${name.replace(/"/g, '""')}"`;
+}
+
+/** Every invalid index outside the system schemas. */
+async function invalidIndexesWith(db: MigrationExecutor): Promise<InvalidIndex[]> {
+  const rows = (await db.execute(sql`
+    SELECT i.indexrelid::text AS oid, n.nspname AS schema, c.relname AS name, t.relname AS "table"
+    FROM pg_index i
+    JOIN pg_class c ON c.oid = i.indexrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    JOIN pg_class t ON t.oid = i.indrelid
+    WHERE NOT i.indisvalid
+      AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+      AND n.nspname NOT LIKE 'pg_toast%'
+    ORDER BY n.nspname, c.relname
+  `)) as unknown as InvalidIndex[];
+  return [...rows];
+}
+
+/**
+ * Indexes PostgreSQL marks invalid in this database: what a failed `CREATE INDEX CONCURRENTLY`
+ * leaves behind. A deployment check can call it after `migrate apply`; the runner itself
+ * refuses to record a non-transactional migration while any exist.
+ */
+export async function listInvalidIndexes(db: PostgresJsDatabase): Promise<InvalidIndex[]> {
+  return invalidIndexesWith({ execute: (query) => db.execute(query) });
+}
+
+function sqlStateOf(error: unknown): string | undefined {
+  for (let current = error, depth = 0; current && depth < 5; depth += 1) {
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code)) return code;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return undefined;
+}
+
+function isLockTimeout(error: unknown): boolean {
+  return sqlStateOf(error) === LOCK_NOT_AVAILABLE;
+}
+
+function wholeMilliseconds(value: number, name: string): number {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new PlumbusError(
+      ErrorCode.Validation,
+      `${name} must be a whole number of milliseconds, 0 or more (received ${String(value)})`,
+    );
+  }
+  return value;
+}
+
+interface LockPolicy {
+  timeoutMs: number;
+  retries: number;
+  delayMs: number;
+  onRetry?: (info: MigrationLockRetryInfo) => void;
+}
+
+function lockPolicyOf(config: MigrationConfig): LockPolicy {
+  const retries = config.lockRetries ?? DEFAULT_MIGRATION_LOCK_RETRIES;
+  if (!Number.isSafeInteger(retries) || retries < 0) {
+    throw new PlumbusError(
+      ErrorCode.Validation,
+      `lockRetries must be a whole number, 0 or more (received ${String(retries)})`,
+    );
+  }
+  return {
+    timeoutMs: wholeMilliseconds(
+      config.lockTimeoutMs ?? DEFAULT_MIGRATION_LOCK_TIMEOUT_MS,
+      'lockTimeoutMs',
+    ),
+    retries,
+    delayMs: wholeMilliseconds(
+      config.lockRetryDelayMs ?? DEFAULT_MIGRATION_LOCK_RETRY_DELAY_MS,
+      'lockRetryDelayMs',
+    ),
+    onRetry: config.onLockRetry,
+  };
+}
+
+function retryDelay(policy: LockPolicy, retry: number): number {
+  return Math.min(policy.delayMs * 2 ** (retry - 1), MAX_MIGRATION_LOCK_RETRY_DELAY_MS);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -101,6 +327,11 @@ function reservedSession(connection: ReservedPostgresClient): MigrationSession {
  * connection and all of the run's SQL goes over that connection, so a pool of one works and a
  * crashed run releases the lock with its connection.
  *
+ * A waiting run asks again every {@link MIGRATION_LOCK_POLL_MS} with `pg_try_advisory_lock`
+ * rather than blocking in `pg_advisory_lock`: a blocked call is an open transaction, and
+ * `CREATE INDEX CONCURRENTLY` in the holder's run waits for every open transaction — the two
+ * runs would deadlock and PostgreSQL would abort the index build.
+ *
  * A handle without a reservable postgres.js client (test doubles) runs unlocked; the unique
  * history hash still refuses a second record of the same migration.
  */
@@ -119,13 +350,15 @@ async function withMigrationLock<T>(
 
   const connection = await client.reserve();
   try {
-    const acquired = (await connection.unsafe(
-      'SELECT pg_try_advisory_lock($1::bigint) AS acquired',
-      [MIGRATION_ADVISORY_LOCK_KEY],
-    )) as Array<{ acquired: boolean }>;
-    if (acquired[0]?.acquired !== true) {
+    const tryLock = async () =>
+      (
+        (await connection.unsafe('SELECT pg_try_advisory_lock($1::bigint) AS acquired', [
+          MIGRATION_ADVISORY_LOCK_KEY,
+        ])) as Array<{ acquired: boolean }>
+      )[0]?.acquired === true;
+    if (!(await tryLock())) {
       onLockWait?.();
-      await connection.unsafe('SELECT pg_advisory_lock($1::bigint)', [MIGRATION_ADVISORY_LOCK_KEY]);
+      while (!(await tryLock())) await sleep(MIGRATION_LOCK_POLL_MS);
     }
     try {
       return await work(reservedSession(connection));
@@ -155,6 +388,26 @@ export interface PendingMigration {
   statements: string[];
   rawSql: string;
   folderMillis: number;
+  /**
+   * `false` when the file's leading comment block carries
+   * {@link MIGRATION_NO_TRANSACTION_DIRECTIVE}: its statements run one at a time outside a
+   * transaction.
+   */
+  transactional: boolean;
+}
+
+/**
+ * Whether the leading comment block of a migration (the `--` lines before its first
+ * statement) holds the no-transaction directive on a line of its own.
+ */
+function declaresNoTransaction(rawSql: string): boolean {
+  for (const line of rawSql.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed === '') continue;
+    if (!trimmed.startsWith('--')) return false;
+    if (trimmed === MIGRATION_NO_TRANSACTION_DIRECTIVE) return true;
+  }
+  return false;
 }
 
 export interface MigrationApplyResult {
@@ -204,6 +457,7 @@ function readJournalMigrations(migrationsFolder: string): PendingMigration[] {
       statements,
       rawSql,
       folderMillis: entry.when,
+      transactional: !declaresNoTransaction(rawSql),
     };
   });
 }
@@ -323,16 +577,30 @@ async function readPendingWith(
 /**
  * Apply pending migrations from the migrations folder.
  *
- * Each migration runs inside a transaction. On failure, the error includes
- * the migration tag, statement index, and a SQL preview for diagnostics.
+ * Each migration runs inside a transaction whose statements carry a `lock_timeout`
+ * (`lockTimeoutMs`, default five seconds): a DDL statement that cannot get its table lock in
+ * time is rolled back with the rest of the migration and the migration is retried
+ * (`lockRetries`, with a doubling delay) instead of queueing every query on that table behind
+ * it. On failure, the error includes the migration tag, statement index, and a SQL preview.
+ *
+ * A migration whose leading comment block has the line `-- plumbus:no-transaction`
+ * ({@link MIGRATION_NO_TRANSACTION_DIRECTIVE}) runs outside a transaction, one statement per
+ * `--> statement-breakpoint` and each committed on its own — the only way to run
+ * `CREATE INDEX CONCURRENTLY`. Its history row is written only after its last statement, so a
+ * failure leaves it pending and the next run starts it again from its first statement: write
+ * every statement so a second run is harmless (`IF NOT EXISTS` / `IF EXISTS`). When one of its
+ * statements fails, the runner drops (`DROP INDEX CONCURRENTLY`) any index that became invalid
+ * during that attempt, and it records the migration only when the database holds no invalid
+ * index afterwards ({@link MigrationInvalidIndexError}).
  *
  * The whole run holds the database's migration lock (see `MIGRATION_ADVISORY_LOCK_KEY`):
  * a concurrent run waits, then finds the migrations this one applied already recorded.
  */
 export async function applyMigrations(config: MigrationConfig): Promise<MigrationApplyResult> {
+  const policy = lockPolicyOf(config);
   return withMigrationLock(
     config.db,
-    (session) => applyPendingWith(session, config.migrationsFolder),
+    (session) => applyPendingWith(session, config.migrationsFolder, policy),
     config.onLockWait,
   );
 }
@@ -340,6 +608,7 @@ export async function applyMigrations(config: MigrationConfig): Promise<Migratio
 async function applyPendingWith(
   session: MigrationSession,
   migrationsFolder: string,
+  policy: LockPolicy,
 ): Promise<MigrationApplyResult> {
   const pending = await readPendingWith(session, migrationsFolder);
 
@@ -349,28 +618,201 @@ async function applyPendingWith(
 
   const appliedTags: string[] = [];
   for (const migration of pending) {
-    await session.transaction(async (tx) => {
-      for (let i = 0; i < migration.statements.length; i++) {
-        const stmt = migration.statements[i] ?? '';
-        try {
-          await tx.execute(sql.raw(stmt));
-        } catch (stmtErr) {
-          const preview = stmt.length > 200 ? `${stmt.slice(0, 200)}...` : stmt;
-          throw new Error(
-            `Migration "${migration.tag}" failed at statement ${i + 1}/${migration.statements.length}:\n` +
-              `  SQL: ${preview}\n` +
-              `  Error: ${stmtErr instanceof Error ? stmtErr.message : String(stmtErr)}`,
-          );
-        }
-      }
-      await tx.execute(
-        sql`INSERT INTO "drizzle"."__drizzle_migrations" (hash, created_at) VALUES (${migration.hash}, ${migration.folderMillis})`,
-      );
-    });
+    if (migration.transactional) {
+      await applyInTransaction(session, migration, policy);
+    } else {
+      await applyWithoutTransaction(session, migration, policy);
+    }
     appliedTags.push(migration.tag);
   }
 
   return { applied: appliedTags.length, tags: appliedTags };
+}
+
+function recordApplied(db: MigrationExecutor, migration: PendingMigration): PromiseLike<unknown> {
+  return db.execute(
+    sql`INSERT INTO "drizzle"."__drizzle_migrations" (hash, created_at) VALUES (${migration.hash}, ${migration.folderMillis})`,
+  );
+}
+
+function statementFailureMessage(
+  migration: PendingMigration,
+  index: number,
+  error: unknown,
+): string {
+  const stmt = migration.statements[index] ?? '';
+  const preview = stmt.length > 200 ? `${stmt.slice(0, 200)}...` : stmt;
+  return (
+    `Migration "${migration.tag}" failed at statement ${index + 1}/${migration.statements.length}:\n` +
+    `  SQL: ${preview}\n` +
+    `  Error: ${error instanceof Error ? error.message : String(error)}`
+  );
+}
+
+/** Thrown inside the transaction so the retry loop can see which statement failed. */
+class StatementFailure {
+  constructor(
+    readonly index: number,
+    readonly error: unknown,
+  ) {}
+}
+
+async function applyInTransaction(
+  session: MigrationSession,
+  migration: PendingMigration,
+  policy: LockPolicy,
+): Promise<void> {
+  for (let retry = 0; ; retry += 1) {
+    try {
+      await session.transaction(async (tx) => {
+        // SET LOCAL ends with the transaction, so the setting never outlives this migration.
+        if (policy.timeoutMs > 0) {
+          await tx.execute(sql.raw(`SET LOCAL lock_timeout = ${policy.timeoutMs}`));
+        }
+        for (let i = 0; i < migration.statements.length; i++) {
+          try {
+            await tx.execute(sql.raw(migration.statements[i] ?? ''));
+          } catch (error) {
+            throw new StatementFailure(i, error);
+          }
+        }
+        await recordApplied(tx, migration);
+      });
+      return;
+    } catch (thrown) {
+      if (!(thrown instanceof StatementFailure)) throw thrown;
+      const metadata = {
+        tag: migration.tag,
+        statement: thrown.index + 1,
+        statements: migration.statements.length,
+        transactional: true,
+      };
+      const message = statementFailureMessage(migration, thrown.index, thrown.error);
+      if (!isLockTimeout(thrown.error)) {
+        throw new MigrationStatementError(message, metadata, thrown.error);
+      }
+      if (retry >= policy.retries) {
+        throw new MigrationLockTimeoutError(
+          `${message}\n  The statement waited longer than lock_timeout (${policy.timeoutMs} ms) ` +
+            `on every one of ${retry + 1} attempts; nothing of this migration was applied and it ` +
+            'is still pending. Find the session holding the lock (pg_stat_activity, pg_locks) ' +
+            'or raise lockTimeoutMs / --lock-timeout.',
+          { ...metadata, attempts: retry + 1, lockTimeoutMs: policy.timeoutMs },
+          thrown.error,
+        );
+      }
+      const delayMs = retryDelay(policy, retry + 1);
+      policy.onRetry?.({
+        tag: migration.tag,
+        statement: thrown.index + 1,
+        retry: retry + 1,
+        retries: policy.retries,
+        delayMs,
+      });
+      await sleep(delayMs);
+    }
+  }
+}
+
+/**
+ * Drop every invalid index whose oid is not in `before`: what this attempt's failed
+ * `CREATE INDEX CONCURRENTLY` left behind. Returns what was dropped and what could not be.
+ */
+async function dropNewInvalidIndexes(
+  session: MigrationSession,
+  before: ReadonlySet<string>,
+): Promise<{ dropped: string[]; left: string[] }> {
+  const dropped: string[] = [];
+  const left: string[] = [];
+  let current: InvalidIndex[];
+  try {
+    current = await invalidIndexesWith(session);
+  } catch {
+    return { dropped, left };
+  }
+  for (const index of current) {
+    if (before.has(index.oid)) continue;
+    try {
+      await session.execute(
+        sql.raw(
+          `DROP INDEX CONCURRENTLY IF EXISTS ${quoteIdent(index.schema)}.${quoteIdent(index.name)}`,
+        ),
+      );
+      dropped.push(qualifiedIndexName(index));
+    } catch {
+      left.push(qualifiedIndexName(index));
+    }
+  }
+  return { dropped, left };
+}
+
+async function applyWithoutTransaction(
+  session: MigrationSession,
+  migration: PendingMigration,
+  policy: LockPolicy,
+): Promise<void> {
+  // A session setting on the reserved connection; reset below before the connection goes
+  // back to the pool.
+  if (policy.timeoutMs > 0) {
+    await session.execute(sql.raw(`SET lock_timeout = ${policy.timeoutMs}`));
+  }
+  try {
+    for (let i = 0; i < migration.statements.length; i++) {
+      for (let retry = 0; ; retry += 1) {
+        const before = new Set((await invalidIndexesWith(session)).map((index) => index.oid));
+        try {
+          await session.execute(sql.raw(migration.statements[i] ?? ''));
+          break;
+        } catch (error) {
+          const cleanup = await dropNewInvalidIndexes(session, before);
+          const metadata = {
+            tag: migration.tag,
+            statement: i + 1,
+            statements: migration.statements.length,
+            transactional: false,
+            ...(cleanup.dropped.length > 0 ? { invalidIndexesDropped: cleanup.dropped } : {}),
+            ...(cleanup.left.length > 0 ? { invalidIndexesLeft: cleanup.left } : {}),
+          };
+          const committed =
+            i === 0 ? 'No earlier statement of it had run.' : `Statements 1-${i} were committed.`;
+          const message =
+            `${statementFailureMessage(migration, i, error)}\n` +
+            `  This migration runs without a transaction. ${committed} It is still pending and ` +
+            'the next run starts it again from its first statement.' +
+            (cleanup.left.length > 0
+              ? ` Invalid indexes left behind (drop them before the next run): ${cleanup.left.join(', ')}.`
+              : '');
+          if (!isLockTimeout(error)) throw new MigrationStatementError(message, metadata, error);
+          if (retry >= policy.retries) {
+            throw new MigrationLockTimeoutError(
+              `${message}\n  The statement waited longer than lock_timeout ` +
+                `(${policy.timeoutMs} ms) on every one of ${retry + 1} attempts.`,
+              { ...metadata, attempts: retry + 1, lockTimeoutMs: policy.timeoutMs },
+              error,
+            );
+          }
+          const delayMs = retryDelay(policy, retry + 1);
+          policy.onRetry?.({
+            tag: migration.tag,
+            statement: i + 1,
+            retry: retry + 1,
+            retries: policy.retries,
+            delayMs,
+          });
+          await sleep(delayMs);
+        }
+      }
+    }
+    // `CREATE INDEX CONCURRENTLY IF NOT EXISTS` skips an index of the same name that an earlier
+    // failed run left invalid; recording the migration then would hide the broken index.
+    const invalid = await invalidIndexesWith(session);
+    if (invalid.length > 0) throw new MigrationInvalidIndexError(migration.tag, invalid);
+    await recordApplied(session, migration);
+  } finally {
+    if (policy.timeoutMs > 0) {
+      await Promise.resolve(session.execute(sql.raw('RESET lock_timeout'))).catch(() => undefined);
+    }
+  }
 }
 
 /**

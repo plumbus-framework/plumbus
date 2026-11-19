@@ -213,13 +213,19 @@ export {
 } from './api/index.js';
 export type {
   ApprovalBinding,
+  ApprovalRequestPage,
+  ApprovalRequestQuery,
+  ApprovalRequestRecord,
   ApprovalService,
+  ApprovalStore,
   AuthorizationProvider,
   CancelApprovalInput,
 } from './approvals/index.js';
 // ── Approvals / human tasks ──
 export {
   ApprovalDecisionConflictError,
+  ApprovalRequestState,
+  MAX_APPROVAL_PAGE_SIZE,
   createAllowAllAuthorizationProvider,
   createApprovalService,
   createMemoryApprovalStore,
@@ -288,8 +294,10 @@ export {
   createMemoryCredentialCatalog,
 } from './credentials/index.js';
 export type {
+  InvalidIndex,
   MigrationApplyResult,
   MigrationConfig,
+  MigrationLockRetryInfo,
   MigrationRecord,
   MigrationRollbackResult,
   ReadCeilingConfig,
@@ -308,6 +316,9 @@ export {
   DEFAULT_READ_CEILING_MODE,
   decryptBytes,
   decryptFieldValue,
+  DEFAULT_MIGRATION_LOCK_RETRIES,
+  DEFAULT_MIGRATION_LOCK_RETRY_DELAY_MS,
+  DEFAULT_MIGRATION_LOCK_TIMEOUT_MS,
   ENCRYPTION_PREFIX,
   EntityRegistry,
   encryptBytes,
@@ -320,8 +331,13 @@ export {
   ilike,
   isEncryptedValue,
   like,
+  listInvalidIndexes,
   lte,
   MIGRATION_ADVISORY_LOCK_KEY,
+  MIGRATION_NO_TRANSACTION_DIRECTIVE,
+  MigrationInvalidIndexError,
+  MigrationLockTimeoutError,
+  MigrationStatementError,
   ReadCeilingMode,
   readCeilingPolicyFromConfig,
   resolveEncryptionKey,
@@ -606,6 +622,7 @@ export type {
 export { createServer } from './server/index.js';
 export type {
   ApplyDataPlaneMigrationsOptions,
+  DataPlaneAcquireOptions,
   DataPlaneAdminConnection,
   DataPlaneConnection,
   DataPlaneConnectionFields,
@@ -616,9 +633,13 @@ export type {
   DataPlaneDropResult,
   DataPlaneEndpoint,
   DataPlaneHandle,
+  DataPlaneLease,
   DataPlaneMigrationApplyResult,
   DataPlaneProvisionResult,
+  DataPlanePurpose,
+  DataPlaneResolveOptions,
   DataPlaneResolver,
+  DataPlaneResolverStats,
   DataPlaneRoleSpec,
   DataPlaneStep,
   DataPlaneStepName,
@@ -634,17 +655,20 @@ export type {
 } from './tenancy/index.js';
 // ── Tenancy ──
 export {
+  acquireDataPlane,
   applyDataPlaneMigrations,
   assertSafeIdentifier,
   createPooledDataPlaneResolver,
   createSingleDataPlaneResolver,
   DATA_PLANE_MIGRATE_APPLICATION_NAME,
+  DataPlaneCapacityError,
   DataPlaneConnectionError,
   DataPlaneGuardError,
   DataPlaneNameError,
   DataPlaneProvisioningError,
   DEFAULT_CORE_SCHEMA,
   DEFAULT_DATA_PLANE_CACHE_SIZE,
+  DEFAULT_DATA_PLANE_CAPACITY_WAIT_MS,
   DEFAULT_DATA_PLANE_POOL_SIZE,
   DEFAULT_PACKAGE_SCHEMA_PREFIX,
   dropDataPlane,
@@ -653,6 +677,7 @@ export {
   provisionDataPlane,
   quoteIdentifier,
   UnknownTenantError,
+  withDataPlane,
 } from './tenancy/index.js';
 // ── Translations ──
 export type {

@@ -66,7 +66,42 @@ provider or an application capability before calling the primitive.
 
 ## Tenant tables
 
-`human_task`, `approval_request`, and `approval_decision` are in `FRAMEWORK_TABLE_NAMES`. Shipped SQL starts at `packages/plumbus-core/migrations/durable-tenant/0001_human_task.sql`; `0002_approval_cancellation.sql` adds cancellation actor/reason evidence; `0005_approval_tenant_binding.sql` adds `approval_request.tenant_id` and the `(tenant_id, execution_id)` index. Rows written before 0005 have `tenant_id = NULL` and therefore match only untenanted lookups. Apply on dedicated `plumbus_durable_test_*` harness DBs only. Do not apply to application tenant databases.
+`human_task`, `approval_request`, and `approval_decision` are in `FRAMEWORK_TABLE_NAMES`. Shipped SQL starts at `packages/plumbus-core/migrations/durable-tenant/0001_human_task.sql`; `0002_approval_cancellation.sql` adds cancellation actor/reason evidence; `0005_approval_tenant_binding.sql` adds `approval_request.tenant_id` and the `(tenant_id, execution_id)` index. Rows written before 0005 have `tenant_id = NULL` and therefore match only untenanted lookups. `0006_approval_live_index.sql` adds `approval_request_live_idx` on `(tenant_id, execution_id, capability_id) WHERE state IN ('pending', 'approved')`, built `CONCURRENTLY` in a [`-- plumbus:no-transaction`](../sdk-reference/data-layer.md#non-transactional-migrations-create-index-concurrently) migration. Apply on dedicated `plumbus_durable_test_*` harness DBs only. Do not apply to application tenant databases: an application gets the same index through its own generated migrations — the next `plumbus migrate generate` after upgrading emits `CREATE INDEX IF NOT EXISTS "approval_request_live_idx" ...`. On a large `approval_request` table, edit that generated file into a no-transaction migration with `CREATE INDEX CONCURRENTLY` before applying it to a live database.
+
+## Store reads (core 0.9.0-beta.13+)
+
+The approval service reads `approval_request` through indexes, scoped to what each call needs,
+never the whole table:
+
+| service call | store read |
+| --- | --- |
+| `requestApproval`, `invalidateOnMaterialChange` (material-change invalidation) | live (`pending` / `approved`) requests of the same tenant, execution and capability — `approval_request_live_idx` |
+| `findMatchingApproval` (the capability gate) | the same tenant + execution + capability, definition version and input digest — `approval_request_binding_idx` |
+| `findConflictingApproval` (the capability gate) | live requests of the same tenant, execution and capability — `approval_request_live_idx` |
+| `findByExecutionId` | the newest request of the tenant + execution — `approval_request_subject_idx` |
+
+Approvals that are past `expiresAt` among those rows are expired in **one** `UPDATE` per call
+(`expireRequests`), only while still `pending` or `approved`; a request another writer settled
+first keeps the winner's state.
+
+The store methods behind this are part of `ApprovalStore` (exported from `@plumbus/core` with
+`ApprovalRequestQuery`, `ApprovalRequestPage` and `MAX_APPROVAL_PAGE_SIZE`):
+
+- `findRequests(query)` — `tenantId`, `executionId`, `capabilityId`, `definitionVersion`,
+  `inputDigest`, `states`, `limit` (1–1000). A field left out matches anything; `null` for
+  `tenantId` / `executionId` matches only rows stored without one. Newest first.
+- `listAllRequests({ limit, after })` — every request, paged by id (keyset on the primary key,
+  1–1000 per page; pass the previous page's `next` as `after`). For callers that truly need
+  everything: exports, operator lists.
+- `expireRequests({ approvalRequestIds, now })` — the one-statement expiry above.
+
+`listRequests()` is kept and still returns every row in one read; it is deprecated because on
+the SQL store that is a full table load. The three new methods are optional on the interface:
+a host-written store without them keeps working, and the service then falls back to
+`listRequests()` and filters in memory (the old cost). Application code that called
+`store.listRequests()` and filtered in JavaScript should call `findRequests` with the same
+predicate instead — for example `findRequests({ tenantId, executionId })` for one execution's
+approvals.
 
 ## Wiring
 

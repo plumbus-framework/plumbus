@@ -84,6 +84,7 @@ These rules are critical. Violating any one causes build failures or bloated ima
 ### Rule 9: Never run migrations in the entrypoint
 
 - **DO**: Run `npx plumbus migrate apply` as a separate CI/CD step or one-off job. Database-per-tenant hosts apply once per named database (`--database` or `applyDataPlaneMigrations`) as the owner role.
+- **DO**: Keep the default migration `lock_timeout` (5 s, retried 3 times; core 0.9.0-beta.13+) when the previous release is still serving, and build indexes on large tables in a `-- plumbus:no-transaction` migration with `CREATE INDEX CONCURRENTLY IF NOT EXISTS` (see `docs/sdk-reference/data-layer.md`).
 - **DO NOT**: Put migration commands in `entrypoint.sh` or Docker init containers.
 - **Why**: In multi-replica deployments, concurrent migrations corrupt data.
 
@@ -340,6 +341,12 @@ After a standalone build, copy static files alongside the server:
 | `QUEUE_PREFIX` | No | `plumbus:{environment}` | Shared namespace; API and workers must agree |
 | `PLUMBUS_ENABLE_SCHEDULER` | No | `true` | Disable with `false` during controlled scheduler cutover |
 | `PLUMBUS_FLOW_CONCURRENCY` | No | `1` | Flow executions one worker pool runs at once (`workers.flowConcurrency`, 1–256; core 0.9.0-beta.11+). Each slot can hold database connections and make AI calls, so size `DATABASE_POOL_SIZE` and `aiProviderConcurrency` with it |
+| `PLUMBUS_OUTBOX_POLL_INTERVAL_MS` | No | `1000` | How often the outbox dispatcher polls (`workers.outboxPollIntervalMs`; core 0.9.0-beta.13+). Under a data-plane resolver every listed tenant plane is visited once per poll |
+| `PLUMBUS_OUTBOX_IDLE_BACKOFF_MAX_MS` | No | `0` | Longest a tenant plane with an empty outbox is skipped (`workers.outboxIdleBackoffMaxMs`): doubling back-off from the poll interval, reset when the plane has work. Also the longest an event on an idle plane waits. `0` = every plane every poll |
+| `PLUMBUS_FLOW_POLL_INTERVAL_MS` | No | `1000` | Flow runner poll interval (`workers.flowPollIntervalMs`; at least 30000 with durable queues) |
+| `PLUMBUS_SCHEDULER_POLL_INTERVAL_MS` | No | `60000` | Flow scheduler poll interval (`workers.schedulerPollIntervalMs`) |
+| `PLUMBUS_MIGRATION_LOCK_TIMEOUT_MS` | No | `5000` | `lock_timeout` for each `plumbus migrate apply` statement (`0` waits forever) |
+| `PLUMBUS_MIGRATION_LOCK_RETRIES` | No | `3` | Retries after a migration statement hits its lock timeout |
 | `PLUMBUS_SHUTDOWN_TIMEOUT_MS` | No | `10000` | Hard deadline for `plumbus start` / `plumbus worker` shutdown (1000–3600000) |
 | `PLUMBUS_SHUTDOWN_DRAIN_DELAY_MS` | No | `0` | How long `plumbus start` keeps serving with `/ready` at 503 before closing HTTP |
 | `DATABASE_POOL_SIZE` | No | `10` | Max connections in each process's main pool |
