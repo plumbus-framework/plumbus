@@ -31,7 +31,20 @@ describe('Stage 4 shipped human-task SQL', () => {
       '0003_request_idempotency',
       '0004_claim_and_retention_indexes',
       '0005_approval_tenant_binding',
+      '0006_approval_live_index',
     ]);
+
+    // 0006 is a no-transaction migration: the index is built concurrently, valid and partial.
+    const live = await tenant.db.execute(sql`
+      SELECT i.indisvalid AS valid, pg_get_expr(i.indpred, i.indrelid) AS predicate
+      FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+      WHERE c.relname = 'approval_request_live_idx'
+    `);
+    const liveRows = live as unknown as Array<{ valid: boolean; predicate: string }>;
+    expect(liveRows).toHaveLength(1);
+    expect(liveRows[0]?.valid).toBe(true);
+    expect(liveRows[0]?.predicate).toContain('pending');
+    expect(liveRows[0]?.predicate).toContain('approved');
 
     const tables = await tenant.db.execute(sql`
       SELECT table_name FROM information_schema.tables

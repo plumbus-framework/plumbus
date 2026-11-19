@@ -31,12 +31,15 @@ export {
   HUMAN_TASK_CONTRACT_VERSION,
   HumanTaskKind,
   HumanTaskState,
+  MAX_APPROVAL_PAGE_SIZE,
 } from './types.js';
 export type {
   ApprovalBinding,
   ApprovalDecisionRecord,
   ApprovalGateCode,
   ApprovalGateResult,
+  ApprovalRequestPage,
+  ApprovalRequestQuery,
   ApprovalRequestRecord,
   ApprovalService,
   ApprovalStore,

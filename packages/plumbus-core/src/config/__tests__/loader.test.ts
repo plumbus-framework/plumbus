@@ -45,6 +45,45 @@ describe('Config Loader', () => {
       }
     });
 
+    it('reads the worker poll intervals and the outbox idle back-off from env', () => {
+      expect(
+        loadConfig({
+          env: {
+            PLUMBUS_OUTBOX_POLL_INTERVAL_MS: '5000',
+            PLUMBUS_OUTBOX_IDLE_BACKOFF_MAX_MS: '0',
+            PLUMBUS_FLOW_POLL_INTERVAL_MS: '2000',
+            PLUMBUS_SCHEDULER_POLL_INTERVAL_MS: '120000',
+          },
+        }).workers,
+      ).toEqual({
+        outboxPollIntervalMs: 5000,
+        outboxIdleBackoffMaxMs: 0,
+        flowPollIntervalMs: 2000,
+        schedulerPollIntervalMs: 120000,
+      });
+      expect(loadConfig({ env: {} }).workers).toBeUndefined();
+      for (const [variable, value] of [
+        ['PLUMBUS_OUTBOX_POLL_INTERVAL_MS', '0'],
+        ['PLUMBUS_FLOW_POLL_INTERVAL_MS', '1s'],
+        ['PLUMBUS_SCHEDULER_POLL_INTERVAL_MS', '2147483648'],
+        ['PLUMBUS_OUTBOX_IDLE_BACKOFF_MAX_MS', '-5'],
+      ] as const) {
+        expect(() => loadConfig({ env: { [variable]: value } })).toThrow(variable);
+      }
+    });
+
+    it('accepts the worker poll intervals as config overrides and refuses bad ones', () => {
+      expect(
+        loadConfig({
+          env: {},
+          workers: { outboxPollIntervalMs: 250, outboxIdleBackoffMaxMs: 30_000 },
+        }).workers,
+      ).toEqual({ outboxPollIntervalMs: 250, outboxIdleBackoffMaxMs: 30_000 });
+      expect(() => loadConfig({ env: {}, workers: { outboxPollIntervalMs: 0 } })).toThrow();
+      expect(() => loadConfig({ env: {}, workers: { flowPollIntervalMs: 1.5 } })).toThrow();
+      expect(() => loadConfig({ env: {}, workers: { outboxIdleBackoffMaxMs: -1 } })).toThrow();
+    });
+
     it('accepts workers.flowConcurrency as a config override and refuses a bad one', () => {
       expect(loadConfig({ env: {}, workers: { flowConcurrency: 3 } }).workers).toEqual({
         flowConcurrency: 3,

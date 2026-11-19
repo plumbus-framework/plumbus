@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { ActionRiskTier, ReviewMandateReason } from './action-risk.js';
 import { requireHumanActor } from './actors.js';
 import { digestApprovalInput } from './digest.js';
+import { applyApprovalQuery } from './query.js';
 import { createSqlApprovalStore, type ApprovalDbHandle } from './sql-store.js';
 import {
   ApprovalDecisionConflictError,
@@ -10,6 +11,7 @@ import {
   HUMAN_TASK_CONTRACT_VERSION,
   HumanTaskState,
   type ApprovalBinding,
+  type ApprovalRequestQuery,
   type ApprovalRequestRecord,
   type ApprovalService,
   type ApprovalStore,
@@ -51,14 +53,27 @@ function isPast(expiresAt: string, now: Date): boolean {
 
 const DECISION_OUTCOMES = new Set<string>(Object.values(ApprovalDecisionOutcome));
 
-/** Tenant + execution the approval was requested for must equal the caller's. */
-function sameSubject(
-  row: ApprovalRequestRecord,
-  binding: { tenantId: string | null; executionId?: string | null },
-): boolean {
+/**
+ * Tenant + execution the approval was requested for must equal the caller's: as a query, both
+ * are always set, with `null` matching only a request stored without one.
+ */
+function subjectOf(binding: { tenantId: string | null; executionId?: string | null }): {
+  tenantId: string | null;
+  executionId: string | null;
+} {
+  return { tenantId: binding.tenantId ?? null, executionId: binding.executionId ?? null };
+}
+
+/** States an approval can still be used (or invalidated) from. */
+const LIVE_STATES = [ApprovalRequestState.Pending, ApprovalRequestState.Approved] as const;
+
+function isLive(state: ApprovalRequestState): boolean {
+  return state === ApprovalRequestState.Pending || state === ApprovalRequestState.Approved;
+}
+
+function matchesBinding(row: ApprovalRequestRecord, binding: ApprovalBinding): boolean {
   return (
-    (row.tenantId ?? null) === (binding.tenantId ?? null) &&
-    (row.executionId ?? null) === (binding.executionId ?? null)
+    row.definitionVersion === binding.definitionVersion && row.inputDigest === binding.inputDigest
   );
 }
 
@@ -77,6 +92,15 @@ export function createApprovalService(config: ApprovalServiceConfig): ApprovalSe
   const authorization = config.authorization;
   const nowFn = config.now ?? (() => new Date());
   const idFn = config.id ?? (() => randomUUID());
+
+  /**
+   * An indexed read when the store has one. A store written before `findRequests` existed is
+   * read whole and filtered here — the same answer, at the old cost.
+   */
+  async function findRequests(query: ApprovalRequestQuery): Promise<ApprovalRequestRecord[]> {
+    if (store.findRequests) return store.findRequests(query);
+    return applyApprovalQuery(await store.listRequests(), query);
+  }
 
   /** Every decision type and cancellation goes through this one check. */
   async function authorize(
@@ -109,30 +133,69 @@ export function createApprovalService(config: ApprovalServiceConfig): ApprovalSe
     row: ApprovalRequestRecord,
     now: Date,
   ): Promise<ApprovalRequestRecord> {
-    const live =
-      row.state === ApprovalRequestState.Pending || row.state === ApprovalRequestState.Approved;
-    if (!live || !isPast(row.expiresAt, now)) {
+    if (!isDue(row, now)) {
       return row;
     }
-    const expired: ApprovalRequestRecord = {
+    if (await store.transitionRequest(expiredCopy(row, now), [row.state])) {
+      return expiredCopy(row, now);
+    }
+    return settledByAnotherWriter(row, now);
+  }
+
+  function isDue(row: ApprovalRequestRecord, now: Date): boolean {
+    return isLive(row.state) && isPast(row.expiresAt, now);
+  }
+
+  function expiredCopy(row: ApprovalRequestRecord, now: Date): ApprovalRequestRecord {
+    return {
       ...row,
       state: ApprovalRequestState.Expired,
       updatedAt: now.toISOString(),
       resolvedAt: row.resolvedAt ?? now.toISOString(),
     };
-    if (await store.transitionRequest(expired, [row.state])) {
-      return { ...expired };
-    }
+  }
+
+  /** The expiry lost to another writer: report what the store holds now. */
+  async function settledByAnotherWriter(
+    row: ApprovalRequestRecord,
+    now: Date,
+  ): Promise<ApprovalRequestRecord> {
     const fresh = await store.getRequest(row.approvalRequestId);
-    if (!fresh) return { ...expired };
-    if (
-      (fresh.state === ApprovalRequestState.Pending ||
-        fresh.state === ApprovalRequestState.Approved) &&
-      isPast(fresh.expiresAt, now)
-    ) {
+    if (!fresh) return expiredCopy(row, now);
+    if (isDue(fresh, now)) {
       return { ...fresh, state: ApprovalRequestState.Expired };
     }
     return fresh;
+  }
+
+  /**
+   * `expireIfNeeded` for several rows: the ones past expiry change in one statement when the
+   * store has `expireRequests`, else one compare-and-set each.
+   */
+  async function expireDue(
+    rows: ApprovalRequestRecord[],
+    now: Date,
+  ): Promise<ApprovalRequestRecord[]> {
+    const due = rows.filter((row) => isDue(row, now));
+    if (due.length === 0) return rows;
+    if (!store.expireRequests) {
+      const settled: ApprovalRequestRecord[] = [];
+      for (const row of rows) settled.push(await expireIfNeeded(row, now));
+      return settled;
+    }
+    const changed = new Set(
+      await store.expireRequests({
+        approvalRequestIds: due.map((row) => row.approvalRequestId),
+        now: now.toISOString(),
+      }),
+    );
+    const settled: ApprovalRequestRecord[] = [];
+    for (const row of rows) {
+      if (!isDue(row, now)) settled.push(row);
+      else if (changed.has(row.approvalRequestId)) settled.push(expiredCopy(row, now));
+      else settled.push(await settledByAnotherWriter(row, now));
+    }
+    return settled;
   }
 
   /**
@@ -146,21 +209,13 @@ export function createApprovalService(config: ApprovalServiceConfig): ApprovalSe
     now: Date,
   ): Promise<ApprovalRequestRecord[]> {
     const invalidated: ApprovalRequestRecord[] = [];
-    for (const existing of await store.listRequests()) {
-      if (existing.capabilityId !== binding.capabilityId) continue;
-      if (!sameSubject(existing, binding)) continue;
-      if (
-        existing.inputDigest === binding.inputDigest &&
-        existing.definitionVersion === binding.definitionVersion
-      ) {
-        continue;
-      }
-      if (
-        existing.state !== ApprovalRequestState.Pending &&
-        existing.state !== ApprovalRequestState.Approved
-      ) {
-        continue;
-      }
+    const live = await findRequests({
+      ...subjectOf(binding),
+      capabilityId: binding.capabilityId,
+      states: LIVE_STATES,
+    });
+    for (const existing of live) {
+      if (matchesBinding(existing, binding)) continue;
       const next: ApprovalRequestRecord = {
         ...existing,
         state: ApprovalRequestState.Invalidated,
@@ -298,54 +353,37 @@ export function createApprovalService(config: ApprovalServiceConfig): ApprovalSe
 
     async findByExecutionId(binding) {
       const now = binding.now ?? nowFn();
-      const latest = (await store.listRequests())
-        .filter((row) => sameSubject(row, binding))
-        .sort(
-          (a, b) =>
-            b.createdAt.localeCompare(a.createdAt) || b.updatedAt.localeCompare(a.updatedAt),
-        )[0];
+      const [latest] = await findRequests({ ...subjectOf(binding), limit: 1 });
       return latest ? expireIfNeeded(latest, now) : undefined;
     },
 
     async findMatchingApproval(binding) {
       const now = binding.now ?? nowFn();
-      let match: ApprovalRequestRecord | undefined;
-      let expired: ApprovalRequestRecord | undefined;
-      for (const row of await store.listRequests()) {
-        if (!sameSubject(row, binding)) continue;
-        if (row.capabilityId !== binding.capabilityId) continue;
-        if (row.definitionVersion !== binding.definitionVersion) continue;
-        if (row.inputDigest !== binding.inputDigest) continue;
-        const current = await expireIfNeeded(row, now);
-        if (current.state === ApprovalRequestState.Approved) {
-          match = current;
-        } else if (current.state === ApprovalRequestState.Expired) {
-          expired = current;
-        }
-      }
-      return match ?? expired;
+      // Rejected, cancelled and invalidated requests never satisfy a gate; a pending one only
+      // matters once it has expired.
+      const rows = await findRequests({
+        ...subjectOf(binding),
+        capabilityId: binding.capabilityId,
+        definitionVersion: binding.definitionVersion,
+        inputDigest: binding.inputDigest,
+        states: [...LIVE_STATES, ApprovalRequestState.Expired],
+      });
+      const current = await expireDue(rows, now);
+      return (
+        current.find((row) => row.state === ApprovalRequestState.Approved) ??
+        current.find((row) => row.state === ApprovalRequestState.Expired)
+      );
     },
 
     async findConflictingApproval(binding) {
       const now = binding.now ?? nowFn();
-      for (const row of await store.listRequests()) {
-        if (row.capabilityId !== binding.capabilityId) continue;
-        if (!sameSubject(row, binding)) continue;
-        const current = await expireIfNeeded(row, now);
-        if (
-          current.state !== ApprovalRequestState.Pending &&
-          current.state !== ApprovalRequestState.Approved
-        ) {
-          continue;
-        }
-        if (
-          current.definitionVersion !== binding.definitionVersion ||
-          current.inputDigest !== binding.inputDigest
-        ) {
-          return current;
-        }
-      }
-      return undefined;
+      const rows = await findRequests({
+        ...subjectOf(binding),
+        capabilityId: binding.capabilityId,
+        states: LIVE_STATES,
+      });
+      const current = await expireDue(rows, now);
+      return current.find((row) => isLive(row.state) && !matchesBinding(row, binding));
     },
 
     async invalidateOnMaterialChange(binding) {

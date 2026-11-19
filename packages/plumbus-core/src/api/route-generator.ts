@@ -69,6 +69,31 @@ export interface ResolvedRequestDependencies {
   dependencies: ContextDependencies;
   /** The database `dependencies` were wired against. */
   db: PostgresJsDatabase;
+  /**
+   * Called once when the response has ended (sent, failed or aborted): gives back what the
+   * resolution holds for the request, such as a data-plane lease.
+   */
+  release?: () => void;
+}
+
+/** Run `release` once, when `reply`'s response ends however it ends. */
+function releaseWhenDone(reply: FastifyReply, release: (() => void) | undefined): void {
+  if (!release) return;
+  let done = false;
+  const once = () => {
+    if (done) return;
+    done = true;
+    release();
+  };
+  const raw = (reply as { raw?: { once?: (event: string, listener: () => void) => void } }).raw;
+  // Not a Fastify reply (a test double): nothing tells us when it ends, so give back now
+  // rather than hold a plane forever.
+  if (typeof raw?.once !== 'function') {
+    once();
+    return;
+  }
+  raw.once('finish', once);
+  raw.once('close', once);
 }
 
 export interface RouteGeneratorConfig {
@@ -247,6 +272,7 @@ export function registerCapabilityRoute(
           bypassTenantScope,
           locale,
         });
+        releaseWhenDone(reply, resolved.release);
         deps = resolved.dependencies;
         requestDb = resolved.db;
       } catch (err) {
@@ -382,10 +408,17 @@ export function registerCapabilityRoute(
         // In particular, the same check runs after an in-flight wait, not only before it.
         const replay = async (result: unknown) => {
           try {
-            const fresh = config.resolveDependencies
-              ? (await config.resolveDependencies(authContext, { bypassTenantScope, locale }))
-                  .dependencies
-              : config.createDependencies(authContext, { bypassTenantScope, locale });
+            let fresh: ContextDependencies;
+            if (config.resolveDependencies) {
+              const resolvedAgain = await config.resolveDependencies(authContext, {
+                bypassTenantScope,
+                locale,
+              });
+              releaseWhenDone(reply, resolvedAgain.release);
+              fresh = resolvedAgain.dependencies;
+            } else {
+              fresh = config.createDependencies(authContext, { bypassTenantScope, locale });
+            }
             fresh.correlationId = deps.correlationId;
             fresh.traceparent = deps.traceparent;
             fresh.onTelemetrySpan = config.onTelemetrySpan;
@@ -685,6 +718,7 @@ export function registerStreamingRoute(
           bypassTenantScope,
           locale,
         });
+        releaseWhenDone(reply, resolved.release);
         deps = resolved.dependencies;
       } catch (err) {
         const failure = dependencyResolutionToHttp(err, requestId);

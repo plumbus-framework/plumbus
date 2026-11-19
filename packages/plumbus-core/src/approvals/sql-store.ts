@@ -1,18 +1,22 @@
 // Tenant-local approval store against an existing Postgres handle.
 // Hosts pass the data-plane db (or a resolver that returns it). No new driver.
 
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, lte, type SQL, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { FRAMEWORK_SCHEMA } from '../data/schema-generator.js';
+import { PlumbusError } from '../errors/plumbus-error.js';
+import { ErrorCode } from '../types/enums.js';
 import { isActionRiskTier } from './action-risk.js';
 import type { ReviewMandateReason } from './action-risk.js';
+import { assertApprovalPageSize } from './query.js';
 import { createTenantApprovalTables } from './schema.js';
 import {
   HUMAN_TASK_CONTRACT_VERSION,
   type ApprovalDecisionOutcome,
   type ApprovalDecisionRecord,
+  type ApprovalRequestQuery,
   type ApprovalRequestRecord,
-  type ApprovalRequestState,
+  ApprovalRequestState,
   type ApprovalStore,
   type HumanTaskKind,
   type HumanTaskRecord,
@@ -124,11 +128,64 @@ function mapTask(row: {
   };
 }
 
+const KNOWN_STATES = new Set<string>(Object.values(ApprovalRequestState));
+
+/** Ids per `expireRequests` statement: far below the protocol's bind-parameter ceiling. */
+const EXPIRE_CHUNK = 500;
+
 export function createSqlApprovalStore(config: SqlApprovalStoreConfig): ApprovalStore {
   const tables = createTenantApprovalTables(config.schemaName ?? FRAMEWORK_SCHEMA);
+  const request = tables.approvalRequest;
 
   async function resolveDb(): Promise<PostgresJsDatabase> {
     return typeof config.db === 'function' ? await config.db() : config.db;
+  }
+
+  /** The query as SQL. `false` when it can match nothing (an empty `states`). */
+  function conditionsOf(query: ApprovalRequestQuery): SQL[] | false {
+    const conditions: SQL[] = [];
+    if (query.tenantId !== undefined) {
+      conditions.push(
+        query.tenantId === null ? isNull(request.tenantId) : eq(request.tenantId, query.tenantId),
+      );
+    }
+    if (query.executionId !== undefined) {
+      conditions.push(
+        query.executionId === null
+          ? isNull(request.executionId)
+          : eq(request.executionId, query.executionId),
+      );
+    }
+    if (query.capabilityId !== undefined) {
+      conditions.push(eq(request.capabilityId, query.capabilityId));
+    }
+    if (query.definitionVersion !== undefined) {
+      conditions.push(eq(request.definitionVersion, query.definitionVersion));
+    }
+    if (query.inputDigest !== undefined) {
+      conditions.push(eq(request.inputDigest, query.inputDigest));
+    }
+    if (query.states !== undefined) {
+      if (query.states.length === 0) return false;
+      conditions.push(stateIn(query.states));
+    }
+    return conditions;
+  }
+
+  /**
+   * `state IN (...)` with the states as SQL literals: `approval_request_live_idx` is partial on
+   * `state IN ('pending', 'approved')`, and Postgres uses a partial index only when it can
+   * prove the query implies its predicate, which it cannot do from bind parameters under a
+   * generic plan. Each state is checked against the closed set before it is written.
+   */
+  function stateIn(states: readonly ApprovalRequestState[]): SQL {
+    const literals = [...new Set(states)].map((state) => {
+      if (!KNOWN_STATES.has(state)) {
+        throw new PlumbusError(ErrorCode.Validation, `Unknown approval request state "${state}"`);
+      }
+      return `'${state}'`;
+    });
+    return sql`${request.state} IN (${sql.raw(literals.join(', '))})`;
   }
 
   return {
@@ -189,6 +246,65 @@ export function createSqlApprovalStore(config: SqlApprovalStoreConfig): Approval
       const db = await resolveDb();
       const rows = await db.select().from(tables.approvalRequest);
       return rows.map(mapRequest);
+    },
+
+    async findRequests(query) {
+      if (query.limit !== undefined) assertApprovalPageSize(query.limit, 'limit');
+      const conditions = conditionsOf(query);
+      if (conditions === false) return [];
+      const db = await resolveDb();
+      const ordered = db
+        .select()
+        .from(request)
+        .where(and(...conditions))
+        .orderBy(desc(request.createdAt), desc(request.updatedAt), desc(request.approvalRequestId));
+      const rows = query.limit === undefined ? await ordered : await ordered.limit(query.limit);
+      return rows.map(mapRequest);
+    },
+
+    async listAllRequests({ limit, after }) {
+      assertApprovalPageSize(limit, 'limit');
+      const db = await resolveDb();
+      // Keyset on the primary key: every page is one index range read, however deep.
+      const rows = await db
+        .select()
+        .from(request)
+        .where(after === undefined ? undefined : gt(request.approvalRequestId, after))
+        .orderBy(asc(request.approvalRequestId))
+        .limit(limit + 1);
+      const page = rows.slice(0, limit).map(mapRequest);
+      const last = page[page.length - 1];
+      return rows.length > limit && last
+        ? { requests: page, next: last.approvalRequestId }
+        : { requests: page };
+    },
+
+    async expireRequests({ approvalRequestIds, now }) {
+      const ids = [...new Set(approvalRequestIds)];
+      if (ids.length === 0) return [];
+      const db = await resolveDb();
+      const at = toDate(now);
+      const expired: string[] = [];
+      for (let start = 0; start < ids.length; start += EXPIRE_CHUNK) {
+        const rows = await db
+          .update(request)
+          .set({
+            state: ApprovalRequestState.Expired,
+            updatedAt: at,
+            // A raw ISO string with a cast: drizzle's postgres-js driver passes raw params through.
+            resolvedAt: sql`coalesce(${request.resolvedAt}, ${at.toISOString()}::timestamptz)`,
+          })
+          .where(
+            and(
+              inArray(request.approvalRequestId, ids.slice(start, start + EXPIRE_CHUNK)),
+              stateIn([ApprovalRequestState.Pending, ApprovalRequestState.Approved]),
+              lte(request.expiresAt, at),
+            ),
+          )
+          .returning({ approvalRequestId: request.approvalRequestId });
+        expired.push(...rows.map((row) => row.approvalRequestId));
+      }
+      return expired;
     },
 
     async putDecision(row) {

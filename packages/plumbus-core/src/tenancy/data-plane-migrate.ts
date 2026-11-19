@@ -7,7 +7,11 @@
 // Connect as the owner role from `provisionDataPlane`. The runtime role is
 // DML-only and cannot apply schema.
 
-import { applyMigrations, type MigrationApplyResult } from '../data/migration.js';
+import {
+  applyMigrations,
+  type MigrationApplyResult,
+  type MigrationConfig,
+} from '../data/migration.js';
 import {
   openDataPlaneConnection,
   type DataPlaneConnectionTarget,
@@ -27,6 +31,14 @@ export interface ApplyDataPlaneMigrationsOptions {
   maxConnections?: number;
   /** Reported to the server as `application_name`. Default `plumbus-migrate`. */
   applicationName?: string;
+  /** `lock_timeout` per migration statement (ms; `0` waits forever). See `applyMigrations`. */
+  lockTimeoutMs?: MigrationConfig['lockTimeoutMs'];
+  /** Retries after a lock timeout. See `applyMigrations`. */
+  lockRetries?: MigrationConfig['lockRetries'];
+  /** Wait before the first lock-timeout retry (ms, doubled after). See `applyMigrations`. */
+  lockRetryDelayMs?: MigrationConfig['lockRetryDelayMs'];
+  /** Called before each lock-timeout retry. */
+  onLockRetry?: MigrationConfig['onLockRetry'];
 }
 
 export interface DataPlaneMigrationApplyResult extends MigrationApplyResult {
@@ -62,6 +74,10 @@ export async function applyDataPlaneMigrations(
     const result = await applyMigrations({
       db: connection.db,
       migrationsFolder: options.migrationsFolder,
+      lockTimeoutMs: options.lockTimeoutMs,
+      lockRetries: options.lockRetries,
+      lockRetryDelayMs: options.lockRetryDelayMs,
+      onLockRetry: options.onLockRetry,
     });
     const database = databaseNameOf(options.target);
     return database === undefined ? result : { ...result, database };

@@ -21,6 +21,7 @@ const mockFlowEngine = {
   resumeWaitingByEvent: vi.fn(async () => []),
   resume: vi.fn(async () => {}),
   cancel: vi.fn(async () => {}),
+  acquireExecutionPlane: vi.fn(async () => undefined),
 };
 const mockScheduler = {
   syncSchedules: vi.fn(async () => 2),

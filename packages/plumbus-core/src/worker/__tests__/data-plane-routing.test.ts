@@ -25,6 +25,8 @@ vi.mock('../../flows/engine.js', () => ({
     claimNext,
     runNext,
     markFailedFromRunner,
+    // No resolved tenant route for these rows: nothing for the runner to hold.
+    acquireExecutionPlane: vi.fn(async () => undefined),
     workerId: 'test-worker-id',
   })),
   generateWorkerId: vi.fn(() => 'test-worker-id'),
@@ -721,5 +723,45 @@ describe('worker per-unit data-plane routing', () => {
         }),
       ),
     ).toThrow(/createDataService/);
+  });
+
+  it('takes the outbox, scheduler and flow intervals and the idle back-off from config.workers', () => {
+    vi.mocked(createOutboxDispatcher).mockClear();
+    vi.mocked(createFlowScheduler).mockClear();
+    createWorkerPool(
+      makePoolConfig({
+        config: {
+          ...makeConfig(),
+          workers: {
+            outboxPollIntervalMs: 5000,
+            outboxIdleBackoffMaxMs: 30_000,
+            schedulerPollIntervalMs: 120_000,
+          },
+        },
+        enableDispatcher: true,
+        enableScheduler: true,
+      }),
+    );
+    expect(vi.mocked(createOutboxDispatcher).mock.calls[0]?.[0]).toMatchObject({
+      pollIntervalMs: 5000,
+      idlePlaneBackoffMaxMs: 30_000,
+    });
+    expect(vi.mocked(createFlowScheduler).mock.calls[0]?.[0]).toMatchObject({
+      pollIntervalMs: 120_000,
+    });
+
+    // A pool option still wins over config.
+    vi.mocked(createOutboxDispatcher).mockClear();
+    createWorkerPool(
+      makePoolConfig({
+        config: { ...makeConfig(), workers: { outboxPollIntervalMs: 5000 } },
+        outboxPollIntervalMs: 250,
+        enableDispatcher: true,
+      }),
+    );
+    expect(vi.mocked(createOutboxDispatcher).mock.calls[0]?.[0]).toMatchObject({
+      pollIntervalMs: 250,
+      idlePlaneBackoffMaxMs: 0,
+    });
   });
 });

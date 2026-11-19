@@ -302,6 +302,7 @@ export function tenantApprovalDdl(schemaName: string = FRAMEWORK_SCHEMA): string
     `CREATE INDEX approval_request_capability_idx ON ${approvalRequest} (capability_id);`,
     `CREATE INDEX approval_request_binding_idx ON ${approvalRequest} (capability_id, definition_version, input_digest);`,
     `CREATE INDEX approval_request_subject_idx ON ${approvalRequest} (tenant_id, execution_id);`,
+    `CREATE INDEX approval_request_live_idx ON ${approvalRequest} (tenant_id, execution_id, capability_id) WHERE state IN ('pending', 'approved');`,
     `CREATE TABLE ${approvalDecision} (
       approval_decision_id text PRIMARY KEY,
       approval_request_id text NOT NULL,

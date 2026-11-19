@@ -1,10 +1,13 @@
 import { and, eq, lt } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { FRAMEWORK_SCHEMA, resolveFrameworkSchema } from '../data/schema-generator.js';
+import { PlumbusError } from '../errors/plumbus-error.js';
 import { validatedTraceparent } from '../observability/index.js';
 import type { PlumbusMetrics } from '../observability/metrics.js';
+import { withDataPlane } from '../tenancy/data-plane-resolver.js';
 import type { DataPlaneResolver } from '../tenancy/types.js';
 import type { AuditService } from '../types/audit.js';
+import { ErrorCode } from '../types/enums.js';
 import type { LoggerService } from '../types/context.js';
 import type { EventEnvelope } from '../types/event.js';
 import { deadLetterTable, outboxTable } from './outbox.js';
@@ -35,12 +38,23 @@ export interface DispatcherConfig {
   /** Receives audit write and poll failures (default: console) */
   logger?: LoggerService;
   /**
-   * When set with `listTenantRefs`, each poll resolves those tenants and
-   * drains `event_outbox` (and `dispatch_outbox` when `spineDb` is set) on
-   * that tenant's database. The pool `db` is not polled in this mode —
-   * it is the spine / control plane, not a tenant outbox.
+   * When set with `listTenantRefs`, each poll visits those tenants one at a time: it takes
+   * the tenant's plane (a lease when the resolver supports one), drains `event_outbox` (and
+   * `dispatch_outbox` when `spineDb` is set) on it, and gives it back before taking the next
+   * one, so a poll holds at most one plane. A tenant that cannot be resolved is logged and
+   * skipped; the others are still pumped. The pool `db` is not polled in this mode — it is
+   * the spine / control plane, not a tenant outbox.
    */
   resolver?: DataPlaneResolver;
+  /**
+   * Back off tenant planes that had nothing to dispatch: after an idle visit a plane is
+   * skipped for twice as long as the time before (starting from `pollIntervalMs`), up to
+   * this many milliseconds, and visited every poll again as soon as a visit finds work (or
+   * `wake(tenantRef)` is called). Default `0`: every plane is visited every poll. An event
+   * written to an idle plane waits at most this long before it is dispatched. Only the
+   * per-tenant path backs off; the single-database pump polls every interval.
+   */
+  idlePlaneBackoffMaxMs?: number;
   /** Tenant references to pump this cycle. Required for the per-tenant path. */
   listTenantRefs?: () => Iterable<string> | Promise<Iterable<string>>;
   /**
@@ -64,6 +78,20 @@ export interface DispatcherConfig {
 interface PumpTarget {
   db: PostgresJsDatabase;
   tenantRef: string;
+}
+
+/** What one visit to a plane found: rows dispatched or published, and rows still waiting. */
+interface PumpResult {
+  dispatched: number;
+  /** Rows seen in `pending` / `retry` (dispatched or not) plus rows published to the spine. */
+  activity: number;
+}
+
+/** When an idle plane is due again. */
+interface IdleState {
+  /** Consecutive idle visits. */
+  idleVisits: number;
+  nextVisitAt: number;
 }
 
 /**
@@ -91,7 +119,16 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
     resolver,
     listTenantRefs,
     spineDb,
+    idlePlaneBackoffMaxMs = 0,
   } = config;
+  if (!Number.isSafeInteger(idlePlaneBackoffMaxMs) || idlePlaneBackoffMaxMs < 0) {
+    throw new PlumbusError(
+      ErrorCode.Validation,
+      `idlePlaneBackoffMaxMs must be a whole number of milliseconds, 0 or more (received ${String(idlePlaneBackoffMaxMs)})`,
+    );
+  }
+  /** Idle tenant planes and when each is due again; absent means due now. */
+  const idlePlanes = new Map<string, IdleState>();
   let timer: ReturnType<typeof setInterval> | null = null;
   let running = false;
   let polling = false;
@@ -110,20 +147,80 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
   // Where `dispatch_outbox` is, on every plane: the engine's own resolution, mirrored.
   const durableSchema = config.frameworkSchema ?? resolveFrameworkSchema() ?? FRAMEWORK_SCHEMA;
 
-  async function resolveTargets(): Promise<PumpTarget[]> {
-    if (!resolver || !listTenantRefs) {
-      return [{ db, tenantRef: 'default' }];
-    }
-    const refs = [...(await listTenantRefs())];
-    const targets: PumpTarget[] = [];
-    for (const tenantRef of refs) {
-      const handle = await resolver.resolve(tenantRef);
-      targets.push({ db: handle.db, tenantRef: handle.tenantRef });
-    }
-    return targets;
+  function isDue(tenantRef: string, at: number): boolean {
+    const idle = idlePlanes.get(tenantRef);
+    return idle === undefined || at >= idle.nextVisitAt;
   }
 
-  async function pollEventOutbox(targetDb: PostgresJsDatabase): Promise<number> {
+  function recordVisit(tenantRef: string, result: PumpResult, at: number): void {
+    if (idlePlaneBackoffMaxMs === 0 || result.activity > 0) {
+      idlePlanes.delete(tenantRef);
+      return;
+    }
+    const idleVisits = (idlePlanes.get(tenantRef)?.idleVisits ?? 0) + 1;
+    const skipFor = Math.min(pollIntervalMs * 2 ** (idleVisits - 1), idlePlaneBackoffMaxMs);
+    idlePlanes.set(tenantRef, { idleVisits, nextVisitAt: at + skipFor });
+  }
+
+  /** Drain one plane: `event_outbox`, then `dispatch_outbox` when a spine is configured. */
+  async function pumpPlane(target: PumpTarget): Promise<PumpResult> {
+    const events = await pollEventOutbox(target.db);
+    const published = await pumpDispatchOutbox(target);
+    return {
+      dispatched: events.dispatched + published,
+      activity: events.seen + published,
+    };
+  }
+
+  /**
+   * The per-tenant pump: list the tenants, then for each due one hold its plane only while
+   * draining it. A tenant that fails to resolve or to drain is logged and skipped.
+   */
+  async function pollTenantPlanes(
+    planeResolver: DataPlaneResolver,
+    list: NonNullable<DispatcherConfig['listTenantRefs']>,
+  ): Promise<number> {
+    let refs: string[];
+    try {
+      refs = [...(await list())];
+    } catch (err) {
+      logError('Outbox poll could not list its tenant planes', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return 0;
+    }
+    const listed = new Set(refs);
+    for (const tenantRef of idlePlanes.keys()) {
+      if (!listed.has(tenantRef)) idlePlanes.delete(tenantRef);
+    }
+    let dispatched = 0;
+    for (const tenantRef of refs) {
+      const at = Date.now();
+      if (!isDue(tenantRef, at)) continue;
+      // One plane's failure must neither stop the others nor escape the timer: an
+      // unhandled rejection here would take the worker process down.
+      try {
+        const result = await withDataPlane(
+          planeResolver,
+          tenantRef,
+          (handle) => pumpPlane({ db: handle.db, tenantRef: handle.tenantRef }),
+          { purpose: 'background' },
+        );
+        dispatched += result.dispatched;
+        recordVisit(tenantRef, result, at);
+      } catch (err) {
+        logError('Outbox poll failed for one plane', {
+          tenantRef,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    return dispatched;
+  }
+
+  async function pollEventOutbox(
+    targetDb: PostgresJsDatabase,
+  ): Promise<{ dispatched: number; seen: number }> {
     const now = new Date();
 
     // Release claims whose dispatcher stopped before publishing
@@ -258,7 +355,7 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
         }
       }
     }
-    return dispatched;
+    return { dispatched, seen: pendingCount };
   }
 
   async function pumpDispatchOutbox(target: PumpTarget): Promise<number> {
@@ -301,27 +398,16 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
     polling = true;
 
     try {
-      const targets = await resolveTargets();
-      let dispatched = 0;
-      for (const target of targets) {
-        // One plane's failure must neither stop the others nor escape the timer: an
-        // unhandled rejection here would take the worker process down.
-        try {
-          dispatched += await pollEventOutbox(target.db);
-          dispatched += await pumpDispatchOutbox(target);
-        } catch (err) {
-          logError('Outbox poll failed for one plane', {
-            tenantRef: target.tenantRef,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
+      if (resolver && listTenantRefs) return await pollTenantPlanes(resolver, listTenantRefs);
+      try {
+        return (await pumpPlane({ db, tenantRef: 'default' })).dispatched;
+      } catch (err) {
+        logError('Outbox poll failed for one plane', {
+          tenantRef: 'default',
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return 0;
       }
-      return dispatched;
-    } catch (err) {
-      logError('Outbox poll could not resolve its planes', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return 0;
     } finally {
       polling = false;
     }
@@ -339,6 +425,15 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
   return {
     /** Run a single poll cycle (useful for testing) */
     poll,
+
+    /**
+     * Visit `tenantRef`'s plane (every plane when omitted) on the next poll even if it is
+     * backing off as idle. A host that knows it just wrote to a plane's outbox can call it.
+     */
+    wake(tenantRef?: string): void {
+      if (tenantRef === undefined) idlePlanes.clear();
+      else idlePlanes.delete(tenantRef);
+    },
 
     /** Start the background polling loop */
     start(): void {

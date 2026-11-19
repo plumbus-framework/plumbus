@@ -321,6 +321,8 @@ const { db, coreSchema } = await resolver.resolve(tenantRef);
 - **Quiet.** Passwords and connection strings never reach a message, an error's metadata, or the driver's notice stream. Failures raise `DataPlaneConnectionError` carrying `host`, `port`, `database`, `user` and `sqlState` only, with the driver's own text scrubbed of any credential it echoed back.
 - **Per-tenant.** Every call builds its own pool with no shared state, and the returned `close` is idempotent — the resolver calls it on eviction, invalidation and `close()`.
 
+The pooled resolver keeps at most `cacheSize` pools open, so `cacheSize × maxConnections` bounds the backends one process opens to tenant databases. It never closes a plane someone holds a lease on (`acquire` / `withDataPlane`): when every open plane is leased, a further tenant waits (bounded) and is refused with `DataPlaneCapacityError` instead of exceeding the budget or closing a plane in use. See [Leases and the connection ceiling](../sdk-reference/tenant-data-planes.md#leases-and-the-connection-ceiling).
+
 The connection is verified with one round trip before it is returned (`verify: false` opts out), so a wrong credential or an unreachable placement fails at resolve time instead of inside the first capability that queries. A target may also be given as `{ connectionString }` for hosts whose placement records carry a URL; the string is treated as a secret throughout.
 
 Store those passwords as opaque refs in a [credential catalog](../sdk-reference/credential-catalog.md) if the host wants a typed, log-quiet handle rather than putting the secret next to the placement record.
