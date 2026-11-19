@@ -61,6 +61,7 @@ import {
   warnAiSecurityBlockMode,
   warnEncryptedFieldsWithoutKey,
 } from '../runtime/startup-warnings.js';
+import { acquireDataPlane } from '../tenancy/data-plane-resolver.js';
 import type { DataPlaneResolver } from '../tenancy/types.js';
 import { createTranslationService, TranslationRegistry } from '../translations/index.js';
 import type { PlumbusConfig } from '../types/config.js';
@@ -704,23 +705,27 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
   const resolveTenantRef = serverConfig.resolveTenantRef ?? ((auth: AuthContext) => auth.tenantId);
   const requestDataPlane = serverConfig.requestDataPlane ?? 'resolved';
 
+  /**
+   * The request's tenant plane, leased until the response ends (`release`), so a plane a
+   * request is using is never closed to make room for another tenant.
+   */
   async function resolveRequestDb(
     resolver: DataPlaneResolver,
     auth: AuthContext,
-  ): Promise<PostgresJsDatabase> {
+  ): Promise<{ db: PostgresJsDatabase; release?: () => void }> {
     const tenantRef = resolveTenantRef(auth);
     if (!tenantRef) {
       // Fail closed. With several data planes in play there is no safe guess
       // about which one an untenanted request meant.
-      if (untenantedDataPlane === 'control-plane') return db;
+      if (untenantedDataPlane === 'control-plane') return { db };
       throw new PlumbusError(
         ErrorCode.Forbidden,
         'This deployment resolves a database per tenant and the request carries no tenant reference',
         { reason: 'untenanted-request' },
       );
     }
-    const handle = await resolver.resolve(tenantRef);
-    return handle.db;
+    const lease = await acquireDataPlane(resolver, tenantRef, { purpose: 'request' });
+    return { db: lease.handle.db, release: () => lease.release() };
   }
 
   const routeConfig: RouteGeneratorConfig = {
@@ -737,13 +742,19 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
             // `bypassTenantScope` is the route generator's word for a capability that declared
             // `tenantScoped: false`: control-plane work, which reads control-plane tables
             // whatever tenant the request happens to be bound to.
-            const requestDb = options?.bypassTenantScope
-              ? db
+            const plane = options?.bypassTenantScope
+              ? { db }
               : await resolveRequestDb(dataPlaneResolver, auth);
-            return {
-              dependencies: buildRequestDependencies(requestDb, auth, options),
-              db: requestDb,
-            };
+            try {
+              return {
+                dependencies: buildRequestDependencies(plane.db, auth, options),
+                db: plane.db,
+                ...(plane.release ? { release: plane.release } : {}),
+              };
+            } catch (error) {
+              plane.release?.();
+              throw error;
+            }
           },
         }
       : {}),

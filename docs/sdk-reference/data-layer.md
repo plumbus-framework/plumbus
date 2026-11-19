@@ -437,7 +437,41 @@ plumbus migrate apply --database tenant_alpha   # named tenant database
 
 Concurrent `applyMigrations` runs against one database are serialised by a session advisory lock (`MIGRATION_ADVISORY_LOCK_KEY`) on a reserved connection: the second run waits (`MigrationConfig.onLockWait` is called once when it starts waiting), then finds nothing pending. The history hash is unique. See [CLI: concurrent runs](../cli/commands.md).
 
-Before executing, a preflight check detects if any pending migration would `CREATE TABLE` for a framework-managed table that already exists in the database. If drift is detected, the command fails with a structured error listing the conflicting tables and recovery steps. On execution failure, error messages include the migration tag, statement index, and SQL preview.
+A waiting run asks for the lock again every 250 ms (`pg_try_advisory_lock`) instead of blocking in `pg_advisory_lock`: a blocked call is an open transaction, and a `CREATE INDEX CONCURRENTLY` in the running migration would wait for it while it waits for the lock — PostgreSQL would break that deadlock by aborting the index build.
+
+Before executing, a preflight check detects if any pending migration would `CREATE TABLE` for a framework-managed table that already exists in the database. If drift is detected, the command fails with a structured error listing the conflicting tables and recovery steps. On execution failure, error messages include the migration tag, statement index, and SQL preview (`MigrationStatementError`, with the PostgreSQL error as `cause`).
+
+### Lock timeout and retry (core 0.9.0-beta.13+)
+
+Every migration statement runs under a PostgreSQL `lock_timeout`, five seconds by default. On a live database a DDL statement that waits for its table lock (an `ALTER TABLE` behind a long-running transaction, say) otherwise queues every later query on that table behind it for as long as it waits. With the timeout it fails instead; the runner rolls the migration back and tries it again, three more times by default with a doubling delay (1 s, 2 s, 4 s; capped at 30 s). When every attempt times out the run fails with `MigrationLockTimeoutError` (`metadata.attempts`, `metadata.lockTimeoutMs`) and the migration stays pending.
+
+| option (`applyMigrations`, `applyDataPlaneMigrations`) | CLI (`migrate apply`) | env | default |
+| --- | --- | --- | --- |
+| `lockTimeoutMs` (`0` = wait forever, the old behaviour) | `--lock-timeout <ms>` | `PLUMBUS_MIGRATION_LOCK_TIMEOUT_MS` | 5000 |
+| `lockRetries` | `--lock-retries <n>` | `PLUMBUS_MIGRATION_LOCK_RETRIES` | 3 |
+| `lockRetryDelayMs` (first retry; doubled after) | — | — | 1000 |
+| `onLockRetry(info)` | prints a line to stderr | — | — |
+
+The setting is `SET LOCAL` inside each migration's transaction (and reset after a non-transactional migration), so it never reaches the connection pool. It bounds waits for locks only; a statement that holds its lock and takes long (an index build on a big table) is not cut short.
+
+### Non-transactional migrations: `CREATE INDEX CONCURRENTLY`
+
+Each migration file normally runs in one transaction. `CREATE INDEX CONCURRENTLY` cannot run in a transaction, and a plain `CREATE INDEX` blocks every write to the table until the transaction commits. A file whose leading comment block (the `--` lines before its first statement) has this line of its own runs outside a transaction:
+
+```sql
+-- plumbus:no-transaction
+-- Built concurrently: ledger keeps taking writes while the index builds.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS ledger_ref_idx ON ledger (ref);
+```
+
+Its statements (one per `--> statement-breakpoint`) run one at a time, each committed on its own, under the same lock timeout and retry — a timed-out statement is retried by itself; the ones before it are already committed. The history row is written after the last statement, so a failed run leaves the migration **pending** and the next `apply` starts it again from its first statement. Write every statement so a second run is harmless (`IF NOT EXISTS`, `IF EXISTS`), and keep one index build per file when you can.
+
+A `CREATE INDEX CONCURRENTLY` that fails part-way leaves an **invalid** index behind (`pg_index.indisvalid = false`), and on the next run `IF NOT EXISTS` would skip it and leave it broken. The runner covers both halves:
+
+- When a statement of a non-transactional migration fails, it drops (`DROP INDEX CONCURRENTLY`) every index that became invalid during that attempt and names them in `metadata.invalidIndexesDropped` (any it could not drop are in `metadata.invalidIndexesLeft` and in the message).
+- After the last statement it records the migration only if the database holds no invalid index; otherwise it fails with `MigrationInvalidIndexError` naming them. Drop them with `DROP INDEX CONCURRENTLY` and apply again. An index another session is building at that moment also counts as invalid until it finishes.
+
+`listInvalidIndexes(db)` returns the invalid indexes of a database for a deployment check. To turn a generated migration into one of these, edit the generated file: add the directive, make the index statement `CREATE INDEX CONCURRENTLY IF NOT EXISTS`, and keep other DDL for the same table in a separate (transactional) file.
 
 ### Rollback
 

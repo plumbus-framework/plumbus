@@ -98,11 +98,64 @@ export interface HumanTaskRecord {
   resolvedAt?: string;
 }
 
+/**
+ * Which approval requests a store read returns. Every field narrows the read; a field left
+ * `undefined` matches any value, and `null` (for `tenantId` / `executionId`) matches only rows
+ * stored without one. Results come newest first (`createdAt`, then `updatedAt`, then id).
+ */
+export interface ApprovalRequestQuery {
+  tenantId?: string | null;
+  executionId?: string | null;
+  capabilityId?: string;
+  definitionVersion?: string;
+  inputDigest?: string;
+  /** Only rows in one of these states. An empty list matches nothing. */
+  states?: readonly ApprovalRequestState[];
+  /** Most rows to return (a whole number from 1 to 1000). Omitted: every matching row. */
+  limit?: number;
+}
+
+/** One page of {@link ApprovalStore.listAllRequests}. */
+export interface ApprovalRequestPage {
+  requests: ApprovalRequestRecord[];
+  /** Pass as `after` for the next page; absent on the last page. */
+  next?: string;
+}
+
+/** Largest page `listAllRequests` returns, and largest `limit` `findRequests` accepts. */
+export const MAX_APPROVAL_PAGE_SIZE = 1000;
+
 export interface ApprovalStore {
   /** Insert a new request (or overwrite one — creation only; state changes use the CAS methods). */
   putRequest(row: ApprovalRequestRecord): Promise<void>;
   getRequest(id: string): Promise<ApprovalRequestRecord | undefined>;
+  /**
+   * Every request in the store, in one read. On the SQL store this loads the whole
+   * `approval_request` table into memory: use `findRequests` for a lookup and
+   * `listAllRequests` to page through everything. Kept for stores and callers written before
+   * those existed; the approval service no longer calls it when the store has `findRequests`.
+   *
+   * @deprecated Use `findRequests` or `listAllRequests`.
+   */
   listRequests(): Promise<ApprovalRequestRecord[]>;
+  /**
+   * The requests matching `query`, newest first, read through an index. Optional so a
+   * host-written store keeps compiling; without it the approval service falls back to
+   * `listRequests()` and filters in memory (a full read per lookup).
+   */
+  findRequests?(query: ApprovalRequestQuery): Promise<ApprovalRequestRecord[]>;
+  /**
+   * Page through every request, ordered by id: `after` is the previous page's `next`. For the
+   * callers that truly need everything (an export, an operator list); `limit` is a whole
+   * number from 1 to {@link MAX_APPROVAL_PAGE_SIZE}.
+   */
+  listAllRequests?(page: { limit: number; after?: string }): Promise<ApprovalRequestPage>;
+  /**
+   * Mark the named requests `expired` in one statement: only those still `pending` or
+   * `approved` whose `expiresAt` is at or before `now` change. Returns the ids that changed.
+   * Optional; without it the service expires one row at a time with `transitionRequest`.
+   */
+  expireRequests?(input: { approvalRequestIds: readonly string[]; now: string }): Promise<string[]>;
   putDecision(row: ApprovalDecisionRecord): Promise<void>;
   listDecisions(requestId: string): Promise<ApprovalDecisionRecord[]>;
   putTask(row: HumanTaskRecord): Promise<void>;

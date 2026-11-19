@@ -43,6 +43,13 @@
       "when": 1793750400000,
       "tag": "0005_approval_tenant_binding",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1795564800000,
+      "tag": "0006_approval_live_index",
+      "breakpoints": true
     }
   ]
 }

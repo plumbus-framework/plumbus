@@ -4,9 +4,10 @@
 //
 // Listed in FRAMEWORK_TABLE_NAMES. Shipped SQL lives in
 // packages/plumbus-core/migrations/durable-tenant/0001_human_task.sql
-// (+ 0002 cancellation evidence, 0005 tenant binding).
+// (+ 0002 cancellation evidence, 0005 tenant binding, 0006 live-state index).
 // Apply on dedicated harness DBs only; never on application tenant databases.
 
+import { sql } from 'drizzle-orm';
 import { index, text, timestamp } from 'drizzle-orm/pg-core';
 import { resolveFrameworkSchema, tableBuilderFor } from '../data/schema-generator.js';
 
@@ -59,6 +60,12 @@ export function createTenantApprovalTables(schemaName?: string) {
       index('approval_request_capability_idx').on(t.capabilityId),
       index('approval_request_binding_idx').on(t.capabilityId, t.definitionVersion, t.inputDigest),
       index('approval_request_subject_idx').on(t.tenantId, t.executionId),
+      // The approval service's live-state reads (invalidation, conflict check): one subject
+      // and capability, pending or approved only. Partial, so settled history (most rows)
+      // costs nothing here. Shipped as durable-tenant 0006 (built concurrently).
+      index('approval_request_live_idx')
+        .on(t.tenantId, t.executionId, t.capabilityId)
+        .where(sql`state IN ('pending', 'approved')`),
     ],
   );
 

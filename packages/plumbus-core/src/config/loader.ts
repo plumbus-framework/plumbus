@@ -82,6 +82,16 @@ function loadWorkersConfig(env: Record<string, string | undefined>): {
   }
   const flowConcurrency = readEnvNumber(env, 'PLUMBUS_FLOW_CONCURRENCY', FLOW_CONCURRENCY_RULE);
   if (flowConcurrency !== undefined) workers.flowConcurrency = flowConcurrency;
+  const intervals = [
+    ['outboxPollIntervalMs', 'PLUMBUS_OUTBOX_POLL_INTERVAL_MS', POLL_INTERVAL_MS_RULE],
+    ['outboxIdleBackoffMaxMs', 'PLUMBUS_OUTBOX_IDLE_BACKOFF_MAX_MS', IDLE_BACKOFF_MS_RULE],
+    ['flowPollIntervalMs', 'PLUMBUS_FLOW_POLL_INTERVAL_MS', POLL_INTERVAL_MS_RULE],
+    ['schedulerPollIntervalMs', 'PLUMBUS_SCHEDULER_POLL_INTERVAL_MS', POLL_INTERVAL_MS_RULE],
+  ] as const;
+  for (const [key, variable, rule] of intervals) {
+    const value = readEnvNumber(env, variable, rule);
+    if (value !== undefined) workers[key] = value;
+  }
   return Object.keys(workers).length > 0 ? { workers } : {};
 }
 
@@ -437,6 +447,22 @@ const FLOW_CONCURRENCY_RULE: EnvNumberRule = {
   min: 1,
   max: MAX_FLOW_CONCURRENCY,
   expected: `a whole number from 1 to ${MAX_FLOW_CONCURRENCY}`,
+};
+
+/** `PLUMBUS_*_POLL_INTERVAL_MS`: worker poll intervals, in whole milliseconds Node's timers keep. */
+const POLL_INTERVAL_MS_RULE: EnvNumberRule = {
+  pattern: /^\d+$/,
+  min: 1,
+  max: 2_147_483_647,
+  expected: 'a whole number of milliseconds from 1 to 2147483647',
+};
+
+/** `PLUMBUS_OUTBOX_IDLE_BACKOFF_MAX_MS`: 0 turns the idle back-off off. */
+const IDLE_BACKOFF_MS_RULE: EnvNumberRule = {
+  pattern: /^\d+$/,
+  min: 0,
+  max: 2_147_483_647,
+  expected: 'a whole number of milliseconds from 0 to 2147483647',
 };
 
 /** `AI_BEDROCK_PRICING_TTL_MS`: how long downloaded Bedrock prices are kept. */

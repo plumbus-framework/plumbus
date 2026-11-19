@@ -99,6 +99,7 @@ The same flag exists on `migrate push`, `migrate rollback`, and `migrate reconci
 import {
   createPooledDataPlaneResolver,
   openDataPlaneConnection,
+  withDataPlane,
 } from "@plumbus/core";
 
 const resolver = createPooledDataPlaneResolver<Placement>({
@@ -117,10 +118,88 @@ const resolver = createPooledDataPlaneResolver<Placement>({
     }),
 });
 
-const { db } = await resolver.resolve(tenantRef);
+// Hold the plane for exactly the work that uses it:
+const rows = await withDataPlane(resolver, tenantRef, async ({ db }) => db.select().from(orders));
 ```
 
 `describe` returning `undefined` throws `UnknownTenantError`. The resolver never falls back to another database.
+
+#### Leases and the connection ceiling
+
+`cacheSize` (default 32) is the most data-plane **pools** the resolver keeps open at once, and
+`cacheSize × maxConnections` is the connection budget you size the database server against. It
+is a ceiling, not a target: it counts cached planes, planes still leased after an
+invalidation, planes being closed and pools being opened.
+
+A plane is held through a **lease**:
+
+```typescript
+const lease = await resolver.acquire(tenantRef);        // or withDataPlane(...) / acquireDataPlane(...)
+try {
+  await lease.handle.db.transaction(async (tx) => { /* ... */ });
+} finally {
+  lease.release();                                       // idempotent
+}
+```
+
+While any lease on a plane is held the resolver never closes that plane's pool: not to make
+room for another tenant, not on `invalidate`, not on a generation change (it stops handing the
+plane out and closes it after the last `release()`). Only `resolver.close()` ends leased planes.
+
+To open a plane when the ceiling is reached, the resolver closes the least recently used plane
+that nobody leases. When **every** open plane is leased, the caller waits up to
+`capacityWaitMs` (default 10 000 ms; `acquire(ref, { waitMs, signal })` per call) for a release
+and is then refused with `DataPlaneCapacityError` (`reason: 'data-plane-capacity'`, HTTP 503 on
+the request path). Nothing is closed or opened past the budget. `resolver.stats()` reports
+`capacity`, `cached`, `retired`, `closing`, `connecting`, `leases` and `waiting` for health
+checks and metrics.
+
+**What the framework leases (core 0.9.0-beta.13+).** Every place the framework uses a plane
+holds it for that use: each request under `requestDataPlane: 'resolved'` (released when the
+response ends), each flow start, each spine claim, the whole drain of a claimed execution (its
+own plane and, under `workerDataPlane: 'resolved'`, its repositories' plane), each event
+delivery, each request-side flow operation (`status`, `cancel`, `resume`, wake), and the
+background loops. The loops that walk `listTenantRefs` — the outbox dispatcher, the scheduler's
+sync / poll / reconcile (`plumbus flow schedule sync`), the tenant dead-letter and deferred-start
+sweep, and framework retention — take **one plane at a time**, use it and give it back before
+taking the next, so a fleet larger than `cacheSize` is walked without closing a plane before it
+is used. A tenant that fails to resolve is logged and skipped; the others are still pumped.
+
+A capacity refusal is not a flow failure: a runner that cannot get a claimed execution's plane
+hands the claim back for a later cycle.
+
+**What `resolve()` alone gives you.** `resolve()` still works and returns the same handle, but
+it takes no lease. Such a handle is protected only by recency: it can be closed under its
+caller once it is the least recently used **unleased** plane and another tenant needs the slot
+(statements already in flight get the connection's close timeout, 5 s for
+`openDataPlaneConnection`; later statements fail with `CONNECTION_ENDED`). What changed for it:
+the framework's own loops no longer cycle every tenant through the cache each second, so that
+eviction is far rarer, and a `resolve()` that needs a slot while every plane is leased now waits
+and is refused with `DataPlaneCapacityError` instead of closing a plane someone is using. Code
+that holds a handle across awaits should use `acquire` / `withDataPlane`.
+
+**A host resolver that wraps `createPooledDataPlaneResolver`** (for its own routing check)
+must forward `acquire` as well as `resolve`, or the framework falls back to `resolve()` for
+every use above and gets only the protection just described:
+
+```typescript
+export const dataPlaneResolver: DataPlaneResolver = {
+  async resolve(tenantRef, options) {
+    await checkRoute(tenantRef, options?.purpose);
+    return pooled.resolve(tenantRef);
+  },
+  async acquire(tenantRef, options) {
+    await checkRoute(tenantRef, options?.purpose);
+    return pooled.acquire(tenantRef, options);
+  },
+  invalidate: (tenantRef) => pooled.invalidate(tenantRef),
+};
+```
+
+`options.purpose` is `'background'` for the framework's own periodic work and `'request'` for
+work done for a caller; a host may use it to choose a cheaper routing check for background
+work (for example a cached route instead of a fresh read). It never changes which plane a
+tenant resolves to.
 
 ### 4. Hand the resolver to the runtime from `app/server.ts`
 
@@ -130,7 +209,10 @@ every flow — and, when it wants, every request — on the tenant's plane:
 
 ```ts
 // app/server.ts
-export const dataPlaneResolver = { resolve: (tenantRef) => router.resolve(tenantRef) };
+export const dataPlaneResolver = {
+  resolve: (tenantRef, options) => router.resolve(tenantRef, options),
+  acquire: (tenantRef, options) => router.acquire(tenantRef, options), // leases: see above
+};
 export const listTenantRefs = async () => ['tenant-a', 'tenant-b'];   // outbox + scheduler planes
 export const untenantedDataPlane = 'control-plane';                   // or 'refuse' (default)
 export const requestDataPlane = 'control-plane';                      // or 'resolved' (default)
@@ -145,6 +227,32 @@ export const resolveTenantRef = (auth) => auth.tenantId;              // optiona
 | `workerDataPlane` | — | `'resolved'`: a claimed tenant unit's repositories, events and audit are wired against its plane. `'control-plane'`: they stay on the pool's database — for a host that routes tenant data itself and reaches the plane from its handlers; the unit's auth still carries the tenant, and its flow row is still on the plane |
 | `untenantedDataPlane` | requests and flow starts with no tenant reference: `'refuse'` fails closed; `'control-plane'` serves them from the boot connection, and a control-plane flow is a classic `flow_executions` row on the spine, claimed beside the tenant hints | same policy for claimed work with no tenant |
 | `listTenantRefs` | — | the planes whose `event_outbox` and `flow_schedules` are pumped, plus every tenant resolved for claimed work; also the tenant planes `plumbus flow schedule sync` reconciles (required by it when a flow is scheduled on `tenants`; a tenant the worker only resolved for claimed work is not reconciled) |
+
+#### What polling every tenant costs, and how to tune it
+
+The outbox dispatcher visits every listed plane once per `workers.outboxPollIntervalMs`
+(default 1000 ms): one `acquire` (the host's routing check, with `purpose: 'background'`), three
+`event_outbox` statements and, under spine dispatch, one claim transaction on
+`dispatch_outbox` — whether or not the plane has work. The intervals are configuration
+(core 0.9.0-beta.13+):
+
+| setting | env | default |
+| --- | --- | --- |
+| `workers.outboxPollIntervalMs` | `PLUMBUS_OUTBOX_POLL_INTERVAL_MS` | 1000 |
+| `workers.outboxIdleBackoffMaxMs` | `PLUMBUS_OUTBOX_IDLE_BACKOFF_MAX_MS` | 0 (off) |
+| `workers.flowPollIntervalMs` | `PLUMBUS_FLOW_POLL_INTERVAL_MS` | 1000 (≥ 30 000 with durable queues) |
+| `workers.schedulerPollIntervalMs` | `PLUMBUS_SCHEDULER_POLL_INTERVAL_MS` | 60000 |
+
+With `outboxIdleBackoffMaxMs` set, a plane whose visit found nothing is skipped for twice as
+long after each idle visit (starting from the poll interval) up to that cap, and is visited
+every poll again as soon as a visit finds work. The cap is also the longest an event written
+to an idle plane waits before it is dispatched, so choose it against your event latency
+budget. The dispatcher's `wake(tenantRef?)` ends a plane's back-off early for a host that
+knows it just wrote to that outbox.
+
+Skipping planes that have no work without visiting them needs a signal outside the plane
+(event outbox rows are written in the tenant's own transaction, on the tenant's database); the
+framework does not have one yet.
 
 A request-side engine that neither started nor claimed an execution locates its plane through
 the spine hint (`status`, `cancel`, `resume`), so an operator capability on the control plane

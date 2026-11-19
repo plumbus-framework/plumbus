@@ -55,6 +55,7 @@ const engine = vi.hoisted(() => {
         }),
     ),
     markFailedFromRunner: vi.fn(async () => true),
+    acquireExecutionPlane: vi.fn(async () => undefined),
     releaseClaim: vi.fn(async () => true),
     start: vi.fn(async () => ({})),
   };

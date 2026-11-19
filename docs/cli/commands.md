@@ -831,6 +831,8 @@ plumbus migrate rollback [options]   # Rollback last migration
 | `--create-db` | `boolean` | `false` | Create database if it doesn't exist (apply/push only). Does **not** create owner/runtime roles — that is `provisionDataPlane`. |
 | `--database <name>` | `string` | config `database.database` | Named Postgres database to open (apply / push / rollback / reconcile). Uses `openDataPlaneConnection`. Connect as the tenant **owner** role. |
 | `--dry-run` | `boolean` | `false` | Preview migrations that reconcile would mark applied (`reconcile` only) |
+| `--lock-timeout <ms>` | `number` | `PLUMBUS_MIGRATION_LOCK_TIMEOUT_MS`, else `5000` | `lock_timeout` for every migration statement (`apply` only); `0` waits forever |
+| `--lock-retries <n>` | `number` | `PLUMBUS_MIGRATION_LOCK_RETRIES`, else `3` | Retries of a migration whose statement hit the lock timeout (`apply` only) |
 
 **Workflow:**
 
@@ -865,6 +867,14 @@ If you see a drift error, you have two options:
 **Concurrent runs:**
 
 `migrate apply`, `reconcile`, `rollback` and the `apply` preflight take a session advisory lock on the database they migrate (`MIGRATION_ADVISORY_LOCK_KEY`), held on one reserved connection for the whole run. A second run on the same database (another pod, a migrate Job, a developer) prints `Another migration run holds this database; waiting for it to finish...` to stderr, waits, then reads the history the first run wrote and applies only what is still pending. A run that crashes releases the lock with its connection. Locks are per database, so tenant databases migrate in parallel. `drizzle.__drizzle_migrations` also has a unique index on `hash` (`__drizzle_migrations_hash_key`); the first run on a core 0.9.0-beta.1+ install removes duplicate history rows left by earlier unlocked races (keeping the oldest row of each hash, so the set of applied migrations is unchanged) before adding it. Two journal entries whose SQL is byte-identical have one hash and are recorded, and applied, once.
+
+A waiting run polls for the lock every 250 ms rather than blocking, so it never holds the open transaction a `CREATE INDEX CONCURRENTLY` in the running migration would wait for.
+
+**Lock timeout and non-transactional migrations (core 0.9.0-beta.13+):**
+
+Each migration statement runs under `lock_timeout` (5 s by default). A DDL statement that cannot get its table lock in time fails instead of queueing every query on that table behind it; the migration is rolled back and retried with a doubling delay, and after the last retry `apply` fails with `MigrationLockTimeoutError` and the migration stays pending. Each retry prints `Migration "<tag>" statement <n> timed out waiting for a table lock; retry <i>/<n> in <ms> ms` to stderr.
+
+A migration file whose leading comment block has the line `-- plumbus:no-transaction` runs its statements one at a time outside a transaction, which is how an index is built with `CREATE INDEX CONCURRENTLY`. It is recorded only after its last statement; a failure leaves it pending and the next run starts it from the top, so its statements must be re-runnable (`IF NOT EXISTS`). Indexes a failed concurrent build left invalid are dropped, and the migration is never recorded while the database holds an invalid index (`MigrationInvalidIndexError`). See [Data layer: non-transactional migrations](../sdk-reference/data-layer.md#non-transactional-migrations-create-index-concurrently).
 
 **Statement-level diagnostics:**
 

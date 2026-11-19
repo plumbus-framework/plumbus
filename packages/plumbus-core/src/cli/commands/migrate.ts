@@ -25,6 +25,7 @@ import {
 import {
   applyMigrations,
   collectSchemas,
+  type MigrationLockRetryInfo,
   readPendingMigrations,
   reconcileMigrationHistory,
   rollbackLastMigration,
@@ -35,6 +36,44 @@ import { info, error as logError, resolvePath, success, warn } from '../utils.js
 export interface MigrateOptions {
   json?: boolean;
   database?: string;
+}
+
+/** `--lock-timeout` / `--lock-retries` as given, before the environment fallback. */
+export interface MigrateLockOptions {
+  lockTimeout?: string;
+  lockRetries?: string;
+}
+
+function wholeNumberSetting(value: string | undefined, name: string): number | undefined {
+  if (value === undefined || value.trim() === '') return undefined;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error(`${name} must be a whole number, 0 or more (received "${value}")`);
+  }
+  return parsed;
+}
+
+/**
+ * The migration lock policy for `migrate apply`: a flag wins over its environment variable
+ * (`PLUMBUS_MIGRATION_LOCK_TIMEOUT_MS`, `PLUMBUS_MIGRATION_LOCK_RETRIES`); neither set, the
+ * runner's defaults apply.
+ */
+export function resolveMigrateLockOptions(
+  opts: MigrateLockOptions,
+  env: Record<string, string | undefined> = process.env,
+): { lockTimeoutMs?: number; lockRetries?: number } {
+  const lockTimeoutMs = wholeNumberSetting(
+    opts.lockTimeout ?? env.PLUMBUS_MIGRATION_LOCK_TIMEOUT_MS,
+    '--lock-timeout / PLUMBUS_MIGRATION_LOCK_TIMEOUT_MS',
+  );
+  const lockRetries = wholeNumberSetting(
+    opts.lockRetries ?? env.PLUMBUS_MIGRATION_LOCK_RETRIES,
+    '--lock-retries / PLUMBUS_MIGRATION_LOCK_RETRIES',
+  );
+  return {
+    ...(lockTimeoutMs !== undefined ? { lockTimeoutMs } : {}),
+    ...(lockRetries !== undefined ? { lockRetries } : {}),
+  };
 }
 
 /** Same identifier rule as `--create-db` / `ensureDatabase`. */
@@ -503,11 +542,22 @@ export function registerMigrateCommand(program: Command): void {
       '--database <name>',
       'Named database to apply to (defaults to config.database.database)',
     )
-    .action(async (opts: MigrateOptions & { createDb?: boolean }) => {
+    .option(
+      '--lock-timeout <ms>',
+      'lock_timeout for each migration statement, in ms; 0 waits forever ' +
+        '(default: PLUMBUS_MIGRATION_LOCK_TIMEOUT_MS, else 5000)',
+    )
+    .option(
+      '--lock-retries <n>',
+      'Retries after a lock timeout (default: PLUMBUS_MIGRATION_LOCK_RETRIES, else 3)',
+    )
+    .action(async (opts: MigrateOptions & MigrateLockOptions & { createDb?: boolean }) => {
       const config = await loadAppConfig({});
       let dbName: string;
+      let lockOptions: ReturnType<typeof resolveMigrateLockOptions>;
       try {
         dbName = resolveCliDatabaseName(opts.database, config.database.database);
+        lockOptions = resolveMigrateLockOptions(opts);
       } catch (err) {
         const msg = formatConnectError(err);
         if (opts.json) {
@@ -589,9 +639,15 @@ export function registerMigrateCommand(program: Command): void {
         const migrationConfig = {
           db: conn.db,
           migrationsFolder,
+          ...lockOptions,
           // stderr keeps `--json` stdout parseable.
           onLockWait: () =>
             console.error('Another migration run holds this database; waiting for it to finish...'),
+          onLockRetry: (retry: MigrationLockRetryInfo) =>
+            console.error(
+              `Migration "${retry.tag}" statement ${retry.statement} timed out waiting for a ` +
+                `table lock; retry ${retry.retry}/${retry.retries} in ${retry.delayMs} ms`,
+            ),
         };
         const pending = await readPendingMigrations(migrationConfig);
 

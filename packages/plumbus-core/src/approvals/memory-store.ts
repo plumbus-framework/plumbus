@@ -1,8 +1,10 @@
-import type {
-  ApprovalDecisionRecord,
-  ApprovalRequestRecord,
-  ApprovalStore,
-  HumanTaskRecord,
+import { applyApprovalQuery, assertApprovalPageSize } from './query.js';
+import {
+  type ApprovalDecisionRecord,
+  type ApprovalRequestRecord,
+  ApprovalRequestState,
+  type ApprovalStore,
+  type HumanTaskRecord,
 } from './types.js';
 
 export function createMemoryApprovalStore(): ApprovalStore {
@@ -20,6 +22,39 @@ export function createMemoryApprovalStore(): ApprovalStore {
     },
     async listRequests() {
       return [...requests.values()].map((row) => ({ ...row }));
+    },
+    async findRequests(query) {
+      return applyApprovalQuery([...requests.values()], query).map((row) => ({ ...row }));
+    },
+    async listAllRequests({ limit, after }) {
+      assertApprovalPageSize(limit, 'limit');
+      const ordered = [...requests.values()]
+        .filter((row) => after === undefined || row.approvalRequestId > after)
+        .sort((a, b) => (a.approvalRequestId < b.approvalRequestId ? -1 : 1));
+      const page = ordered.slice(0, limit).map((row) => ({ ...row }));
+      const last = page[page.length - 1];
+      return ordered.length > limit && last
+        ? { requests: page, next: last.approvalRequestId }
+        : { requests: page };
+    },
+    async expireRequests({ approvalRequestIds, now }) {
+      const expired: string[] = [];
+      const at = new Date(now).getTime();
+      for (const id of new Set(approvalRequestIds)) {
+        const row = requests.get(id);
+        if (!row) continue;
+        const live =
+          row.state === ApprovalRequestState.Pending || row.state === ApprovalRequestState.Approved;
+        if (!live || new Date(row.expiresAt).getTime() > at) continue;
+        requests.set(id, {
+          ...row,
+          state: ApprovalRequestState.Expired,
+          updatedAt: now,
+          resolvedAt: row.resolvedAt ?? now,
+        });
+        expired.push(id);
+      }
+      return expired;
     },
     async putDecision(row) {
       decisions.push({ ...row });
