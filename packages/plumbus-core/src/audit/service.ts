@@ -117,6 +117,14 @@ export function createAuditService(config: AuditServiceConfig): AuditService {
  * An audit service bound to one open transaction, and the hooks the transaction runner
  * calls once that transaction has ended.
  */
+/**
+ * Whether `service` is a framework database-backed audit service, i.e. one
+ * {@link bindAuditServiceToTransaction} can bind to a transaction.
+ */
+export function isTransactionBindableAuditService(service: AuditService): boolean {
+  return databaseAuditServices.has(service);
+}
+
 export interface TransactionAuditBinding {
   /** Writes through the transaction while it is open; through the outer writer after it ended. */
   readonly audit: AuditService;

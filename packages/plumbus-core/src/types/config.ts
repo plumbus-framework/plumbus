@@ -156,6 +156,39 @@ export interface ExecutionConfig {
    * unaffected. Default: `true` (every capability call is audited).
    */
   auditSuccessfulQueries?: boolean;
+  /**
+   * When an action / event handler opens its transaction (`PLUMBUS_TRANSACTION_BEGIN`):
+   * `'lazy'` (default) at the first thing in the handler that needs it — a `ctx.data` write,
+   * an event, a flow start, a job — so a handler that never writes holds no connection, and
+   * reads before the first write run on the pool outside the transaction; `'eager'` before the
+   * handler runs, as earlier releases did. A capability's `transactional: 'lazy' | 'eager'`
+   * overrides this for that capability.
+   */
+  transactionBegin?: 'lazy' | 'eager';
+  /**
+   * Longest wait, in milliseconds, for a pool connection when a capability opens its
+   * transaction (`PLUMBUS_TRANSACTION_ACQUIRE_TIMEOUT_MS`). Past it the call fails with
+   * `DataPoolAcquireTimeoutError` (HTTP 503, `Retry-After`) instead of queueing without end.
+   * `0` waits without limit (earlier releases). Default: `10000`.
+   */
+  transactionAcquireTimeoutMs?: number;
+}
+
+// ── Data Config ──
+/** How repository reads (`ctx.data.<Entity>.findMany` and friends) are bounded. */
+export interface DataConfig {
+  /**
+   * Rows one read may return unless it passes `{ unbounded: true }`; past it the read is
+   * reported or refused (see `readCeilingMode`)
+   * (`PLUMBUS_READ_CEILING`). A whole number of at least 1. Default: `1000`.
+   */
+  readCeiling?: number;
+  /**
+   * What a read past the ceiling does (`PLUMBUS_READ_CEILING_MODE`): `'warn'` returns what it
+   * did before and logs the read with its call site (at most once a minute per call site);
+   * `'error'` bounds the read in SQL and throws `DataReadCeilingError`. Default: `'warn'`.
+   */
+  readCeilingMode?: 'warn' | 'error';
 }
 
 // ── Workers Config ──
@@ -177,6 +210,7 @@ export interface PlumbusConfig {
   database: DatabaseConfig;
   queue: QueueConfig;
   execution?: ExecutionConfig;
+  data?: DataConfig;
   workers?: WorkersConfig;
   mcp?: McpConfig;
   /** Single-provider AI config (legacy) */

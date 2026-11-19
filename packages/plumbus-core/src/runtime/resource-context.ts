@@ -7,6 +7,7 @@ import { closeDatabaseConnection, resolveDatabaseConnection } from '../data/conn
 import type { EntityDefinition } from '../types/entity.js';
 import { collectMaskedFieldsFromEntities } from '../data/mask-fields.js';
 import { resolveEncryptionKey } from '../data/field-encryption.js';
+import { readCeilingPolicyFromConfig } from '../data/read-ceiling.js';
 import { EntityRegistry } from '../data/registry.js';
 import { EventRegistry } from '../events/registry.js';
 import { CapabilityRegistry } from '../execution/capability-registry.js';
@@ -62,6 +63,7 @@ export async function buildResourceContext(options: {
 
   const entities = new EntityRegistry();
   entities.registerAll(resources.entities);
+  entities.configureReadCeiling(readCeilingPolicyFromConfig(config.data));
 
   const events = new EventRegistry();
   events.registerAll(resources.events);

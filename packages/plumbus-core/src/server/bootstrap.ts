@@ -28,6 +28,7 @@ import type { AuthAdapter } from '../auth/adapter.js';
 import { createJwtAdapter } from '../auth/adapter.js';
 import type { CredentialCatalog } from '../credentials/catalog.js';
 import { resolveEncryptionKey } from '../data/field-encryption.js';
+import { readCeilingPolicyFromConfig } from '../data/read-ceiling.js';
 import type { EntityRegistry } from '../data/registry.js';
 import { FRAMEWORK_SCHEMA, resolveFrameworkSchema } from '../data/schema-generator.js';
 import { logHookError } from '../errors/hook-log.js';
@@ -360,6 +361,10 @@ export function createServer(serverConfig: ServerConfig): PlumbusServer {
   const exposeRequestIds = serverConfig.requestIds?.expose === true;
 
   const logger = serverConfig.logger ?? createConsoleLogger(config.environment);
+  // Bound every repository read by the host's `data` configuration (the read ceiling).
+  entities.configureReadCeiling(
+    readCeilingPolicyFromConfig(config.data, (message, metadata) => logger.warn(message, metadata)),
+  );
   const translationRegistry = new TranslationRegistry();
   translationRegistry.registerAll(serverConfig.translations ?? []);
   const defaultLocale = serverConfig.translations?.[0]?.defaultLocale ?? 'en';

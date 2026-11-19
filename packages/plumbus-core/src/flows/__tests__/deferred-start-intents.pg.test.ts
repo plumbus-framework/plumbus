@@ -57,7 +57,9 @@ const placeOrder = defineCapability({
   access: { roles: ['admin'] },
   effects: { data: ['orders'], events: [], external: [], ai: false },
   async handler(ctx, input) {
-    const tx = ctx.__runtime?.transactionScope?.db;
+    // Raw SQL needs the transaction open: a lazily opened one opens here.
+    const scope = ctx.__runtime?.transactionScope;
+    const tx = scope ? await (scope.acquire?.() ?? scope.db) : undefined;
     if (!tx) throw new Error('expected a transaction');
     await tx.execute(sql`INSERT INTO orders (id) VALUES (${input.orderId})`);
     const started = await ctx.flows.start('intent-probe' as never, { orderId: input.orderId });

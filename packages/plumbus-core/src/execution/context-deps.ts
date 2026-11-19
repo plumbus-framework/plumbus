@@ -61,6 +61,7 @@ export function wireContextDependencies(
     bypassTenantScope: options.bypassTenantScope,
     encryptionKey: options.encryptionKey,
     durableDispatch: options.durableDispatch,
+    getOuterData: () => data,
   });
 
   return {

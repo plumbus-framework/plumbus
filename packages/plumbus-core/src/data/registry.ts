@@ -4,6 +4,7 @@ import type { AuditService } from '../types/audit.js';
 import type { DataService, Repository } from '../types/context.js';
 import type { EntityDefinition } from '../types/entity.js';
 import type { AuthContext } from '../types/security.js';
+import { defaultReadCeilingPolicy, type ReadCeilingPolicy } from './read-ceiling.js';
 import { createRepository } from './repository.js';
 import { collectMaskedFieldsFromEntities } from './mask-fields.js';
 import { generateDrizzleSchema } from './schema-generator.js';
@@ -16,6 +17,21 @@ import { generateDrizzleSchema } from './schema-generator.js';
 export class EntityRegistry {
   private entities = new Map<string, EntityDefinition>();
   private tables = new Map<string, PgTableWithColumns<any>>();
+  private readCeiling: ReadCeilingPolicy = defaultReadCeilingPolicy();
+
+  /**
+   * Bound every read of the data services this registry builds from now on: at most
+   * `policy.maxRows` rows per read without `{ unbounded: true }`, reported or refused past it.
+   * The server and worker bootstraps call this with the host's `data` configuration.
+   */
+  configureReadCeiling(policy: ReadCeilingPolicy): void {
+    this.readCeiling = policy;
+  }
+
+  /** The read ceiling the data services of this registry apply. */
+  getReadCeiling(): ReadCeilingPolicy {
+    return this.readCeiling;
+  }
 
   /**
    * Register an entity definition. Generates and caches its Drizzle schema.
@@ -96,6 +112,7 @@ export class EntityRegistry {
         audit: options.audit,
         bypassTenantScope: options.bypassTenantScope,
         encryptionKey: options.encryptionKey,
+        readCeiling: this.readCeiling,
       });
     }
 

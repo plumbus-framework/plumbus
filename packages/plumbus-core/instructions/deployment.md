@@ -345,6 +345,10 @@ After a standalone build, copy static files alongside the server:
 | `DATABASE_POOL_SIZE` | No | `10` | Max connections in each process's main pool |
 | `DATABASE_STATEMENT_TIMEOUT_MS` | No | — | Server-side `statement_timeout` (ms) for the main pool only; not applied to `plumbus migrate` |
 | `DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS` | No | — | Server-side `idle_in_transaction_session_timeout` (ms) for the main pool only |
+| `PLUMBUS_TRANSACTION_BEGIN` | No | `lazy` | When an action / event handler opens its transaction: `lazy` at its first write (a handler that writes nothing holds no connection), `eager` before the handler (earlier releases) |
+| `PLUMBUS_TRANSACTION_ACQUIRE_TIMEOUT_MS` | No | `10000` | Longest wait for a pool connection to open a capability transaction; past it the call gets a 503 (`DataPoolAcquireTimeoutError`). `0` = no limit |
+| `PLUMBUS_READ_CEILING` | No | `1000` | Rows one repository read may return without `{ unbounded: true }`; past it the read is logged (`warn`) or refused (`error`) |
+| `PLUMBUS_READ_CEILING_MODE` | No | `warn` | `warn` logs reads past the ceiling with their call site; `error` refuses them (`DataReadCeilingError`). Switch to `error` once the warnings are fixed |
 | `PLUMBUS_AUDIT_SUCCESSFUL_QUERIES` | No | `true` | `false` skips the audit row of successful `query` calls (failures/denials still recorded; `audit: { enabled: true }` keeps it) |
 
 ### Frontend / Admin

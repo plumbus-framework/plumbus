@@ -2,8 +2,9 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { z } from 'zod';
 import { isProviderAPIError } from '../ai/provider.js';
 import { evaluateApprovalGate } from '../approvals/gate.js';
-import { isPlumbusError } from '../errors/index.js';
+import { DataPoolAcquireTimeoutError, isPlumbusError } from '../errors/index.js';
 import { createDeferredJobDispatchService } from '../jobs/deferred-job-dispatch-service.js';
+import type { JobDispatchService } from '../jobs/index.js';
 import { preserveOriginalError, startTelemetrySpan } from '../observability/index.js';
 import type { CapabilityContract } from '../types/capability.js';
 import type { ExecutionContext, TransactionScope } from '../types/context.js';
@@ -22,6 +23,7 @@ import {
 import { createDeferredFlowService } from './deferred-flow-service.js';
 import {
   CapabilityOutputValidationError,
+  resolveTransactionRunOptions,
   shouldUseTransactionalOutbox,
 } from './transactional-outbox.js';
 
@@ -44,8 +46,9 @@ export interface ExecuteCapabilityOptions {
    * validation and before commit, with that transaction's handle — work that must commit
    * together with the capability's writes or not at all (the HTTP idempotency completion
    * record). Not called when the capability runs outside a transaction (queries, `transactional:
-   * false`, AI or external effects, the outbox kill switch) or the transaction exposes no
-   * database handle; a throw rolls the transaction back and fails the call.
+   * false`, AI or external effects, the outbox kill switch), when a lazily opened transaction was
+   * never opened by the handler (nothing was written to be atomic with), or the transaction
+   * exposes no database handle; a throw rolls the transaction back and fails the call.
    */
   beforeCommit?: (tx: PostgresJsDatabase, output: unknown) => Promise<void>;
 }
@@ -102,16 +105,19 @@ function buildHandlerContext(
   });
   const deferred = scope?.deferred;
   // The start waits for commit; its intent is written in the transaction when the scope names
-  // the database it runs on, so a crash between commit and start does not lose it.
+  // the database it runs on, so a crash between commit and start does not lose it. On a lazily
+  // opened scope the start opens the transaction (`acquire`).
+  const durableTx =
+    scope?.acquire ?? (scope?.db ? async () => scope.db as PostgresJsDatabase : undefined);
   const flows =
     scope && deferred && ctx.flows
       ? createDeferredFlowService(
           ctx.flows,
           deferred,
           undefined,
-          scope.db && scope.planeDb
+          durableTx && scope.planeDb
             ? {
-                tx: scope.db,
+                acquire: durableTx,
                 planeDb: scope.planeDb,
                 auth: ctx.auth,
                 traceparent: ctx.__runtime?.traceparent,
@@ -124,8 +130,8 @@ function buildHandlerContext(
       : ctx.flows;
   const jobs =
     scope && deferred && ctx.jobs
-      ? scope.db && ctx.jobs.inTransaction
-        ? ctx.jobs.inTransaction(scope.db, deferred)
+      ? durableTx && ctx.jobs.inTransaction
+        ? transactionalJobs(ctx.jobs, durableTx, deferred)
         : createDeferredJobDispatchService(ctx.jobs, deferred)
       : ctx.jobs;
   const handlerCtx: ExecutionContext = {
@@ -157,6 +163,27 @@ function buildHandlerContext(
       )
     : createUnavailableCapabilityService(handlerCtx);
   return handlerCtx;
+}
+
+/**
+ * Jobs whose durable intent is written in the capability's transaction, opening it (on a
+ * lazily opened scope) at the first enqueue.
+ */
+function transactionalJobs(
+  jobs: JobDispatchService,
+  acquire: () => Promise<PostgresJsDatabase>,
+  deferred: Array<() => Promise<void>>,
+): JobDispatchService {
+  return {
+    withTraceparent: (traceparent) =>
+      transactionalJobs(jobs.withTraceparent?.(traceparent) ?? jobs, acquire, deferred),
+    ...(jobs.assertAvailable ? { assertAvailable: () => jobs.assertAvailable?.() } : {}),
+    async enqueue(capabilityName, input, opts) {
+      const tx = await acquire();
+      const bound = jobs.inTransaction?.(tx, deferred) ?? jobs;
+      return bound.enqueue(capabilityName, input, opts);
+    },
+  };
 }
 
 async function runHandlerWithOutputValidation<
@@ -195,7 +222,7 @@ async function handleExecutionError<TOutput extends z.ZodTypeAny>(
   }
 
   if (isPlumbusError(err)) {
-    await recordAudit(ctx, capability, canonicalName, 'failure', { error: err });
+    await recordPlumbusFailure(ctx, capability, canonicalName, err);
     return { success: false, error: preserveOriginalError(err, err, details) };
   }
 
@@ -378,12 +405,17 @@ async function executeCapabilityBody<TInput extends z.ZodTypeAny, TOutput extend
         await options.beforeCommit(existingScope.db, validatedOutput);
       }
     } else if (useTransactional && withTransaction) {
-      validatedOutput = await withTransaction(async (scope): Promise<z.infer<TOutput>> => {
-        const handlerCtx = buildHandlerContext(ctx, anyCap, invocationRuntime, scope);
-        const output = await runHandlerWithOutputValidation(anyCap, handlerCtx, input);
-        if (options?.beforeCommit && scope.db) await options.beforeCommit(scope.db, output);
-        return output as z.infer<TOutput>;
-      });
+      validatedOutput = await withTransaction(
+        async (scope): Promise<z.infer<TOutput>> => {
+          const handlerCtx = buildHandlerContext(ctx, anyCap, invocationRuntime, scope);
+          const output = await runHandlerWithOutputValidation(anyCap, handlerCtx, input);
+          // A lazily opened transaction the handler never needed is not opened for this: the
+          // caller records the completion after the call instead (nothing to be atomic with).
+          if (options?.beforeCommit && scope.db) await options.beforeCommit(scope.db, output);
+          return output as z.infer<TOutput>;
+        },
+        resolveTransactionRunOptions(anyCap, ctx),
+      );
     } else {
       const handlerCtx = buildHandlerContext(ctx, anyCap, invocationRuntime);
       validatedOutput = (await runHandlerWithOutputValidation(
@@ -395,7 +427,7 @@ async function executeCapabilityBody<TInput extends z.ZodTypeAny, TOutput extend
   } catch (err) {
     if (isNestedInTransaction) {
       if (isPlumbusError(err)) {
-        await recordAudit(ctx, anyCap, canonicalName, 'failure', { error: err });
+        await recordPlumbusFailure(ctx, anyCap, canonicalName, err);
       } else if (err instanceof CapabilityOutputValidationError) {
         const error = ctx.errors.internal('Invalid output from capability', {
           capability: canonicalName,
@@ -459,6 +491,24 @@ function zodIssueReason(issues: readonly { params?: { reason?: string } }[]): st
   const first = issues[0] as { params?: { reason?: string } } | undefined;
   const paramReason = first?.params?.reason;
   return typeof paramReason === 'string' && paramReason.length > 0 ? paramReason : undefined;
+}
+
+/**
+ * The failure record of a refused or failed call. A refusal because the pool had no free
+ * connection is not made to wait for one: its record is written when a connection frees,
+ * so the caller gets its 503 now instead of queueing behind the pool (a lost record is logged).
+ */
+async function recordPlumbusFailure(
+  ctx: ExecutionContext,
+  capability: CapabilityContract<any, any>,
+  canonicalName: string,
+  error: unknown,
+): Promise<void> {
+  if (error instanceof DataPoolAcquireTimeoutError) {
+    void recordAudit(ctx, capability, canonicalName, 'failure', { error }).catch(() => undefined);
+    return;
+  }
+  await recordAudit(ctx, capability, canonicalName, 'failure', { error });
 }
 
 async function recordAudit(

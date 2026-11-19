@@ -140,7 +140,38 @@ For `kind: 'action'` and `kind: 'eventHandler'`, handler execution and output va
 - Globally: `execution.transactionalOutbox: false` in config, or `PLUMBUS_TRANSACTIONAL_OUTBOX=false`
 - Per capability: `transactional: false` on `defineCapability({ ... })`
 
-Inside an active transaction, `ctx.flows.start()` defers until after commit. Built-in `ctx.jobs.enqueue()` persists job intent in the active transaction and publishes after commit; rollback removes the intent. Publication failures remain queued for worker recovery. Returned job IDs mean acceptance, not completion. Nested success audits also defer until commit. `ctx.audit.record` inside the transaction writes on the transaction's connection (default audit service): it commits with the data, and on rollback only `failure`/`denied` records are kept. Prefer `transactional: false` on parents that invoke AI capabilities — otherwise the parent transaction is held open for the LLM call (one-time warn).
+### When the transaction opens (lazy by default)
+
+The transaction opens at the handler's **first use that needs it**, not before the handler runs:
+the first `ctx.data` write (`create`, `createMany`, `update`, `updateWhere`, `delete`), the first
+`ctx.events.emit`/`emitMany`, the first durable `ctx.flows.start`, the first `ctx.jobs.enqueue`.
+A handler that never does any of these opens no transaction and holds no database connection
+while it works (calls to other services, reads, waits). Everything written from the first write on
+still commits or rolls back together; a throw or invalid output rolls all of it back.
+
+What changes is **reads before the first write**: they run on the pool, outside the transaction.
+Under PostgreSQL's default `READ COMMITTED` that is not observable — each statement takes its own
+snapshot either way, plain reads take no row locks, and the repository has no `FOR UPDATE`. It is
+observable only when the database or role runs transactions at `REPEATABLE READ`/`SERIALIZABLE`
+(the read no longer shares the transaction's snapshot or serializability checks), or when code
+reached into the internal `ctx.__runtime.transactionScope.db` handle (now `undefined` until
+something opens the transaction). Reads after the first write run in the transaction and see its
+writes.
+
+- Need the old behaviour for one capability? `transactional: 'eager'` (opens before the handler).
+- For the whole app: `execution.transactionBegin: 'eager'` or `PLUMBUS_TRANSACTION_BEGIN=eager`.
+- `transactional: 'lazy'` forces lazy where the host chose eager. `true` follows the host.
+- For a read-modify-write that must not lose a race, use `updateWhere` (compare-and-set) — it was
+  needed under `READ COMMITTED` before this change too.
+
+**Bounded wait for a connection:** opening the transaction waits at most
+`execution.transactionAcquireTimeoutMs` (`PLUMBUS_TRANSACTION_ACQUIRE_TIMEOUT_MS`, default 10000;
+`0` = no limit) for a free pool connection. Past it the call fails with
+`DataPoolAcquireTimeoutError` — HTTP 503 with `Retry-After`, `metadata.reason:
+'pool-acquire-timeout'` — and nothing is written. The bound covers opening the capability's
+transaction, not every query on the pool.
+
+Inside an active transaction, `ctx.flows.start()` defers until after commit. Built-in `ctx.jobs.enqueue()` persists job intent in the active transaction and publishes after commit; rollback removes the intent. Publication failures remain queued for worker recovery. Returned job IDs mean acceptance, not completion. Nested success audits also defer until commit. `ctx.audit.record` inside the transaction writes on the transaction's connection (default audit service): it commits with the data, and on rollback only `failure`/`denied` records are kept. Prefer `transactional: false` on parents that invoke AI capabilities — otherwise a parent transaction that is already open is held open for the LLM call (one-time warn). With the lazy default, do the AI call before the first write when you can. `ctx.audit.record` made before the transaction opens: `success` records are held and written with the transaction (or after the handler returns, if it never opened one) and dropped if the handler throws; `failure`/`denied` records are written at once.
 
 See `docs/upgrading-contract-alignment.md` (Migration stance + §1) and `docs/architecture/execution-lifecycle.md`.
 

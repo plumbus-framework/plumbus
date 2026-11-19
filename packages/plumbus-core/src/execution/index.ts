@@ -47,8 +47,14 @@ export type { WireContextDependenciesOptions } from './context-deps.js';
 export {
   CapabilityOutputValidationError,
   createTransactionRunner,
+  resolveTransactionRunOptions,
   shouldUseTransactionalOutbox,
 } from './transactional-outbox.js';
+export { createDeferredTransaction, type DeferredTransaction } from './deferred-transaction.js';
+export {
+  DEFAULT_TRANSACTION_ACQUIRE_TIMEOUT_MS,
+  DEFAULT_TRANSACTION_BEGIN,
+} from './transaction-defaults.js';
 export type {
   DurableDispatchRunnerConfig,
   TransactionRunnerConfig,

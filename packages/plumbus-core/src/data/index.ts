@@ -52,4 +52,23 @@ export {
 } from './field-encryption.js';
 export { resolveSelectedFields } from './projection.js';
 export { createRepository, type RepositoryOptions } from './repository.js';
+export {
+  createReadCeilingPolicy,
+  DEFAULT_READ_CEILING,
+  DEFAULT_READ_CEILING_MODE,
+  defaultReadCeilingPolicy,
+  decodeKeysetCursor,
+  encodeKeysetCursor,
+  planReadBound,
+  READ_CEILING_WARNING,
+  ReadCeilingMode,
+  readCeilingPolicyFromConfig,
+  resolveKeysetKeys,
+  type KeysetKey,
+  type ReadBound,
+  type ReadCeilingConfig,
+  type ReadCeilingEvent,
+  type ReadCeilingOperation,
+  type ReadCeilingPolicy,
+} from './read-ceiling.js';
 export { generateDrizzleSchema, generateSchemas } from './schema-generator.js';

@@ -12,6 +12,7 @@ import type { ApprovalService, AuthorizationProvider } from '../approvals/types.
 import { createAuditService } from '../audit/service.js';
 import { MAX_FLOW_CONCURRENCY } from '../config/overrides.js';
 import { resolveEncryptionKey } from '../data/field-encryption.js';
+import { readCeilingPolicyFromConfig } from '../data/read-ceiling.js';
 import type { EntityRegistry } from '../data/registry.js';
 import { FRAMEWORK_SCHEMA, resolveFrameworkSchema } from '../data/schema-generator.js';
 import { FlowDefinitionUnavailableError } from '../errors/index.js';
@@ -516,6 +517,12 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     : flowPollIntervalMsConfig;
 
   const logger = poolConfig.logger ?? createWorkerLogger();
+  // Bound every repository read by the host's `data` configuration (the read ceiling).
+  poolConfig.entities?.configureReadCeiling(
+    readCeilingPolicyFromConfig(poolConfig.config.data, (message, metadata) =>
+      logger.warn(message, metadata),
+    ),
+  );
   const metrics = poolConfig.metrics;
   const eventRegistry = poolConfig.eventRegistry;
   const artifacts = resolveGovernedArtifactStore({

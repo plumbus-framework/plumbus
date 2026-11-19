@@ -64,8 +64,11 @@ interface DefineCapabilityInput<TInput extends z.ZodTypeAny, TOutput extends z.Z
   mcp?: McpExposureConfig;
   api?: ApiExposureConfig;
   trigger?: { event: string; versionConstraint?: string; retry?: RetryPolicy };
-  /** When `false`, opts out of transactional outbox for this capability. */
-  transactional?: boolean;
+  /**
+   * When `false`, opts out of transactional outbox for this capability. `'lazy'` / `'eager'`
+   * keep it and choose when the transaction opens (see `CapabilityContract.transactional`).
+   */
+  transactional?: boolean | 'lazy' | 'eager';
   /**
    * Action-risk tier. Only `consequential` requires the approval gate;
    * `prohibited` can never run, be proposed for approval, or be exposed.
@@ -286,6 +289,18 @@ export function defineCapability<TInput extends z.ZodTypeAny, TOutput extends z.
   validateCapabilityDependencies(
     config as unknown as DefineCapabilityInput<z.ZodTypeAny, z.ZodTypeAny>,
   );
+
+  if (
+    config.transactional !== undefined &&
+    typeof config.transactional !== 'boolean' &&
+    config.transactional !== 'lazy' &&
+    config.transactional !== 'eager'
+  ) {
+    throwDefineValidationError(
+      `Capability "${config.name}": transactional must be true, false, 'lazy' or 'eager'`,
+      { field: 'transactional' },
+    );
+  }
 
   if (config.riskTier !== undefined && !isActionRiskTier(config.riskTier)) {
     throwDefineValidationError(

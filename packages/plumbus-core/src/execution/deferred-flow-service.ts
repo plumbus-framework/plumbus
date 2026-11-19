@@ -15,7 +15,10 @@ import type { AuthContext } from '../types/security.js';
  * (for the post-commit cleanup), and the identity the start runs with.
  */
 export interface DurableFlowStartTarget {
-  tx: PostgresJsDatabase;
+  /** The open transaction. Give `acquire` instead when the transaction may not be open yet. */
+  tx?: PostgresJsDatabase;
+  /** Open the transaction (if needed) and return it: a durable start opens a lazy transaction. */
+  acquire?: () => Promise<PostgresJsDatabase>;
   planeDb: PostgresJsDatabase;
   auth: AuthContext;
   traceparent?: string;
@@ -54,9 +57,10 @@ export function createDeferredFlowService(
     async start(flowName, input, opts) {
       const executionId = opts?.executionId ?? allocExecutionId();
       let persisted = false;
-      if (durable) {
-        if (await flowStartIntentsAvailable(durable.planeDb, durable.tx)) {
-          await writeFlowStartIntent(durable.tx, {
+      const tx = durable ? (durable.acquire ? await durable.acquire() : durable.tx) : undefined;
+      if (durable && tx) {
+        if (await flowStartIntentsAvailable(durable.planeDb, tx)) {
+          await writeFlowStartIntent(tx, {
             executionId,
             flowName,
             input,

@@ -144,9 +144,16 @@ export interface CapabilityContract<
   trigger?: EventHandlerTrigger;
   /**
    * When `false`, opts out of the transactional outbox for this capability.
-   * Default: transactional for `action` / `eventHandler` (auto-excluded for `job` and `effects.ai: true`).
+   * Default: transactional for `action` / `eventHandler` (auto-excluded for `job`,
+   * `effects.ai: true` and non-empty `effects.external`).
+   *
+   * `'lazy'` / `'eager'` keep the transaction and choose when it opens, overriding the host's
+   * `execution.transactionBegin` (default `'lazy'`): `'lazy'` at the handler's first write
+   * (data, event, flow start, job), so reads before it run on the pool outside the transaction;
+   * `'eager'` before the handler runs, so those reads run inside it too. `true` is the host's
+   * choice.
    */
-  transactional?: boolean;
+  transactional?: boolean | 'lazy' | 'eager';
   /**
    * Action-risk tier. Omitted: no approval gate (existing capabilities keep working).
    * Only `consequential` requires a bound, unexpired approval before the handler runs.

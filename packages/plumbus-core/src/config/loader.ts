@@ -15,6 +15,7 @@ import type {
   AIProvidersConfig,
   AuthAdapterConfig,
   DatabaseConfig,
+  DataConfig,
   Environment,
   ExecutionConfig,
   PlumbusConfig,
@@ -25,6 +26,11 @@ import type {
 import type { AICacheConfig, AIPromptCacheOption } from '../ai/provider.js';
 import type { AISecurityConfig } from '../ai/security.js';
 import { FieldClassification } from '../types/enums.js';
+import { DEFAULT_READ_CEILING, DEFAULT_READ_CEILING_MODE } from '../data/index.js';
+import {
+  DEFAULT_TRANSACTION_ACQUIRE_TIMEOUT_MS,
+  DEFAULT_TRANSACTION_BEGIN,
+} from '../execution/transaction-defaults.js';
 import type { FieldClassification as FieldClassificationType } from '../types/enums.js';
 
 // ── Config Loader ──
@@ -62,6 +68,7 @@ export function loadEnvironmentConfig(
     database: loadDatabaseConfig(env, environment),
     queue: loadQueueConfig(env, environment),
     execution: loadExecutionConfig(env),
+    data: loadDataConfig(env),
     ...loadWorkersConfig(env),
     ai: loadAIConfig(env),
     aiProviders: loadMultiProviderConfig(env),
@@ -87,13 +94,62 @@ function loadWorkersConfig(env: Record<string, string | undefined>): {
 
 // ── Execution Config ──
 
+const TRANSACTION_ACQUIRE_TIMEOUT_MS_RULE: EnvNumberRule = {
+  pattern: /^\d+$/,
+  min: 0,
+  max: 2_147_483_647,
+  expected: 'a whole number of milliseconds from 0 (no limit) to 2147483647',
+};
+
 function loadExecutionConfig(env: Record<string, string | undefined>): ExecutionConfig {
   const raw = env.PLUMBUS_TRANSACTIONAL_OUTBOX;
   const auditQueries = env.PLUMBUS_AUDIT_SUCCESSFUL_QUERIES;
   return {
     transactionalOutbox: raw === undefined ? true : raw !== 'false',
     auditSuccessfulQueries: auditQueries === undefined ? true : auditQueries !== 'false',
+    transactionBegin:
+      readEnvChoice(env, 'PLUMBUS_TRANSACTION_BEGIN', ['lazy', 'eager'] as const) ??
+      DEFAULT_TRANSACTION_BEGIN,
+    transactionAcquireTimeoutMs:
+      readEnvNumber(
+        env,
+        'PLUMBUS_TRANSACTION_ACQUIRE_TIMEOUT_MS',
+        TRANSACTION_ACQUIRE_TIMEOUT_MS_RULE,
+      ) ?? DEFAULT_TRANSACTION_ACQUIRE_TIMEOUT_MS,
   };
+}
+
+// ── Data Config ──
+
+const READ_CEILING_RULE: EnvNumberRule = {
+  pattern: /^\d+$/,
+  min: 1,
+  max: 2_147_483_647,
+  expected: 'a whole number of rows of at least 1',
+};
+
+function loadDataConfig(env: Record<string, string | undefined>): DataConfig {
+  return {
+    readCeiling:
+      readEnvNumber(env, 'PLUMBUS_READ_CEILING', READ_CEILING_RULE) ?? DEFAULT_READ_CEILING,
+    readCeilingMode:
+      readEnvChoice(env, 'PLUMBUS_READ_CEILING_MODE', ['warn', 'error'] as const) ??
+      DEFAULT_READ_CEILING_MODE,
+  };
+}
+
+/** One of a fixed set of values from an environment variable; anything else fails startup. */
+function readEnvChoice<const C extends readonly string[]>(
+  env: Record<string, string | undefined>,
+  variable: string,
+  choices: C,
+): C[number] | undefined {
+  const raw = env[variable]?.trim();
+  if (raw === undefined || raw === '') return undefined;
+  if (!(choices as readonly string[]).includes(raw)) {
+    throw new Error(`Invalid ${variable}="${raw}": expected one of ${choices.join(', ')}`);
+  }
+  return raw as C[number];
 }
 
 // ── Database Config ──
@@ -559,6 +615,35 @@ export function validateConfig(config: PlumbusConfig): ConfigValidationResult {
         `database.${field} (${envName}) must be a whole number of milliseconds between 1 and 2147483647`,
       );
     }
+  }
+  if (
+    config.data?.readCeiling !== undefined &&
+    (!Number.isInteger(config.data.readCeiling) || config.data.readCeiling < 1)
+  ) {
+    errors.push('data.readCeiling (PLUMBUS_READ_CEILING) must be a whole number of at least 1');
+  }
+  if (
+    config.data?.readCeilingMode !== undefined &&
+    config.data.readCeilingMode !== 'warn' &&
+    config.data.readCeilingMode !== 'error'
+  ) {
+    errors.push("data.readCeilingMode (PLUMBUS_READ_CEILING_MODE) must be 'warn' or 'error'");
+  }
+  if (
+    config.execution?.transactionBegin !== undefined &&
+    config.execution.transactionBegin !== 'lazy' &&
+    config.execution.transactionBegin !== 'eager'
+  ) {
+    errors.push("execution.transactionBegin (PLUMBUS_TRANSACTION_BEGIN) must be 'lazy' or 'eager'");
+  }
+  const acquire = config.execution?.transactionAcquireTimeoutMs;
+  if (
+    acquire !== undefined &&
+    (!Number.isInteger(acquire) || acquire < 0 || acquire > 2_147_483_647)
+  ) {
+    errors.push(
+      'execution.transactionAcquireTimeoutMs (PLUMBUS_TRANSACTION_ACQUIRE_TIMEOUT_MS) must be a whole number of milliseconds between 0 and 2147483647',
+    );
   }
   if (config.environment === 'production' && !config.database.password) {
     errors.push('database.password is required in production');

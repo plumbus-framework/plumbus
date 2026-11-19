@@ -1,6 +1,14 @@
 import type { DecisionResult } from '@plumbus/ai-decision/types';
 import { PlumbusError } from '../errors/index.js';
-import { resolveSelectedFields } from '../data/index.js';
+import {
+  decodeKeysetCursor,
+  defaultReadCeilingPolicy,
+  encodeKeysetCursor,
+  planReadBound,
+  type ReadCeilingPolicy,
+  resolveKeysetKeys,
+  resolveSelectedFields,
+} from '../data/index.js';
 // ── Test Context Builder ──
 // Factory for building test-friendly ExecutionContexts with mock services.
 
@@ -24,6 +32,8 @@ import type {
   FlowService,
   FlowWakeResult,
   LoggerService,
+  Page,
+  PageOptions,
   QueryOptions,
   Repository,
   TimeService,
@@ -295,10 +305,24 @@ export function mockLogger(): MockLoggerService {
 
 // ── In-Memory Repository ──
 
-/** Create an in-memory repository for testing entity operations */
+/** Options of {@link createInMemoryRepository}. */
+export interface InMemoryRepositoryOptions {
+  /** Entity name used in read-ceiling reports and errors (default `InMemory`). */
+  entityName?: string;
+  /** Read ceiling, as the Drizzle repository applies it (default: the framework default). */
+  readCeiling?: ReadCeilingPolicy;
+}
+
+/**
+ * Create an in-memory repository for testing entity operations. Reads follow the Drizzle
+ * repository: the read ceiling, an empty `in` list matching nothing, `limit` honoured exactly,
+ * `exists` and keyset `findPage`.
+ */
 export function createInMemoryRepository<
   T extends Record<string, unknown> = Record<string, unknown>,
->(initialData?: T[]): Repository<T> {
+>(initialData?: T[], repositoryOptions: InMemoryRepositoryOptions = {}): Repository<T> {
+  const entityName = repositoryOptions.entityName ?? 'InMemory';
+  const readCeiling = repositoryOptions.readCeiling ?? defaultReadCeilingPolicy();
   const store = new Map<string, T>();
   let idCounter = 0;
   if (initialData) {
@@ -335,7 +359,8 @@ export function createInMemoryRepository<
     }
     if (options?.in) {
       for (const [field, vals] of Object.entries(options.in)) {
-        if (!vals.length) continue;
+        // An empty allow-list allows nothing (the Drizzle repository compiles it to FALSE).
+        if (!vals.length) return [];
         // Mirror SQL IN, which coerces query values to the column type (e.g. a numeric
         // column compared against a string param from an HTTP query): match by string
         // form, and exclude NULL/absent fields (`col IN (...)` is NULL — not TRUE — for
@@ -389,15 +414,72 @@ export function createInMemoryRepository<
     return results;
   }
 
-  function pageRows(query?: Partial<T>, options?: QueryOptions): T[] {
+  function pageRows(
+    query: Partial<T> | undefined,
+    options: QueryOptions | undefined,
+    operation: 'findMany' | 'findManyFields',
+  ): T[] {
+    const bound = planReadBound(readCeiling, entityName, operation, options);
     let results = filterRows(query, options);
-    if (options?.offset) {
-      results = results.slice(options.offset);
+    if (options?.offset != null) {
+      results = results.slice(Math.max(0, options.offset));
     }
-    if (options?.limit) {
-      results = results.slice(0, options.limit);
+    if (bound.sqlLimit !== undefined) {
+      results = results.slice(0, bound.sqlLimit);
     }
+    bound.check(results.length);
     return results;
+  }
+
+  function compareKeyValues(a: unknown, b: unknown): number {
+    const av = a instanceof Date ? a.getTime() : (a as any);
+    const bv = b instanceof Date ? b.getTime() : (b as any);
+    if (av < bv) return -1;
+    if (av > bv) return 1;
+    return 0;
+  }
+
+  function findPage(query: Partial<T> | undefined, options: PageOptions): Page<T> {
+    if (!Number.isInteger(options?.limit) || options.limit < 1) {
+      throw new PlumbusError('validation', 'findPage needs limit: a whole number of at least 1', {
+        entity: entityName,
+        operation: 'findPage',
+        field: 'limit',
+      });
+    }
+    const bound = planReadBound(readCeiling, entityName, 'findPage', { limit: options.limit });
+    const pageSize = bound.sqlLimit ?? options.limit;
+    const keys = resolveKeysetKeys(options.orderBy, options.orderDir);
+    const keyOf = (row: T) => keys.map((key) => (row as Record<string, unknown>)[key.column]);
+    const order = (a: unknown[], b: unknown[]) => {
+      for (let i = 0; i < keys.length; i++) {
+        const c = compareKeyValues(a[i], b[i]);
+        if (c !== 0) return keys[i]?.dir === 'asc' ? c : -c;
+      }
+      return 0;
+    };
+    let rows = filterRows(query, {
+      dateFilters: options.dateFilters,
+      search: options.search,
+      in: options.in,
+      notEq: options.notEq,
+    }).sort((a, b) => order(keyOf(a), keyOf(b)));
+    if (options.after !== undefined) {
+      const after = decodeKeysetCursor(entityName, keys, options.after);
+      // NULL never compares after a value, as in SQL.
+      rows = rows.filter((row) => {
+        const values = keyOf(row);
+        return values.every((v) => v != null) && order(values, after) > 0;
+      });
+    }
+    const more = rows.length > pageSize;
+    const page = rows.slice(0, pageSize);
+    const last = page[page.length - 1];
+    return {
+      rows: page,
+      nextCursor:
+        more && last ? encodeKeysetCursor(entityName, keys, last as Record<string, unknown>) : null,
+    };
   }
 
   return {
@@ -444,7 +526,7 @@ export function createInMemoryRepository<
       store.delete(id);
     },
     async findMany(query, options) {
-      return pageRows(query, options);
+      return pageRows(query, options, 'findMany');
     },
     async findManyFields<K extends keyof T>(
       query: Partial<T> | undefined,
@@ -452,7 +534,7 @@ export function createInMemoryRepository<
       options?: QueryOptions,
     ): Promise<Pick<T, K>[]> {
       const selected = resolveSelectedFields(fields ?? null) as string[];
-      return pageRows(query, options).map(
+      return pageRows(query, options, 'findManyFields').map(
         (row) =>
           Object.fromEntries(
             selected.map((name) => [name, (row as Record<string, unknown>)[name]]),
@@ -461,6 +543,12 @@ export function createInMemoryRepository<
     },
     async count(query, options) {
       return filterRows(query, options).length;
+    },
+    async exists(query, options) {
+      return filterRows(query, options).length > 0;
+    },
+    async findPage(query, options) {
+      return findPage(query, options);
     },
     async aggregate(query, options) {
       // Mirror the Drizzle repository's aggregate() semantics exactly, so tests
@@ -567,9 +655,11 @@ export function createInMemoryRepository<
           return 0;
         });
       }
-      if (options?.limit != null) {
-        resultRows = resultRows.slice(0, Math.max(1, Math.min(1000, options.limit)));
+      const bound = planReadBound(readCeiling, entityName, 'aggregate', options);
+      if (bound.sqlLimit !== undefined) {
+        resultRows = resultRows.slice(0, bound.sqlLimit);
       }
+      bound.check(resultRows.length);
       return resultRows;
     },
   };
@@ -633,6 +723,14 @@ function withFieldValidation<T extends Record<string, unknown>>(
       return repo.findManyFields(query, fields, options);
     },
     count: (query, options) => repo.count(query, options),
+    exists: (query, options) => {
+      if (!repo.exists) throw new Error('exists is not supported by the wrapped repository');
+      return repo.exists(query, options);
+    },
+    findPage: (query, options) => {
+      if (!repo.findPage) throw new Error('findPage is not supported by the wrapped repository');
+      return repo.findPage(query, options);
+    },
     aggregate: (query, options) => repo.aggregate(query, options),
   };
 }
@@ -643,12 +741,16 @@ function withFieldValidation<T extends Record<string, unknown>>(
 export function createTestData(
   data?: Record<string, Record<string, unknown>[]>,
   entityDefs?: EntityDefinition[],
+  options?: { readCeiling?: ReadCeilingPolicy },
 ): DataService {
   const fieldMap = entityDefs ? buildEntityFieldMap(entityDefs) : null;
   const dataService: DataService = {};
 
   function makeRepo(name: string, records?: Record<string, unknown>[]): Repository {
-    const repo = createInMemoryRepository(records);
+    const repo = createInMemoryRepository(records, {
+      entityName: name,
+      readCeiling: options?.readCeiling,
+    });
     const fields = fieldMap?.get(name);
     return fields ? withFieldValidation(repo, name, fields) : repo;
   }
@@ -692,6 +794,11 @@ export interface TestContextOptions {
   logger?: LoggerService;
   time?: TimeService | Date;
   config?: Record<string, unknown>;
+  /**
+   * Read ceiling of the in-memory repositories (default: 1000 rows, `warn`). Pass
+   * `createReadCeilingPolicy({ mode: 'error' })` to make an over-ceiling read fail the test.
+   */
+  readCeiling?: ReadCeilingPolicy;
   /** Register capabilities for nested ctx.capabilities.invoke in tests. */
   capabilities?: CapabilityContract[];
 }
@@ -720,7 +827,9 @@ export function createTestContext(options?: TestContextOptions): ExecutionContex
 
   const deps: ContextDependencies = {
     auth: createTestAuth(options?.auth),
-    data: createTestData(options?.data, options?.entities),
+    data: createTestData(options?.data, options?.entities, {
+      readCeiling: options?.readCeiling,
+    }),
     events: options?.events ?? mockEvents(),
     flows: options?.flows ?? mockFlows(),
     ai: aiService,

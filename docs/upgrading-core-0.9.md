@@ -6,6 +6,70 @@ The 0.8 numbers now belong to the stable **stabilization family** published from
 
 Core 0.9.0-beta.0 contains everything in the 0.8.0-beta.N line plus every stable change merged from `main`: the core 0.8.0 stabilization (PLB-01 to PLB-10), core 0.8.1, auth 0.3.1 and the Vitest 5.0.4 toolchain. See [Included in v0.9.0-beta.0](#included-in-v090-beta0).
 
+## Unreleased (next core beta): bounded repository reads, capability transactions opened at the first write
+
+Not yet released; prepared on the beta line for the next `@plumbus/core` beta. Both changes alter
+behaviour for every application. No migration (no schema change). Consumer agents: follow
+[`instructions/upgrading-bounded-reads-lazy-transactions.md`](../packages/plumbus-core/instructions/upgrading-bounded-reads-lazy-transactions.md).
+
+### Core: repository reads are bounded
+
+- **Read ceiling.** One `findMany` / `findManyFields` / `findPage` / `aggregate` returns at most
+  `data.readCeiling` rows (`PLUMBUS_READ_CEILING`, default **1000**) unless it passes
+  `{ unbounded: true }`. `data.readCeilingMode` (`PLUMBUS_READ_CEILING_MODE`) decides what a read
+  past it does: **`warn` (default)** returns what it returned before and logs the read with its
+  call site (once a minute per call site); `error` bounds the read in SQL and throws
+  `DataReadCeilingError` (`reason: 'read-ceiling-exceeded'`). A read is never cut short: `warn`
+  returns everything asked for, `error` refuses. Run with `warn`, fix the reads the log lists, then
+  switch to `error`.
+- **Breaking: `limit` is honoured exactly.** `limit: 500` returns 500 rows (it returned 100 without
+  saying so); `limit: 0` returns none (it returned one); a negative or fractional `limit` throws
+  `DataValidationError`. A `limit` above the ceiling is honoured and logged (`warn`) or refused
+  before any query (`error`). In `warn` mode nothing caps a caller-supplied `limit` any more, so
+  bound page sizes in capability input schemas. `aggregate`'s silent cap at 1000 group rows goes
+  the same way.
+- **Breaking: an empty `in` list matches no rows.** It used to drop the filter and match every row,
+  so "rows for none of these ids" answered "every row". Leave the key out when a filter is optional.
+- **New:** `exists(query, options)` (`SELECT 1 … LIMIT 1`) and keyset paging
+  `findPage(query, { limit, orderBy, after })` → `{ rows, nextCursor }`, on the Drizzle and the
+  in-memory repositories (optional on the `Repository` type). `EntityRegistry.configureReadCeiling`,
+  `createReadCeilingPolicy`, `readCeilingPolicyFromConfig`, `createRepository({ readCeiling })`,
+  `createInMemoryRepository(rows, { readCeiling })`, `createTestContext({ readCeiling })`.
+- Repositories an app builds with `createRepository` directly use the framework default policy
+  unless given `readCeiling` (`entities.getReadCeiling()` follows the host).
+
+### Core: capability transactions open at the first write
+
+- **Behaviour change: lazy by default.** An action or event handler's transaction opens at its
+  first data write, event, durable flow start or job enqueue, not before the handler runs. A handler
+  that writes nothing opens no transaction and holds no pool connection; one that writes late holds
+  it only from then on. Everything written in the transaction still commits or rolls back together;
+  a throw or invalid output rolls it all back; nested capabilities share it.
+- **What is different:** reads before the first write run on the pool, outside the transaction.
+  Under `READ COMMITTED` (PostgreSQL's default; the framework sets no isolation level) this is not
+  observable through `ctx.data`. At `REPEATABLE READ`/`SERIALIZABLE`, or for code that used the
+  internal `ctx.__runtime.transactionScope.db` (now `undefined` until the transaction opens;
+  `acquire()` opens it), use `transactional: 'eager'` on the capability or
+  `execution.transactionBegin: 'eager'` (`PLUMBUS_TRANSACTION_BEGIN=eager`) for the app.
+  `ctx.audit.record` success records made before the open are held and written with the outcome an
+  eager transaction would give them; the HTTP idempotency completion of a handler that opened no
+  transaction is written after the call.
+- **Bounded wait for a connection.** Opening the transaction waits at most
+  `execution.transactionAcquireTimeoutMs` (`PLUMBUS_TRANSACTION_ACQUIRE_TIMEOUT_MS`, default
+  **10 000**, `0` = no limit), then fails with `DataPoolAcquireTimeoutError` (HTTP 503,
+  `Retry-After: 1`, `reason: 'pool-acquire-timeout'`); nothing is written and the late connection is
+  given back at once. This bounds opening capability transactions only; other queries on a saturated
+  pool still wait in the driver's queue.
+- `transactional` accepts `'lazy' | 'eager'` beside `true | false`. New exports:
+  `DataReadCeilingError`, `DataPoolAcquireTimeoutError`, `createDeferredTransaction`,
+  `resolveTransactionRunOptions`, `DEFAULT_TRANSACTION_BEGIN`, `DEFAULT_TRANSACTION_ACQUIRE_TIMEOUT_MS`,
+  types `Page`, `PageOptions`, `DataConfig`, `ExecutionConfig`, `ReadCeilingPolicy`, `ReadCeilingEvent`,
+  `ReadCeilingConfig`. `WithTransactionFn` takes an optional second argument (`{ begin, acquireTimeoutMs }`);
+  a custom runner that ignores it opens eagerly, which stays correct.
+
+**To restore the earlier transaction behaviour without code changes:** `PLUMBUS_TRANSACTION_BEGIN=eager`
+and `PLUMBUS_TRANSACTION_ACQUIRE_TIMEOUT_MS=0`. The empty-`in` and exact-`limit` fixes have no switch.
+
 ## v0.9.0-beta.13 (2026-11-16): chat `regenerate` verdict and `answerOf`
 
 Prepared for repository release `v0.9.0-beta.13` under npm dist-tag `plumbus-next`. One package

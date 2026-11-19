@@ -1,5 +1,22 @@
 # @plumbus/core changelog
 
+## Unreleased — bounded repository reads, capability transactions opened at the first write
+
+### Repository reads
+
+- **Read ceiling** (`data.readCeiling` / `PLUMBUS_READ_CEILING`, default 1000; `data.readCeilingMode` / `PLUMBUS_READ_CEILING_MODE`, `warn` default or `error`). `findMany`, `findManyFields`, `findPage` and `aggregate` group rows: an unlimited read past the ceiling is logged with its call site (`warn`) or bounded in SQL at ceiling + 1 and refused with the new `DataReadCeilingError` (`error`); `{ unbounded: true }` opts a read out. Configured per `EntityRegistry` (`configureReadCeiling`) by `createServer`, the worker pool and the CLI runtimes; `createRepository({ readCeiling })`; default policy otherwise.
+- **Breaking: `limit` is honoured exactly** — no silent clamp to 100 (`aggregate`: 1000). `limit: 0` returns no rows; a negative or fractional limit throws `DataValidationError`; a limit above the ceiling is honoured and logged (`warn`) or refused before any query (`error`); `warn` never returns fewer rows than asked for. In `warn` mode nothing caps a caller-supplied `limit` (the old 100 clamp did): bound page sizes in input schemas.
+- **Breaking: an empty `in` list matches no rows** (it dropped the filter and matched every row). Applies to `findMany`, `count`, `aggregate`, `exists`, `findPage` and the in-memory repository.
+- New `exists()` and keyset `findPage()` (`{ rows, nextCursor }`, `orderBy` + `id`, opaque cursor bound to the sort) on the Drizzle and in-memory repositories; optional on `Repository`.
+- The in-memory test repository now follows the Drizzle one for `limit` (0 included), empty `in`, the ceiling, `exists` and `findPage`. `createInMemoryRepository(rows, { entityName, readCeiling })`, `createTestContext({ readCeiling })`, `createTestData(data, entities, { readCeiling })`.
+
+### Capability transactions
+
+- **Lazily opened by default** (`execution.transactionBegin` / `PLUMBUS_TRANSACTION_BEGIN`, `lazy` default or `eager`; per capability `transactional: 'lazy' | 'eager'`). The transaction opens at the handler's first data write, event, durable flow start, job enqueue or durable dispatch write; reads before it run on the pool. Atomicity of everything written in it is unchanged. Success audit records made before the open are held (written with the transaction, after the handler when none opened, dropped on failure); failure/denied records are written at once. `beforeCommit` (idempotency completion) runs only in an opened transaction. The AI-in-transaction warning fires only when the parent transaction is open.
+- **Bounded wait** for the pool connection that opens it (`execution.transactionAcquireTimeoutMs` / `PLUMBUS_TRANSACTION_ACQUIRE_TIMEOUT_MS`, default 10 000, `0` = none): new `DataPoolAcquireTimeoutError` (HTTP 503, `Retry-After`, `reason: 'pool-acquire-timeout'`); the abandoned BEGIN is rolled back when its connection arrives; the refusal's failure audit is written in the background.
+- `createTransactionRunner` returns `withTransaction(fn, { begin, acquireTimeoutMs })`; without options it opens eagerly and hands out the same scope as before. `TransactionScope` gains internal `acquire()` / `isOpen()`; on a lazy scope `db` is `undefined` until the transaction opens. New: `createDeferredTransaction`, `resolveTransactionRunOptions`, `isTransactionBindableAuditService`, `DEFAULT_TRANSACTION_BEGIN`, `DEFAULT_TRANSACTION_ACQUIRE_TIMEOUT_MS`.
+- No migration. See [upgrading to core 0.9](../../docs/upgrading-core-0.9.md) and `instructions/upgrading-bounded-reads-lazy-transactions.md`.
+
 ## 0.9.0-beta.12 — 2026-11-16 — earlier releases' flow definitions, kept for their executions
 
 - **Which version a new execution starts on no longer depends on file names.** `CompiledFlowRegistry` now has a *current* version per flow (`getCurrent`) and *retained* versions (`publish(compiled, { retained: true })`, `isRetained`). A retained version runs the executions pinned to it and is never the one a new execution starts on. Before, `getLatest` returned the version loaded last, and the directory loads in file-name order, so `x@1.9.0` would have won over `x@1.10.0`. `getLatest` is kept as a deprecated alias of `getCurrent`; publishing several current versions in code behaves as before (the last one is current).
