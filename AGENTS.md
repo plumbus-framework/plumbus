@@ -320,7 +320,7 @@ For architecture, SDK reference, and design rationale, read files under `docs/`:
 - `packages/plumbus-core/instructions/upgrading-security-release.md` — packaged consumer-agent upgrade checklist
 - `docs/auth/` — OIDC RP runtime (`@plumbus/auth`), sessions, CSRF, Cognito, deployment
 - `docs/payments/` — sellers charging their clients and the app billing its own customers (`@plumbus/payments`, `@plumbus/payments-stripe`); every option in `options.md`, use cases, billing, Stripe, webhooks
-- `docs/ai/` — prompts, RAG, cost tracking, prompt caching, Bedrock, decision providers (TypeSafe/Jev, Laya, OpenAI Decisions), 0.6.0 ledger upgrade
+- `docs/ai/` — prompts, RAG, cost tracking, prompt caching, image input, Bedrock, decision providers (TypeSafe/Jev, Laya, OpenAI Decisions), 0.6.0 ledger upgrade
 - `docs/testing/` — test utilities, patterns, examples
 - `docs/ui/` — client generation, hooks, Next.js scaffolding
 - `docs/agents/` — agent setup, framework-first guardrails

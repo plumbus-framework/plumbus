@@ -6,6 +6,24 @@ The 0.8 numbers now belong to the stable **stabilization family** published from
 
 Core 0.9.0-beta.0 contains everything in the 0.8.0-beta.N line plus every stable change merged from `main`: the core 0.8.0 stabilization (PLB-01 to PLB-10), core 0.8.1, auth 0.3.1 and the Vitest 5.0.4 toolchain. See [Included in v0.9.0-beta.0](#included-in-v090-beta0).
 
+## v0.9.0-beta.15 (2026-11-20): image input in `ctx.ai`
+
+Prepared for repository release `v0.9.0-beta.15` under npm dist-tag `plumbus-next`. Two packages
+change: `@plumbus/core` **0.9.0-beta.13 → 0.9.0-beta.14** and `@plumbus/ai-bedrock`
+**0.4.0-beta.0 → 0.4.0-beta.1**. Every other package and all peer ranges stay unchanged.
+Additive; no migration.
+
+- **Image input.** `images` on `ctx.ai.generate`, `generateWithUsage`, `streamGenerate` and
+  `extract`; a user turn's `content` may be text and image parts. OpenAI (Chat Completions and
+  Responses), Anthropic and Bedrock Converse send them natively. A provider adapter without
+  `capabilities.imageInput` refuses with `AIImageInputUnsupportedError` before sending. Images
+  count toward the size guard and the budget estimate by each provider's image rule. See
+  [AI integration → Image input](./ai/ai-integration.md#image-input).
+- **`extract({ prompt })` is honoured.** It was accepted and ignored; it is now sent after the
+  framework's extraction instruction. Review calls that passed a `prompt` they did not mean.
+- **Testing:** `mockAI` accepts images; new `mockAIProvider` and `blankPng` in
+  `@plumbus/core/testing`.
+
 ## v0.9.0-beta.14 (2026-11-20): many tenants, bounded reads, lazy transactions, stable 0.8.6 / 0.8.7 merged
 
 Prepared for repository release `v0.9.0-beta.14` under npm dist-tag `plumbus-next`. Three packages

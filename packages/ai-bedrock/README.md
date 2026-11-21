@@ -1,6 +1,6 @@
 # @plumbus/ai-bedrock
 
-Release **0.4.0-beta.0** belongs to the core 0.9 beta family (npm dist-tag `plumbus-next`; npm `latest` stays on the 0.8 stabilization family). See the [changelog](./CHANGELOG.md), the [0.9 beta upgrade notes](../../docs/upgrading-core-0.9.md), and the [stabilization upgrade guide](../../docs/upgrading-stabilization.md) before updating an existing app.
+Release **0.4.0-beta.1** belongs to the core 0.9 beta family (npm dist-tag `plumbus-next`; npm `latest` stays on the 0.8 stabilization family). See the [changelog](./CHANGELOG.md), the [0.9 beta upgrade notes](../../docs/upgrading-core-0.9.md), and the [stabilization upgrade guide](../../docs/upgrading-stabilization.md) before updating an existing app.
 
 > **Amazon Bedrock for [Plumbus](https://github.com/plumbus-framework/plumbus) AI.** Optional AWS SDK adapter for Converse chat, ConverseStream, Titan embeddings, and **package-owned USD cost** from the AWS Price List (or a mounted pricing file).
 
@@ -48,7 +48,7 @@ An opt-in peer keeps core lean while giving AWS shops a first-class `provider: '
 
 ## Status
 
-Optional peer of `@plumbus/core` (version **`0.4.0-beta.0`**, core 0.9 beta family, npm dist-tag `plumbus-next`; npm `latest` is `0.3.x` in the core 0.8 stabilization family; required peer `@plumbus/core` **`>=0.9.0-beta.0 <0.10.0`**). **Runtime floor:** `@plumbus/core` **≥ 0.7.0**; prompt caching through `ctx.ai` needs **≥ 0.7.9** and is included in this beta family. Install alone is not enough until the adapter is registered (env discovery or `createBedrockAdapter`).
+Optional peer of `@plumbus/core` (version **`0.4.0-beta.1`**, core 0.9 beta family, npm dist-tag `plumbus-next`; npm `latest` is `0.3.x` in the core 0.8 stabilization family; required peer `@plumbus/core` **`>=0.9.0-beta.0 <0.10.0`**). **Runtime floor:** `@plumbus/core` **≥ 0.7.0**; prompt caching through `ctx.ai` needs **≥ 0.7.9** and is included in this beta family. Install alone is not enough until the adapter is registered (env discovery or `createBedrockAdapter`).
 
 ## Install
 

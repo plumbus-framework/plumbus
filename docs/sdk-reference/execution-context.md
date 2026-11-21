@@ -337,7 +337,12 @@ interface AIService {
 }
 
 // All AI calls accept these optional fields:
-//   messages?: ChatMessage[]            // native multi-turn (generate/stream)
+//   messages?: ChatMessage[]            // native multi-turn (generate/stream); a user turn's
+//                                       // content is a string or text/image parts
+//   images?: AIImageInput[]             // generate / generateWithUsage / streamGenerate / extract:
+//                                       // { mediaType: 'image/png'|'image/jpeg'|'image/webp', data: Uint8Array }
+//                                       // refused with AIImageInputUnsupportedError by a provider
+//                                       // without capabilities.imageInput (features.imageInput: true)
 //   validation?: AIValidationOptions    // per-call retry override
 //   signal?: AbortSignal                // defaults to ctx.signal inside flows
 //   costContext?: AICostContext         // per-call billing metadata
@@ -409,6 +414,10 @@ handler: async (ctx, input) => {
   // usage = { inputTokens, outputTokens, totalTokens }
 }
 ```
+
+See [AI integration → Image input](../ai/ai-integration.md#image-input) for placement, checks,
+limits and the per-provider image pricing rule. `extract({ prompt })` adds instructions after the
+framework's extraction instruction.
 
 ---
 

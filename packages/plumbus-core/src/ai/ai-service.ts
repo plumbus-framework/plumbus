@@ -28,6 +28,13 @@ import type { AIReasoningConfig, PromptDefinition, ReasoningEffort } from '../ty
 import type { AICostRecord, AICostRecordInput, CostTracker } from './cost-tracker.js';
 import type { AIExplainabilityTracker } from './explainability.js';
 import { fillPromptTemplate } from './fill-prompt-template.js';
+import {
+  type AIImageInput,
+  base64Length,
+  type ContentPart,
+  describeImage,
+  estimateUnscaledImageTokens,
+} from './image-input.js';
 import { estimateModelCost as calculateModelCost, findModelRate } from './model-pricing.js';
 import { restoreOmittedOptionalProperties } from './openai-strict-schema.js';
 import { type PromptOverrideMap, resolvePromptOverride } from './prompt-overrides.js';
@@ -49,7 +56,12 @@ import {
 } from './provider.js';
 import { isCostFreeProviderFailure } from './provider-failure.js';
 import type { RAGPipeline } from './rag/pipeline.js';
-import { AIIncompleteOutputError, AIRefusalError } from './refusal.js';
+import {
+  AIImageInputUnsupportedError,
+  AIIncompleteOutputError,
+  AIInvalidRequestError,
+  AIRefusalError,
+} from './refusal.js';
 import type { AISecurityConfig } from './security.js';
 import { checkPromptSecurity } from './security.js';
 import { normalizeCost, validateTokenUsage } from './usage-validation.js';
@@ -253,6 +265,74 @@ function getTypedAIErrorUsage(err: unknown): TokenUsage | undefined {
     return err.usage;
   }
   return undefined;
+}
+
+// ── Image input ──
+
+/** Every image a provider request carries: `images` (single-prompt mode) and user-turn parts. */
+function collectRequestImages(request: ProviderRequest): AIImageInput[] {
+  const images: AIImageInput[] = [];
+  const multiTurn = request.messages !== undefined && request.messages.length > 0;
+  if (multiTurn && request.images && request.images.length > 0) {
+    // Adapters read `images` only without `messages`; refusing beats dropping the images.
+    throw new AIInvalidRequestError({
+      reason: 'images_with_messages',
+      message:
+        'ProviderRequest.images is sent only with `prompt`; with `messages`, put image parts in the last user turn',
+    });
+  }
+  if (!multiTurn) images.push(...(request.images ?? []));
+  for (const message of request.messages ?? []) {
+    if (message.role !== 'user' || typeof message.content === 'string') continue;
+    for (const part of message.content) {
+      if (part.type === 'image') images.push(part);
+    }
+  }
+  return images;
+}
+
+/** JSON replacer that leaves image bytes out of the text-size estimate (they are counted apart). */
+function withoutImageBytes(_key: string, value: unknown): unknown {
+  return value instanceof Uint8Array ? '' : value;
+}
+
+/**
+ * The caller's `images` on the last user turn of `messages` (images first, then its text), as a
+ * new array; the caller's messages are not changed. Refused when the last turn is not `user`.
+ */
+function messagesWithImages(
+  messages: readonly ChatMessage[],
+  images: readonly AIImageInput[],
+): ChatMessage[] {
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== 'user') {
+    throw new AIInvalidRequestError({
+      reason: 'images_need_user_turn',
+      message: '`images` are added to the last message, which must be a user turn',
+    });
+  }
+  const imageParts: ContentPart[] = images.map((image) => ({
+    type: 'image',
+    mediaType: image.mediaType,
+    data: image.data,
+  }));
+  const existing: ContentPart[] =
+    typeof last.content === 'string'
+      ? last.content.length > 0
+        ? [{ type: 'text', text: last.content }]
+        : []
+      : last.content;
+  return [...messages.slice(0, -1), { role: 'user', content: [...imageParts, ...existing] }];
+}
+
+/** Put a call's `images` on its provider request; no images leaves the request as it is. */
+function attachImages(request: ProviderRequest, images: readonly AIImageInput[] | undefined): void {
+  if (!images || images.length === 0) return;
+  if (request.messages && request.messages.length > 0) {
+    request.messages = messagesWithImages(request.messages, images);
+  } else {
+    request.images = [...images];
+  }
 }
 
 // ── AI Service Config ──
@@ -505,16 +585,62 @@ export function createAIService(config: AIServiceConfig): AIService {
     };
     // Every provider attempt, including validation retries, checks the budget.
     const checkRequest = (request: ProviderRequest): ProviderAttempt => {
-      const input = JSON.stringify({
-        system: request.system,
-        prompt: request.prompt,
-        messages: request.messages,
-        tools: request.tools,
-        responseSchema: request.responseSchema,
-      });
-      const inputTokens = Math.ceil(Buffer.byteLength(input, 'utf8') / 4);
       // The same model the call's ledger rows carry, so unpriced spend is matched to it.
       const model = request.model ?? providerLabel;
+      const images = collectRequestImages(request);
+      let imageTokens = 0;
+      let imageWireBytes = 0;
+      const limits = adapter.capabilities?.imageInputLimits ?? {};
+      if (images.length > 0) {
+        // Never sent to a provider that cannot take them, and never dropped.
+        if (adapter.capabilities?.imageInput !== true) {
+          throw new AIImageInputUnsupportedError({ provider: providerLabel, model });
+        }
+        if (limits.maxImages !== undefined && images.length > limits.maxImages) {
+          throw new AIInvalidRequestError({
+            reason: 'too_many_images',
+            message: `${images.length} images exceed provider "${providerLabel}"'s limit of ${limits.maxImages} per request`,
+          });
+        }
+        images.forEach((image, index) => {
+          const described = describeImage(image, `image ${index + 1}`);
+          if (limits.maxImageBytes !== undefined && described.byteLength > limits.maxImageBytes) {
+            throw new AIInvalidRequestError({
+              reason: 'image_too_large',
+              message: `image ${index + 1} is ${described.byteLength} bytes; provider "${providerLabel}" accepts at most ${limits.maxImageBytes}`,
+            });
+          }
+          const estimated = adapter.estimateImageInputTokens?.(described, model);
+          imageTokens +=
+            typeof estimated === 'number' && Number.isFinite(estimated) && estimated >= 0
+              ? Math.ceil(estimated)
+              : estimateUnscaledImageTokens(described.width, described.height);
+          imageWireBytes += base64Length(described.byteLength);
+        });
+      }
+      const input = JSON.stringify(
+        {
+          system: request.system,
+          prompt: request.prompt,
+          messages: request.messages,
+          tools: request.tools,
+          responseSchema: request.responseSchema,
+        },
+        withoutImageBytes,
+      );
+      const textBytes = Buffer.byteLength(input, 'utf8');
+      if (
+        images.length > 0 &&
+        limits.maxRequestBytes !== undefined &&
+        textBytes + imageWireBytes > limits.maxRequestBytes
+      ) {
+        throw new AIInvalidRequestError({
+          reason: 'request_too_large',
+          message: `the request with its images is about ${textBytes + imageWireBytes} bytes; provider "${providerLabel}" accepts at most ${limits.maxRequestBytes}`,
+        });
+      }
+      // Image bytes are priced by the provider's image rule, not as text.
+      const inputTokens = Math.ceil(textBytes / 4) + imageTokens;
       checkBudget(inputTokens + (request.maxTokens ?? 0), undefined, {
         provider: providerLabel,
         model,
@@ -957,6 +1083,7 @@ export function createAIService(config: AIServiceConfig): AIService {
     reasoningEffort?: ReasoningEffort | null;
     timeoutMs?: number;
     cache?: AIPromptCacheOption;
+    images?: readonly AIImageInput[];
   }): Promise<AIFinalGenerateResult | AIToolCallsGenerateResult> {
     const start = performance.now();
 
@@ -1037,6 +1164,7 @@ export function createAIService(config: AIServiceConfig): AIService {
       if (params.toolChoice !== undefined) request.toolChoice = params.toolChoice;
       if (params.toolExecution !== undefined) request.toolExecution = params.toolExecution;
     }
+    attachImages(request, params.images);
 
     let result: any;
     let totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
@@ -1314,7 +1442,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         _providerConcurrencyState: concurrencyState,
       });
     },
-    features: { perCallProviderModelReasoning: true, typedDecisions: true },
+    features: { perCallProviderModelReasoning: true, typedDecisions: true, imageInput: true },
     recordProviderCost,
 
     checkProviderCostBudget(config = {}) {
@@ -1341,6 +1469,7 @@ export function createAIService(config: AIServiceConfig): AIService {
       reasoningEffort?: ReasoningEffort | null;
       timeoutMs?: number;
       cache?: AIPromptCacheOption;
+      images?: readonly AIImageInput[];
     }): Promise<Record<string, any>> {
       const result = await _generateCore(params);
       if (result.finishReason === 'tool_calls') {
@@ -1385,6 +1514,8 @@ export function createAIService(config: AIServiceConfig): AIService {
        * `key` / `ttl`. Overrides the service default when set.
        */
       cache?: AIPromptCacheOption;
+      /** Images for the user turn; see `generate({ images })`. */
+      images?: readonly AIImageInput[];
     }): AsyncIterable<AIStreamEvent> {
       const streamStart = performance.now();
       const { inputForAI, securityResult } = applyPromptSecurity(params.input);
@@ -1483,6 +1614,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         assertRequestTimeout(timeoutMs);
         request.timeout = timeoutMs;
       }
+      attachImages(request, params.images);
 
       // Stream from provider, collecting full text and usage
       let fullText = '';
@@ -1825,9 +1957,11 @@ export function createAIService(config: AIServiceConfig): AIService {
     async extract(params: {
       schema: z.ZodTypeAny;
       text: string;
+      prompt?: string;
       signal?: AbortSignal;
       costContext?: AICostContext;
       timeoutMs?: number;
+      images?: readonly AIImageInput[];
     }): Promise<Record<string, any>> {
       const start = performance.now();
       const { inputForAI, securityResult } = applyPromptSecurity({ text: params.text });
@@ -1839,8 +1973,15 @@ export function createAIService(config: AIServiceConfig): AIService {
 
       checkBudget(undefined, undefined, { provider: activeProvider.name, model: resolvedModel });
 
-      const systemPrompt =
-        'Extract structured data from the following text. Return valid JSON matching the required schema.';
+      const hasImages = params.images !== undefined && params.images.length > 0;
+      const baseInstruction = hasImages
+        ? 'Extract structured data from the following images and text. Return valid JSON matching the required schema.'
+        : 'Extract structured data from the following text. Return valid JSON matching the required schema.';
+      // The caller's instructions follow the framework's own.
+      const callerInstructions = params.prompt?.trim();
+      const systemPrompt = callerInstructions
+        ? `${baseInstruction}\n\n${callerInstructions}`
+        : baseInstruction;
       const request: ProviderRequest = {
         system: systemPrompt,
         prompt: textForAI,
@@ -1856,6 +1997,7 @@ export function createAIService(config: AIServiceConfig): AIService {
         assertRequestTimeout(params.timeoutMs);
         request.timeout = params.timeoutMs;
       }
+      attachImages(request, params.images);
 
       let validated: import('./validation.js').ValidatedResponse<Record<string, any>>;
       try {

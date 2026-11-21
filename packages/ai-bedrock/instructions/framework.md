@@ -16,7 +16,7 @@ Pricing-file base/cache/global rates must be finite and nonnegative. Explicit ze
 Index: `node_modules/@plumbus/ai-bedrock/instructions/README.md`  
 Pricing pull / k8s: `node_modules/@plumbus/ai-bedrock/instructions/pricing.md`
 
-`@plumbus/ai-bedrock` is the **Amazon Bedrock AI provider** for Plumbus. It implements `AIProviderAdapter` (Converse chat, Titan embeddings, package-owned pricing). It is an **optional peer** of `@plumbus/core` (version **`0.4.0-beta.0`** in the core 0.9 beta family, which declares `@plumbus/ai-bedrock` `>=0.4.0-beta.0 <0.5.0`).
+`@plumbus/ai-bedrock` is the **Amazon Bedrock AI provider** for Plumbus. It implements `AIProviderAdapter` (Converse chat, Titan embeddings, package-owned pricing). It is an **optional peer** of `@plumbus/core` (version **`0.4.0-beta.1`** in the core 0.9 beta family, which declares `@plumbus/ai-bedrock` `>=0.4.0-beta.0 <0.5.0`).
 
 **`package.json` peer:** `"@plumbus/core": ">=0.9.0-beta.0 <0.10.0"` — copy literally; see `packages/plumbus-core/instructions/peer-dependencies.md`.
 
@@ -273,7 +273,9 @@ Bedrock does **not** return dollars on chat responses — only token usage. This
 
 ## Capabilities
 
-Declared: `tools`, `streamingTools`, `parallelToolCalls`, `namedToolChoice` (Converse tool-use). Model-dependent limits still apply on the AWS side.
+Declared: `tools`, `streamingTools`, `parallelToolCalls`, `namedToolChoice` (Converse tool-use), and `imageInput` (0.4.0-beta.1+, used by core 0.9.0-beta.14+). Model-dependent limits still apply on the AWS side.
+
+**Images:** `ctx.ai.*({ images })` and image parts in user turns go to Converse as `{ image: { format: 'png' | 'jpeg' | 'webp', source: { bytes } } }` (raw bytes; never base64 them yourself). Core refuses more than 20 images or one over 3.75 MB before calling Bedrock. The budget estimate uses Anthropic's image rule for Claude model ids and width × height / 750 for other models; the ledger keeps Converse's reported tokens. Use a vision-capable model (Claude 3+, Nova Lite/Pro); others answer with a Bedrock validation error.
 
 **Prompt caching:** set `cache` on `ctx.ai.generate*` / `streamGenerate` / `runToolLoop`, or `AI_PROMPT_CACHE=true` for every call (core **≥ 0.7.9**; earlier cores never pass it). For Claude model ids (any inference-profile prefix; not a model ARN), Converse / ConverseStream get `cachePoint` after system, after tools, and on the last message when requested. Claude 3 Haiku / Sonnet / Opus and Claude 3.5 Sonnet `20240620` reject `cachePoint` and Claude 3.5 Sonnet v2 has it only in Preview, so they get no marks; non-Claude families (Nova caches on its own) get none either.
 

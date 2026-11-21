@@ -123,6 +123,8 @@ expect(result.priority).toBe("high");
 
 `mockAI` keys responses by **operation** (`generate`, `extract`, `classify`, `retrieve`), not by prompt name. All prompts share the configured response for each operation.
 
+`mockAI` accepts `images` and checks them like the real service. To test the provider path (image capability refusal, size guard, ledger), build the real service over a scripted adapter: `createAIService(singleProviderConfig(mockAIProvider({ respond, capabilities })))` and pass it as `createTestContext({ ai })`; `provider.requests` / `provider.hadImages()` show what was sent. `mockAIProvider` and `blankPng` come from `@plumbus/core/testing`.
+
 ### `createTestContext`
 
 Build a test `ctx` with controllable mocks:

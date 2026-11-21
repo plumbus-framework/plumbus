@@ -6,6 +6,7 @@ export type { JobDispatchService } from '../jobs/index.js';
 import type { DecisionCall, DecisionQuestions, DecisionResult } from '@plumbus/ai-decision/types';
 import type { z } from 'zod';
 import type { AICostRecordInput } from '../ai/cost-tracker.js';
+import type { AIImageInput } from '../ai/image-input.js';
 import type { GovernedArtifactStore } from '../ai/governed-artifacts.js';
 import type {
   AIPromptCacheOption,
@@ -600,6 +601,14 @@ export interface AIGenerateWithUsageConfig {
   /** Override the prompt/config model for this call. */
   model?: string;
   /**
+   * Images the model reads with the prompt (PNG, JPEG or WebP bytes; not base64). Sent before the
+   * prompt text in the user turn, or added to the last user turn of `messages`. A provider whose
+   * adapter does not declare `capabilities.imageInput` refuses the call with
+   * `AIImageInputUnsupportedError` before anything is sent; images are never dropped. Each image
+   * counts toward the request-size guard and the budget estimate by the provider's image rule.
+   */
+  images?: readonly AIImageInput[];
+  /**
    * Override the prompt/config reasoning intent. `null` deliberately restores
    * the provider/model default by omitting reasoning controls on the wire.
    */
@@ -674,6 +683,11 @@ export interface AIService {
     /** Supports per-call `provider`, `model`, and provider-neutral `reasoning`. */
     perCallProviderModelReasoning?: true;
     typedDecisions?: true;
+    /**
+     * Accepts `images` on `generate`, `generateWithUsage`, `streamGenerate` and `extract`, and
+     * image parts in user turns. Whether the selected provider takes them is checked per call.
+     */
+    imageInput?: true;
   };
 
   /**
@@ -710,6 +724,14 @@ export interface AIService {
     provider?: string;
     /** Per-call model override. */
     model?: string;
+    /**
+     * Images the model reads with the prompt (PNG, JPEG or WebP bytes; not base64). Sent before the
+     * prompt text in the user turn, or added to the last user turn of `messages`. A provider whose
+     * adapter does not declare `capabilities.imageInput` refuses the call with
+     * `AIImageInputUnsupportedError` before anything is sent; images are never dropped. Each image
+     * counts toward the request-size guard and the budget estimate by the provider's image rule.
+     */
+    images?: readonly AIImageInput[];
     /** Provider-neutral per-call reasoning override; `null` restores provider default. */
     reasoning?: AIReasoningConfig | null;
     /** @deprecated Use `reasoning`. */
@@ -757,6 +779,8 @@ export interface AIService {
     provider?: string;
     /** Per-call model override. */
     model?: string;
+    /** Images for the user turn; same rules as `generate({ images })`. */
+    images?: readonly AIImageInput[];
     /** Provider-neutral per-call reasoning override; `null` restores provider default. */
     reasoning?: AIReasoningConfig | null;
     /** @deprecated Use `reasoning`. */
@@ -776,9 +800,16 @@ export interface AIService {
 
   extract(config: {
     schema: z.ZodTypeAny;
+    /** The text to extract from (may be `''` when `images` carry the content). */
     text: string;
+    /** Extra instructions, sent after the framework's extraction instruction in the system prompt. */
     prompt?: string;
     input?: Record<string, unknown>;
+    /**
+     * Images the model reads with `text`, in the same user turn (images first). Same rules as
+     * `generate({ images })`.
+     */
+    images?: readonly AIImageInput[];
     signal?: AbortSignal;
     /** Per-call billing metadata forwarded to the framework `onAICostRecorded` hook. */
     costContext?: AICostContext;

@@ -1,4 +1,5 @@
 import type { DecisionResult } from '@plumbus/ai-decision/types';
+import { type AIImageInput, describeImage } from '../ai/image-input.js';
 import { PlumbusError } from '../errors/index.js';
 import {
   decodeKeysetCursor,
@@ -188,10 +189,30 @@ export interface AIResponse {
   retrieve?: AIDocument[];
 }
 
-/** Create a mock AI service with configurable responses */
+/** Check images like the real service does (media type matches the bytes, header readable). */
+function checkMockImages(config: unknown): void {
+  const images = (config as { images?: readonly AIImageInput[] } | undefined)?.images ?? [];
+  images.forEach((image, index) => {
+    describeImage(image, `image ${index + 1}`);
+  });
+}
+
+/** JSON of a call config without image bytes (for the mock's usage estimate). */
+function configSize(config: unknown): number {
+  return JSON.stringify(config, (_key, value: unknown) =>
+    value instanceof Uint8Array ? '' : value,
+  ).length;
+}
+
+/**
+ * Create a mock AI service with configurable responses. Accepts `images` on `generate`,
+ * `generateWithUsage`, `streamGenerate` and `extract` (`features.imageInput`) and checks them
+ * like the real service; to test a provider without image input, use
+ * `createAIService({ providers: { mock: mockAIProvider({ capabilities: { imageInput: false } }) } })`.
+ */
 export function mockAI(responses?: AIResponse): AIService {
   return {
-    features: { perCallProviderModelReasoning: true, typedDecisions: true },
+    features: { perCallProviderModelReasoning: true, typedDecisions: true, imageInput: true },
     decide: (async () => {
       if (!responses?.decide)
         throw new PlumbusError(
@@ -203,25 +224,27 @@ export function mockAI(responses?: AIResponse): AIService {
     async recordProviderCost() {},
     checkProviderCostBudget() {},
     async generate(_config) {
+      checkMockImages(_config);
       if (responses?.generate !== undefined) return responses.generate as Record<string, any>;
       return { text: 'mock-ai-response' };
     },
     generateWithUsage: (async (
       _config: Parameters<AIService['generateWithUsage']>[0],
     ): Promise<AIToolEnabledGenerateResult> => {
+      checkMockImages(_config);
       const data =
         responses?.generate !== undefined
           ? (responses.generate as Record<string, any>)
           : { text: 'mock-ai-response' };
-      const inputStr = JSON.stringify(_config);
+      const inputLength = configSize(_config);
       const outputStr = JSON.stringify(data);
       return {
         finishReason: 'stop',
         data,
         usage: {
-          inputTokens: Math.ceil(inputStr.length / 4),
+          inputTokens: Math.ceil(inputLength / 4),
           outputTokens: Math.ceil(outputStr.length / 4),
-          totalTokens: Math.ceil(inputStr.length / 4) + Math.ceil(outputStr.length / 4),
+          totalTokens: Math.ceil(inputLength / 4) + Math.ceil(outputStr.length / 4),
         },
         model: 'mock-model',
         provider: 'mock',
@@ -229,16 +252,17 @@ export function mockAI(responses?: AIResponse): AIService {
       };
     }) as AIService['generateWithUsage'],
     async *streamGenerate(_config) {
+      checkMockImages(_config);
       const result =
         responses?.generate !== undefined
           ? (responses.generate as Record<string, any>)
           : { text: 'mock-ai-response' };
-      const inputStr = JSON.stringify(_config);
+      const inputLength = configSize(_config);
       const outputStr = JSON.stringify(result);
       const usage = {
-        inputTokens: Math.ceil(inputStr.length / 4),
+        inputTokens: Math.ceil(inputLength / 4),
         outputTokens: Math.ceil(outputStr.length / 4),
-        totalTokens: Math.ceil(inputStr.length / 4) + Math.ceil(outputStr.length / 4),
+        totalTokens: Math.ceil(inputLength / 4) + Math.ceil(outputStr.length / 4),
       };
       yield { type: 'delta' as const, text: result.text ?? JSON.stringify(result) };
       yield {
@@ -251,6 +275,7 @@ export function mockAI(responses?: AIResponse): AIService {
       };
     },
     async extract(_config) {
+      checkMockImages(_config);
       if (responses?.extract !== undefined) return responses.extract as Record<string, any>;
       return {};
     },
