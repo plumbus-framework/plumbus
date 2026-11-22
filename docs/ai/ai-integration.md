@@ -324,6 +324,62 @@ const orderDetails = await ctx.ai.extract({
 
 `extract`, `classify` and `retrieve` take a per-call `timeoutMs` like `generate` ([Request Timeouts](#request-timeouts)).
 
+### Image input
+
+`generate`, `generateWithUsage`, `streamGenerate` and `extract` take `images`: PNG, JPEG or WebP
+bytes (`Uint8Array`, not base64) that the model reads with the prompt. Check
+`ctx.ai.features?.imageInput` when code must also run on cores without it.
+
+```typescript
+// pageImage: PNG bytes the app produced (a scan, an upload, a rendered page)
+const excerpt = await ctx.ai.extract({
+  schema: ExcerptSchema,
+  prompt: 'Read the IMAGE; the text below may have lost fractions and symbols.',
+  text: pageText,
+  images: [{ mediaType: 'image/png', data: pageImage }],
+});
+```
+
+- **Where the images go.** Without `messages` they form one user turn with the prompt (or the
+  `extract` text), images first. With `messages` they are added to the last message, which must be
+  a `user` turn (`AIInvalidRequestError`, reason `images_need_user_turn`, otherwise). A user
+  turn's `content` can also be a list of parts directly:
+  `{ role: 'user', content: [{ type: 'image', mediaType: 'image/png', data }, { type: 'text', text }] }`.
+- **`extract({ prompt })`** is sent after the framework's own extraction instruction in the system
+  prompt (it used to be ignored).
+- **Wire format per provider:**
+
+  | Provider | Image part |
+  | --- | --- |
+  | OpenAI Chat Completions | `{ type: 'image_url', image_url: { url: 'data:<type>;base64,…' } }` |
+  | OpenAI Responses API | `{ type: 'input_image', image_url: 'data:<type>;base64,…' }` |
+  | Anthropic Messages | `{ type: 'image', source: { type: 'base64', media_type, data } }` |
+  | Bedrock Converse (`@plumbus/ai-bedrock`) | `{ image: { format: 'png' \| 'jpeg' \| 'webp', source: { bytes } } }` |
+
+- **Refusal, never a silent drop.** An adapter declares `capabilities.imageInput: true` to accept
+  images. A request carrying an image to any other adapter (including external adapters that
+  declare no capabilities) fails with `AIImageInputUnsupportedError` (`provider`, `model`) before
+  anything is sent. A model that cannot see images answers with the provider's own error.
+- **Checks before sending** (`AIInvalidRequestError` with a `reason`): the declared `mediaType`
+  must match the bytes' signature and the header must give a size (`image_media_type_mismatch`,
+  `image_media_type_unsupported`, `image_unreadable`, `image_data_invalid`); the adapter's
+  `capabilities.imageInputLimits` bound each image (`image_too_large`), their number
+  (`too_many_images`) and the request with every image counted base64-encoded
+  (`request_too_large`). Built-in limits: OpenAI 500 images and 50 MB per request; Anthropic 5 MB
+  per image, 100 images, 32 MB per request; Bedrock 3.75 MB per image, 20 images.
+- **Budget estimate.** The per-request token estimate (`maxTokensPerRequest`, daily cost checks)
+  prices each image by the provider's own rule instead of its bytes:
+
+  | Provider | Rule |
+  | --- | --- |
+  | OpenAI | `detail: "high"` tiles: fit in 2048×2048, shortest side at most 768 px, 85 + 170 per 512 px tile |
+  | Anthropic | scale to a 1568 px long edge and about 1600 tokens, then width × height / 750 |
+  | Bedrock | Claude models: the Anthropic rule; other models: width × height / 750 at full size |
+  | Other adapters | `estimateImageInputTokens(image, model)` if the adapter has one, else width × height / 750 |
+
+  These are estimates only. The cost ledger (`onAICostRecorded`, cost tracker) records the input
+  tokens the provider reports, which include the images.
+
 ### Classify (Categorization)
 
 ```typescript

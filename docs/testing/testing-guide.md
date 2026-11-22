@@ -385,7 +385,28 @@ const ai = mockAI({
 });
 ```
 
-Both `generate()` and `generateWithUsage()` use the same `generate` response key. `generateWithUsage()` wraps the response in `{ data, usage }` automatically, with estimated token counts derived from the config/response string lengths (~4 chars per token).
+Both `generate()` and `generateWithUsage()` use the same `generate` response key. `generateWithUsage()` wraps the response in `{ data, usage }` automatically, with estimated token counts derived from the config/response string lengths (~4 chars per token; image bytes are not counted).
+
+`mockAI` sets `features.imageInput` and accepts `images` on `generate`, `generateWithUsage`, `streamGenerate` and `extract`, checking each like the real service (the declared `mediaType` must match the bytes, else `AIInvalidRequestError`).
+
+### mockAIProvider
+
+To run the real AI service (image checks, the provider capability refusal, size guard, budgets, ledger rows) against a scripted adapter, give `createAIService` a `mockAIProvider`:
+
+```typescript
+import { createAIService, singleProviderConfig } from '@plumbus/core';
+import { mockAIProvider, blankPng } from '@plumbus/core/testing';
+
+const provider = mockAIProvider({ respond: { title: 'Sets' } });
+const ai = createAIService(singleProviderConfig(provider));
+await ai.extract({ schema, text: '', images: [{ mediaType: 'image/png', data: blankPng(16, 20) }] });
+expect(provider.hadImages()).toBe(true);           // provider.requests holds every ProviderRequest
+
+const textOnly = mockAIProvider({ capabilities: { imageInput: false } });
+// → rejects with AIImageInputUnsupportedError, and textOnly.requests stays empty
+```
+
+`respond` is a string, a value sent as JSON, or a function of the request; `usage` sets the reported tokens; `capabilities.imageInputLimits` exercises the size guard. Pass the service as `createTestContext({ ai })`.
 
 ### mockEvents
 

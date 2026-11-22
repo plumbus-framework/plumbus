@@ -574,3 +574,28 @@ describe('createInMemoryRepository updateWhere', () => {
     expect(nullWin.row?.leaseToken).toBe('held');
   });
 });
+
+describe('mockAI and test doubles with images', () => {
+  it('mockAI accepts valid images and refuses a mismatched media type like the real service', async () => {
+    const { mockAI } = await import('../context.js');
+    const { blankPng } = await import('../mock-providers.js');
+    const ai = mockAI({ extract: { title: 'x' } });
+    expect(ai.features?.imageInput).toBe(true);
+    const image = { mediaType: 'image/png' as const, data: blankPng(3, 3) };
+    const { z } = await import('zod');
+    await expect(
+      ai.extract({ schema: z.object({ title: z.string() }), text: '', images: [image] }),
+    ).resolves.toEqual({ title: 'x' });
+    await expect(
+      ai.generate({
+        prompt: 'p',
+        input: {},
+        images: [{ mediaType: 'image/webp', data: image.data }],
+      }),
+    ).rejects.toMatchObject({ name: 'AIInvalidRequestError', reason: 'image_media_type_mismatch' });
+    // Usage is not inflated by image bytes.
+    const big = { mediaType: 'image/png' as const, data: blankPng(800, 800) };
+    const result = await ai.generateWithUsage({ prompt: 'p', input: {}, images: [big] });
+    expect(result.usage.inputTokens).toBeLessThan(100);
+  });
+});

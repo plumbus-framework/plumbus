@@ -268,7 +268,11 @@ Tool-use streaming: content-block start/delta/stop accumulate partial JSON tool 
 | assistant `toolCalls` in history | `toolUse` content blocks |
 | role `tool` messages | `toolResult` blocks on a `user` turn — a run of consecutive `tool` messages (parallel calls) is coalesced into **one** user turn, as Converse requires |
 
-Capabilities advertised: `tools`, `streamingTools`, `parallelToolCalls`, `namedToolChoice` (no `parallelToolCallControl`).
+Capabilities advertised: `tools`, `streamingTools`, `parallelToolCalls`, `namedToolChoice`, `imageInput` (no `parallelToolCallControl`).
+
+### Images
+
+From 0.4.0-beta.1 (with core 0.9.0-beta.14+), `images` on `ctx.ai.generate*` / `streamGenerate` / `extract` and image parts in user turns are sent as Converse image blocks: `{ image: { format: 'png' | 'jpeg' | 'webp', source: { bytes } } }`, images before the turn's text. `imageInputLimits` is `{ maxImages: 20, maxImageBytes: 3_750_000 }`, so core refuses larger requests before calling Bedrock. `estimateImageInputTokens` (also exported as `estimateBedrockImageTokens`) applies Anthropic's rule to Claude ids and width × height / 750 to other models, for the pre-call budget only; the ledger keeps Converse's reported usage. See [AI integration → Image input](ai-integration.md#image-input).
 
 ---
 

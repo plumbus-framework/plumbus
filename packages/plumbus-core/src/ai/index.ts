@@ -71,6 +71,7 @@ export {
   isProviderTimeoutError,
   joinAndFilterModels,
   normalizeFinishReason,
+  promptUserContent,
   ProviderAPIError,
   type AICacheConfig,
   type AIPromptCacheOption,
@@ -102,7 +103,33 @@ export {
   type RunToolLoopResult,
 } from './tool-loop.js';
 // Provider-side structured output errors
-export { AIIncompleteOutputError, AIInvalidRequestError, AIRefusalError } from './refusal.js';
+export {
+  AIImageInputUnsupportedError,
+  AIIncompleteOutputError,
+  AIInvalidRequestError,
+  AIRefusalError,
+} from './refusal.js';
+// Image input (content parts, checks, provider image-token rules)
+export {
+  AIImageMediaType,
+  ANTHROPIC_IMAGE_INPUT_LIMITS,
+  base64Length,
+  contentHasImages,
+  contentText,
+  describeImage,
+  estimateAnthropicImageTokens,
+  estimateOpenAIImageTokens,
+  estimateUnscaledImageTokens,
+  imageToBase64,
+  imageToDataUrl,
+  OPENAI_IMAGE_INPUT_LIMITS,
+  type AIImageContentPart,
+  type AIImageDescriptor,
+  type AIImageInput,
+  type AIImageInputLimits,
+  type AITextContentPart,
+  type ContentPart,
+} from './image-input.js';
 // Provider-compatible schema conversion
 export {
   ProviderJsonSchemaError,

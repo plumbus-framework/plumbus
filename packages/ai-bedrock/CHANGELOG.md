@@ -1,5 +1,12 @@
 # @plumbus/ai-bedrock
 
+## 0.4.0-beta.1 — 2026-11-20 — image input
+
+- **Images in Converse:** `ProviderRequest.images` and image parts of user turns are sent as `{ image: { format: 'png' | 'jpeg' | 'webp', source: { bytes } } }` blocks before the turn's text (complete and stream). An image-only turn sends no placeholder text.
+- Declares `capabilities.imageInput` and `imageInputLimits` `{ maxImages: 20, maxImageBytes: 3_750_000 }`, so core (0.9.0-beta.14+) refuses larger requests before calling Bedrock; older cores never send images.
+- `estimateImageInputTokens` / exported `estimateBedrockImageTokens(image, modelId)`: Anthropic's rule for Claude model ids, width × height / 750 for other models, for core's pre-call budget estimate only. Ledger rows keep Converse's reported usage.
+- Peer range unchanged (`@plumbus/core` `>=0.9.0-beta.0 <0.10.0`): the adapter uses only type imports for image input.
+
 ## 0.4.0-beta.0 — 2026-10-14 — core 0.9 beta family
 
 ### Upgrade boundary

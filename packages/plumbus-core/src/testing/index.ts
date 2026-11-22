@@ -41,6 +41,9 @@ export type { E2EServerContext, E2EServerOptions } from './e2e.js';
 // ── E2E / Browser Test Utilities ──
 export { createE2EServer, createTestBearerHeader } from './e2e.js';
 export { buildEntityFieldMap, validateRecord } from './field-validation.js';
+export type { MockAIProvider, MockAIProviderOptions } from './mock-providers.js';
+// ── Provider-seam double: scripted AI adapter (images included) and a blank PNG fixture ──
+export { blankPng, mockAIProvider } from './mock-providers.js';
 export type { FieldValidationError } from './field-validation.js';
 
 // ── Governance Test Helpers ──

@@ -29,6 +29,18 @@ import {
   sleepUnlessAborted,
   waitForProviderCooldown,
 } from './provider-cooldown.js';
+import {
+  ANTHROPIC_IMAGE_INPUT_LIMITS,
+  type AIImageDescriptor,
+  type AIImageInput,
+  type AIImageInputLimits,
+  type ContentPart,
+  estimateAnthropicImageTokens,
+  estimateOpenAIImageTokens,
+  imageToBase64,
+  imageToDataUrl,
+  OPENAI_IMAGE_INPUT_LIMITS,
+} from './image-input.js';
 import { markPossiblyBilledFailure } from './provider-failure.js';
 import { AIIncompleteOutputError, AIInvalidRequestError, AIRefusalError } from './refusal.js';
 
@@ -79,6 +91,15 @@ export interface AIProviderCapabilities {
     modes: readonly AIReasoningConfig['mode'][];
     efforts?: readonly ReasoningLevel[];
   };
+  /**
+   * The adapter sends image content parts (`ProviderRequest.images` and image parts of a user
+   * turn). Omitted or `false`: the AI service refuses a request carrying an image with
+   * `AIImageInputUnsupportedError` before anything is sent; an image is never dropped. Adapter-level
+   * wire support — a model that cannot see images answers with the provider's own error.
+   */
+  imageInput?: boolean;
+  /** Wire limits the AI service checks before sending images (see `AIImageInputLimits`). */
+  imageInputLimits?: AIImageInputLimits;
 }
 
 /** Opaque assistant content that a provider requires on the next tool round. */
@@ -95,7 +116,14 @@ export interface ProviderAssistantState {
  * callers; the `tool` variant carries a tool observation back to the model.
  */
 export type ChatMessage =
-  | { role: 'user'; content: string }
+  | {
+      role: 'user';
+      /**
+       * A string, or text and image parts. Image parts reach the provider only when its adapter
+       * declares `capabilities.imageInput`; otherwise the call is refused before it is sent.
+       */
+      content: string | ContentPart[];
+    }
   | {
       role: 'assistant';
       content: string;
@@ -288,6 +316,11 @@ export interface ProviderRequest {
    * (falls back to single-user mode using `prompt`).
    */
   messages?: ChatMessage[];
+  /**
+   * Images sent with `prompt` in the single user message (ignored when `messages` is set: put
+   * image parts in the last user turn instead). Adapters place them before the prompt text.
+   */
+  images?: AIImageInput[];
   /** Model name override */
   model?: string;
   /** Temperature (0-2) */
@@ -496,6 +529,13 @@ export interface AIProviderAdapter {
    * implement caller tools natively (C11).
    */
   readonly capabilities?: AIProviderCapabilities;
+
+  /**
+   * Input tokens one image costs on `model` by the provider's own rule — the pre-call budget
+   * estimate only; the ledger records the provider's reported usage. Optional: the AI service
+   * falls back to width × height / 750 at full size.
+   */
+  estimateImageInputTokens?(image: AIImageDescriptor, model: string): number;
 
   /** Send a completion request */
   complete(request: ProviderRequest): Promise<ProviderResponse>;
@@ -1461,6 +1501,57 @@ function assertNoStructuredOutputToolConflict(request: ProviderRequest): void {
   }
 }
 
+/**
+ * The single user turn built from `prompt` and `images`: the prompt string itself without
+ * images, else the images followed by the prompt text (an empty prompt adds no text part).
+ */
+export function promptUserContent(
+  prompt: string,
+  images: readonly AIImageInput[] | undefined,
+): string | ContentPart[] {
+  if (!images || images.length === 0) return prompt;
+  const parts: ContentPart[] = images.map((image) => ({
+    type: 'image',
+    mediaType: image.mediaType,
+    data: image.data,
+  }));
+  if (prompt.length > 0) parts.push({ type: 'text', text: prompt });
+  return parts;
+}
+
+/** OpenAI Chat Completions user content: `text` and `image_url` (data URL) parts. */
+function toOpenAIChatUserContent(content: string | ContentPart[]): unknown {
+  if (typeof content === 'string') return content;
+  return content.map((part) =>
+    part.type === 'text'
+      ? { type: 'text', text: part.text }
+      : { type: 'image_url', image_url: { url: imageToDataUrl(part) } },
+  );
+}
+
+/** OpenAI Responses API user content: `input_text` and `input_image` (data URL) parts. */
+function toOpenAIResponsesUserContent(content: string | ContentPart[]): unknown {
+  if (typeof content === 'string') return content;
+  return content.map((part) =>
+    part.type === 'text'
+      ? { type: 'input_text', text: part.text }
+      : { type: 'input_image', image_url: imageToDataUrl(part) },
+  );
+}
+
+/** Anthropic Messages user content: `text` and `image` (`source.base64`) blocks. */
+function toAnthropicUserContent(content: string | ContentPart[]): unknown {
+  if (typeof content === 'string') return content;
+  return content.map((part) =>
+    part.type === 'text'
+      ? { type: 'text', text: part.text }
+      : {
+          type: 'image',
+          source: { type: 'base64', media_type: part.mediaType, data: imageToBase64(part) },
+        },
+  );
+}
+
 /** Map framework ChatMessage[] to OpenAI chat-completions messages. */
 function toOpenAIMessages(request: ProviderRequest): Record<string, unknown>[] {
   const messages: Record<string, unknown>[] = [];
@@ -1489,11 +1580,14 @@ function toOpenAIMessages(request: ProviderRequest): Record<string, unknown>[] {
         }
         messages.push(entry);
       } else {
-        messages.push({ role: 'user', content: msg.content });
+        messages.push({ role: 'user', content: toOpenAIChatUserContent(msg.content) });
       }
     }
   } else {
-    messages.push({ role: 'user', content: request.prompt });
+    messages.push({
+      role: 'user',
+      content: toOpenAIChatUserContent(promptUserContent(request.prompt, request.images)),
+    });
   }
   return messages;
 }
@@ -1631,13 +1725,18 @@ function shouldUseOpenAIResponses(request: ProviderRequest, model: string): bool
 
 function toOpenAIResponsesInput(request: ProviderRequest): Record<string, unknown>[] {
   if (!request.messages || request.messages.length === 0) {
-    return [{ role: 'user', content: request.prompt }];
+    return [
+      {
+        role: 'user',
+        content: toOpenAIResponsesUserContent(promptUserContent(request.prompt, request.images)),
+      },
+    ];
   }
 
   const input: Record<string, unknown>[] = [];
   for (const message of request.messages) {
     if (message.role === 'user') {
-      input.push({ role: 'user', content: message.content });
+      input.push({ role: 'user', content: toOpenAIResponsesUserContent(message.content) });
       continue;
     }
     if (message.role === 'tool') {
@@ -1893,7 +1992,12 @@ async function completeOpenAIResponses(args: {
 /** Map framework ChatMessage[] to Anthropic messages (tool_use / tool_result blocks). */
 function toAnthropicMessages(request: ProviderRequest): Record<string, unknown>[] {
   if (!request.messages || request.messages.length === 0) {
-    return [{ role: 'user', content: request.prompt }];
+    return [
+      {
+        role: 'user',
+        content: toAnthropicUserContent(promptUserContent(request.prompt, request.images)),
+      },
+    ];
   }
   const out: Record<string, unknown>[] = [];
   for (const msg of request.messages) {
@@ -1924,7 +2028,7 @@ function toAnthropicMessages(request: ProviderRequest): Record<string, unknown>[
       }
       out.push({ role: 'assistant', content: blocks.length > 0 ? blocks : msg.content });
     } else {
-      out.push({ role: 'user', content: msg.content });
+      out.push({ role: 'user', content: toAnthropicUserContent(msg.content) });
     }
   }
   return out;
@@ -1988,6 +2092,12 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
         modes: ['disabled', 'effort'],
         efforts: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
       },
+      imageInput: true,
+      imageInputLimits: OPENAI_IMAGE_INPUT_LIMITS,
+    },
+
+    estimateImageInputTokens(image) {
+      return estimateOpenAIImageTokens(image.width, image.height);
     },
 
     async complete(request: ProviderRequest): Promise<ProviderResponse> {
@@ -2152,7 +2262,7 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
 
     async *stream(request: ProviderRequest): AsyncIterable<ProviderStreamEvent> {
       const model = request.model ?? defaultModel;
-      const messages: Array<{ role: string; content: string }> = [];
+      const messages: Array<{ role: string; content: unknown }> = [];
       if (request.system) {
         messages.push({ role: 'system', content: request.system });
       }
@@ -2160,10 +2270,16 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): AIProviderAdap
       // Single-turn path (legacy): single user message from `prompt`.
       if (request.messages && request.messages.length > 0) {
         for (const msg of request.messages) {
-          messages.push({ role: msg.role, content: msg.content });
+          messages.push({
+            role: msg.role,
+            content: msg.role === 'user' ? toOpenAIChatUserContent(msg.content) : msg.content,
+          });
         }
       } else {
-        messages.push({ role: 'user', content: request.prompt });
+        messages.push({
+          role: 'user',
+          content: toOpenAIChatUserContent(promptUserContent(request.prompt, request.images)),
+        });
       }
 
       const body: Record<string, unknown> = {
@@ -2347,6 +2463,12 @@ export function createAnthropicAdapter(config: AnthropicAdapterConfig): AIProvid
         modes: ['disabled', 'effort', 'budget'],
         efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
       },
+      imageInput: true,
+      imageInputLimits: ANTHROPIC_IMAGE_INPUT_LIMITS,
+    },
+
+    estimateImageInputTokens(image) {
+      return estimateAnthropicImageTokens(image.width, image.height);
     },
 
     async complete(request: ProviderRequest): Promise<ProviderResponse> {

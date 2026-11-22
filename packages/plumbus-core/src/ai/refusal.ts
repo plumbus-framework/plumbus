@@ -67,3 +67,22 @@ export class AIInvalidRequestError extends Error {
     this.reason = args.reason;
   }
 }
+
+/**
+ * Thrown before any provider I/O when a request carries an image and the selected provider
+ * adapter does not declare `capabilities.imageInput`. The image is never dropped: the call is
+ * refused. Bare `Error` with a name string, like `AIInvalidRequestError`.
+ */
+export class AIImageInputUnsupportedError extends Error {
+  readonly provider: string;
+  readonly model: string;
+
+  constructor(args: { provider: string; model: string }) {
+    super(
+      `AI provider "${args.provider}" does not accept image input (model "${args.model}"); the request was not sent`,
+    );
+    this.name = 'AIImageInputUnsupportedError';
+    this.provider = args.provider;
+    this.model = args.model;
+  }
+}

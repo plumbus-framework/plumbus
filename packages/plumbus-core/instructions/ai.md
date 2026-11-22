@@ -68,6 +68,25 @@ const invoice = await ctx.ai.extract({
 });
 ```
 
+### Images (`images`, core 0.9.0-beta.14+)
+
+`generate`, `generateWithUsage`, `streamGenerate` and `extract` take `images: [{ mediaType: 'image/png' | 'image/jpeg' | 'image/webp', data: Uint8Array }]` (raw bytes, never base64). `extract({ prompt })` adds your instructions after the framework's own.
+
+```ts
+const answer = await ctx.ai.extract({
+  schema: PageSchema,
+  prompt: 'Read the IMAGE; the text may have lost fractions and symbols.',
+  text: pageText,
+  images: [{ mediaType: 'image/png', data: pageImageBytes }],
+});
+```
+
+- **DO** check `ctx.ai.features?.imageInput === true` and refuse with your own error when absent. Never fall back to guessing from text when the task needs the image.
+- **DO** handle `AIImageInputUnsupportedError` (the selected provider's adapter does not declare `capabilities.imageInput`): the call is refused before sending; images are never dropped.
+- **DO NOT** base64-encode, build `data:` URLs or provider image blocks yourself; the adapters do it (OpenAI `image_url` / `input_image`, Anthropic `source.base64`, Bedrock `source.bytes`).
+- With `messages`, images join the last message, which must be a `user` turn; or put `{ type: 'image', mediaType, data }` parts in a user turn's `content` yourself.
+- Each image counts toward the request-size guard (provider limits: OpenAI 50 MB per request; Anthropic 5 MB per image, 32 MB per request; Bedrock 3.75 MB per image, 20 images) and the budget estimate by the provider's own image rule; the ledger keeps the provider's reported tokens. Keep page images near 1600 px wide: larger ones cost more and are downscaled by the providers anyway.
+
 ### Classify
 
 **Start with [the classification recipe](ai-classification.md)** for provider/model

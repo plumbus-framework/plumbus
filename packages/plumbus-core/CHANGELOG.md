@@ -1,5 +1,25 @@
 # @plumbus/core changelog
 
+## 0.9.0-beta.14 — 2026-11-20 — image input in `ctx.ai`
+
+Additive. No migration. `@plumbus/ai-bedrock` 0.4.0-beta.1 sends images. Peer ranges unchanged.
+
+### Image input in `ctx.ai`
+
+- **`images`** on `generate`, `generateWithUsage`, `streamGenerate` and `extract`: `[{ mediaType: 'image/png' | 'image/jpeg' | 'image/webp', data: Uint8Array }]`. Without `messages` they form the user turn with the prompt (images first); with `messages` they join the last message, which must be a `user` turn (`AIInvalidRequestError` `images_need_user_turn`).
+- **`ChatMessage`** user `content` is `string | ContentPart[]` (`{ type: 'text', text }` or `{ type: 'image', mediaType, data }`). `ProviderRequest.images` carries images in single-prompt mode.
+- **Adapters:** OpenAI Chat Completions sends `image_url` data URLs (complete and stream), the Responses API `input_image`, Anthropic `image` blocks with `source.base64` (complete and stream). Both declare `capabilities.imageInput` and `imageInputLimits`, and implement `estimateImageInputTokens`.
+- **Refusal, never a drop:** a request carrying an image to an adapter without `capabilities.imageInput: true` (including adapters that declare no capabilities) fails with the new **`AIImageInputUnsupportedError`** (`provider`, `model`) before anything is sent.
+- **Checks before sending** (`AIInvalidRequestError` reasons): declared media type must match the bytes and the header must give a size (`image_media_type_mismatch`, `image_media_type_unsupported`, `image_unreadable`, `image_data_invalid`); per adapter `imageInputLimits` (`image_too_large`, `too_many_images`, `request_too_large` with images counted base64-encoded); `images_with_messages` for a `ProviderRequest` that sets both.
+- **Budget estimate:** image bytes are no longer counted as JSON text; each image is priced by the adapter's rule (OpenAI high-detail tiles, Anthropic width × height / 750 after its downscale, otherwise width × height / 750 at full size) in the per-request token check. Ledger rows keep the provider's reported tokens.
+- **`AIService.features.imageInput: true`**. `extract({ prompt })` is now sent after the framework's extraction instruction (it was accepted and ignored).
+- New exports: `AIImageInputUnsupportedError`, `AIImageMediaType`, `describeImage`, `imageToBase64`, `imageToDataUrl`, `promptUserContent`, `estimateOpenAIImageTokens`, `estimateAnthropicImageTokens`, `estimateUnscaledImageTokens` (root and `@plumbus/core/sdk`), plus types `AIImageInput`, `AIImageDescriptor`, `AIImageInputLimits`, `ContentPart`, `AITextContentPart`, `AIImageContentPart`. `AIProviderCapabilities` gains optional `imageInput` and `imageInputLimits`; `AIProviderAdapter` gains optional `estimateImageInputTokens`.
+
+### Testing
+
+- `mockAI` declares `features.imageInput`, accepts `images` and checks them like the real service; its usage estimate leaves out image bytes.
+- New `@plumbus/core/testing` doubles: `mockAIProvider({ respond, capabilities, usage })` (a scripted `AIProviderAdapter` recording `requests`, `hadImages()`) and `blankPng(width, height)`.
+
 ## 0.9.0-beta.13 — 2026-11-20 — many tenants, approval reads, safe migrations, bounded reads, lazy transactions; stable 0.8.6 and 0.8.7 merged
 
 Behaviour changes by default: data-plane capacity waits, migration lock timeouts, read ceiling warnings, exact `limit`, empty `in`, and capability transactions opened at the first write. Consumer agents: `instructions/upgrading-bounded-reads-lazy-transactions.md` and [upgrading to core 0.9](../../docs/upgrading-core-0.9.md). Peer ranges unchanged.

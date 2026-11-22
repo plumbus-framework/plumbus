@@ -14,11 +14,14 @@ import {
   type ToolUseBlock,
 } from '@aws-sdk/client-bedrock-runtime';
 import type {
+  AIImageDescriptor,
+  AIImageInput,
   AIProviderAdapter,
   AITool,
   AIToolCall,
   AIToolChoice,
   ChatMessage,
+  ContentPart,
   EmbeddingRequest,
   EmbeddingResponse,
   ListModelsFilter,
@@ -343,9 +346,60 @@ function toolResultBlock(msg: Extract<ChatMessage, { role: 'tool' }>): ContentBl
   } as ContentBlock;
 }
 
+/** Converse `image.format` for each image media type core sends. */
+const BEDROCK_IMAGE_FORMAT = {
+  'image/png': 'png',
+  'image/jpeg': 'jpeg',
+  'image/webp': 'webp',
+} as const;
+
+/** Converse image block: `image.format` and the raw bytes in `source.bytes` (not base64). */
+function imageBlock(image: AIImageInput): ContentBlock {
+  const format = BEDROCK_IMAGE_FORMAT[image.mediaType];
+  if (format === undefined) {
+    // Core checks media types before dispatch; refuse rather than send a block Converse rejects.
+    throw new AIInvalidRequestError({
+      reason: 'image_media_type_unsupported',
+      message: `Bedrock Converse does not accept image media type ${String(image.mediaType)}`,
+    });
+  }
+  return { image: { format, source: { bytes: image.data } } } as ContentBlock;
+}
+
+/** A user turn's content as Converse blocks: text and image parts in order, never empty. */
+function userContentBlocks(content: string | ContentPart[]): ContentBlock[] {
+  if (typeof content === 'string') return [{ text: content || EMPTY_TEXT_PLACEHOLDER }];
+  const blocks: ContentBlock[] = [];
+  for (const part of content) {
+    if (part.type === 'image') blocks.push(imageBlock(part));
+    else if (part.text.length > 0) blocks.push({ text: part.text });
+  }
+  return blocks.length > 0 ? blocks : [{ text: EMPTY_TEXT_PLACEHOLDER }];
+}
+
+/**
+ * Image-token estimate for the pre-call budget check (the ledger keeps Bedrock's reported usage):
+ * Anthropic models follow Anthropic's rule (scaled to a 1568 px long edge and about 1600 tokens,
+ * then width × height / 750); other models are estimated at width × height / 750 at full size.
+ */
+export function estimateBedrockImageTokens(image: AIImageDescriptor, modelId: string): number {
+  const { width, height } = image;
+  const anthropic = modelId.includes('anthropic.');
+  const scale = anthropic
+    ? Math.min(1, 1568 / Math.max(width, height), Math.sqrt((1600 * 750) / (width * height)))
+    : 1;
+  return Math.ceil((width * scale * (height * scale)) / 750);
+}
+
 function toBedrockMessages(request: ProviderRequest): Message[] {
   if (!request.messages || request.messages.length === 0) {
-    return [{ role: 'user', content: [{ text: request.prompt || EMPTY_TEXT_PLACEHOLDER }] }];
+    const images = request.images ?? [];
+    if (images.length === 0) {
+      return [{ role: 'user', content: [{ text: request.prompt || EMPTY_TEXT_PLACEHOLDER }] }];
+    }
+    const content: ContentPart[] = images.map((image) => ({ type: 'image', ...image }));
+    if (request.prompt) content.push({ type: 'text', text: request.prompt });
+    return [{ role: 'user', content: userContentBlocks(content) }];
   }
 
   const messages: Message[] = [];
@@ -372,7 +426,7 @@ function toBedrockMessages(request: ProviderRequest): Message[] {
     }
 
     if (msg.role === 'user') {
-      messages.push({ role: 'user', content: [{ text: msg.content || EMPTY_TEXT_PLACEHOLDER }] });
+      messages.push({ role: 'user', content: userContentBlocks(msg.content) });
       continue;
     }
 
@@ -592,6 +646,13 @@ export function createBedrockAdapter(config: BedrockAdapterConfig): AIProviderAd
       parallelToolCalls: true,
       parallelToolCallControl: false,
       namedToolChoice: true,
+      imageInput: true,
+      // Converse: at most 20 images, each at most 3.75 MB.
+      imageInputLimits: { maxImages: 20, maxImageBytes: 3_750_000 },
+    },
+
+    estimateImageInputTokens(image, model) {
+      return estimateBedrockImageTokens(image, model);
     },
 
     async complete(request: ProviderRequest): Promise<ProviderResponse> {
