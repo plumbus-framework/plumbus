@@ -69,6 +69,8 @@ export interface RewriteSummary {
   idempotentAddColumns: string[];
   /** Non-fatal warnings (e.g. dropped CONSTRAINT clauses, type mismatches we can't auto-fix). */
   warnings: string[];
+  /** Schemas the statements use without creating them, now created first (`IF NOT EXISTS`). */
+  createdSchemas?: string[];
 }
 
 export interface RewriteResult {
@@ -102,6 +104,7 @@ export function rewriteFrameworkDriftMigration(
     wrappedIndexes: [],
     idempotentAddColumns: [],
     warnings: [],
+    createdSchemas: [],
   };
 
   const driftByTable = new Map<string, (typeof driftReport.tables)[number]>();
@@ -195,8 +198,31 @@ export function rewriteFrameworkDriftMigration(
     out.push(stmt);
   }
 
+  // Schemas the statements create tables in but never create themselves (the framework's
+  // `core_plumbus` in a new app's first stream: drizzle-kit only emits `CREATE SCHEMA` for schema
+  // objects it is handed). Created first, idempotently, so the stream applies to an empty database.
+  // Only a new table needs it: an index on an existing table means the schema exists, and that
+  // migration stays exactly as before.
+  const schemaPrefix = /\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?"([^"]+)"\./gi;
+  const created = new Set(
+    out.flatMap((stmt) =>
+      [...stmt.matchAll(/CREATE\s+SCHEMA\s+(?:IF\s+NOT\s+EXISTS\s+)?"([^"]+)"/gi)].map((m) => m[1]),
+    ),
+  );
+  const needed: string[] = [];
+  for (const stmt of out) {
+    for (const match of stmt.matchAll(schemaPrefix)) {
+      const schema = match[1];
+      if (schema && schema !== 'public' && !created.has(schema) && !needed.includes(schema)) {
+        needed.push(schema);
+      }
+    }
+  }
+  summary.createdSchemas = needed;
+  const schemaStatements = needed.map((schema) => `CREATE SCHEMA IF NOT EXISTS "${schema}";`);
+
   return {
-    statements: out,
+    statements: [...schemaStatements, ...out],
     summary,
   };
 }
@@ -422,6 +448,11 @@ export function formatRewriteSummary(summary: RewriteSummary): string[] {
       `Framework drift rewrite: made ${summary.idempotentAddColumns.length} ALTER TABLE ADD COLUMN statement(s) idempotent.`,
     );
   }
+  if ((summary.createdSchemas?.length ?? 0) > 0) {
+    lines.push(
+      `Framework drift rewrite: creates the schema(s) the migration uses first: ${summary.createdSchemas?.join(', ')}.`,
+    );
+  }
   for (const w of summary.warnings) {
     lines.push(`  warning: ${w}`);
   }
@@ -438,6 +469,7 @@ export function rewriteHadEffect(summary: RewriteSummary): boolean {
     summary.droppedCreateTables.length > 0 ||
     summary.wrappedIndexes.length > 0 ||
     summary.idempotentAddColumns.length > 0 ||
+    (summary.createdSchemas?.length ?? 0) > 0 ||
     summary.warnings.length > 0
   );
 }

@@ -8,9 +8,8 @@ in order; each says how to find the code it concerns. Background:
 
 ## 1. What changes without any code change
 
-- [ ] **`plumbus migrate generate` emits `audit_outbox`.** Run it for every migration stream
-      (the spine and each tenant stream), review the new migration (one `CREATE TABLE` and one
-      index), apply it.
+- [ ] **`plumbus migrate generate` emitted `audit_outbox` in 0.9.0-beta.16** (removed again in
+      0.9.0-beta.17; see the newer checklist before generating).
 - [ ] **A custom `Repository` implementation** (rare: `rg -n "implements Repository|: Repository<" app packages`)
       now receives `notIn` among the filters and an options argument to `createMany`. Apply
       `notIn` (or refuse it); never ignore it, or a `deleteMany` would match more rows than asked.
@@ -32,30 +31,9 @@ in order; each says how to find the code it concerns. Background:
 
 ## 3. Audit records of writes on a tenant plane
 
-Applies when requests audit through `ctx.audit` on the spine (`requestDataPlane: 'control-plane'`)
-and handlers write on a tenant plane in a transaction they open themselves.
-
-- [ ] Find those transactions: `rg -n "\.db\.transaction\(" app/capabilities` and look for
-      repositories or code given `ctx.audit` (or a hold of it) inside them.
-- [ ] Wrap each with the outbox:
-
-      ```ts
-      await runWithAuditOutbox(ctx.audit, handle.db, async (tx, audit) => {
-        // build repositories with { db: tx, audit } and record with `audit`
-      });
-      ```
-
-      or, keeping your own `handle.db.transaction(...)`:
-
-      ```ts
-      const outbox = createAuditOutbox(ctx.audit);
-      const result = await handle.db.transaction((tx) => work(tx, outbox ? outbox.bind(tx) : ctx.audit));
-      await outbox?.flush(handle.db);
-      ```
-
-- [ ] Delete hand-written holds that did the same in memory (records held until the commit and
-      written after it); the outbox replaces them durably.
-- [ ] Turn the relay on in the worker: `PLUMBUS_AUDIT_OUTBOX_RELAY_INTERVAL_MS=60000`.
+The framework audit outbox described here in 0.9.0-beta.16 was removed in 0.9.0-beta.17. Follow
+[upgrading-uploads-indexes-and-migrations.md](./upgrading-uploads-indexes-and-migrations.md) § 1
+(`withAuditWriter` and a table of your own).
 
 ## 4. Bulk inserts and exclusion filters
 

@@ -141,6 +141,28 @@ await ctx.data.Hold.updateMany!({ batchId }, { state: 'released' }, { notEq: { s
 - `updateMany` cannot set `id` or `tenantId`.
 - When you do not use the updated row, `update(id, values, { returning: false })` skips reading it back.
 
+### Indexes beyond plain fields (core 0.9.0-beta.17+)
+
+An index entry may name framework columns (`id`, `createdAt`, `updatedAt`, and `tenantId` on a tenant-scoped entity), give per-column options, index SQL expressions, be partial, and use any index method:
+
+```ts
+indexes: [
+  // Newest first within a tenant (ORDER BY created_at DESC LIMIT n).
+  { columns: ['tenantId', 'createdAt'], columnOptions: { createdAt: { order: 'desc' } } },
+  // Case-insensitive sort or lookup: expressions in database column names; a name is required.
+  { columns: [], expressions: ['lower(display_name)'], name: 'customer_display_name_lower_idx' },
+  // Partial: only the rows a sweep reads.
+  { columns: ['state'], where: "state = 'pending'", name: 'invoice_pending_idx' },
+  // Substring search (ILIKE '%x%'): trigram GIN; create the extension with `plumbus migrate new`.
+  { columns: ['displayName'], columnOptions: { displayName: { opclass: 'gin_trgm_ops' } }, using: 'gin', name: 'customer_display_name_trgm_idx' },
+]
+```
+
+- `columnOptions[column]`: `order` (`'asc'` / `'desc'`), `nulls` (`'first'` / `'last'`; default PostgreSQL's own, so `ORDER BY col DESC` can read a `desc` key), `opclass` (an operator class name).
+- `using`: `btree` (default), `gin`, `gist`, `hash`, `brin`. `gin` on one json field with no `opclass` keeps its meaning (`jsonb_path_ops`, for `contains`).
+- `expressions` and `where` are SQL fragments in database column names (snake_case), one expression each, no `;`. They are passed to the migration as written.
+- `plumbus migrate generate` emits them like any index (`CREATE INDEX IF NOT EXISTS …`). On a large table make the file concurrent (see non-transactional migrations).
+
 ### Inserting many rows
 
 Use `createMany(records)` instead of `create()` in a loop: one INSERT for the whole list. By default it writes one summary audit row per call (`<Entity>.createMany`, count and a masked sample). Pass `{ audit: 'per-row' }` (core 0.9.0-beta.16+) when every record must leave the same audit row a `create()` writes (`<Entity>.create`, masked fields masked), inserted together:

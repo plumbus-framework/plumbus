@@ -1,6 +1,8 @@
 import type { z } from 'zod';
 import { zodToJsonSchemaObject } from '../../schema/json-schema.js';
 import { isApiExposed } from '../../api/exposure.js';
+import { isStreamedBodySchema } from '../../api/streamed-body.js';
+import { streamedUploadFieldOf, UPLOAD_INPUT_HEADER } from '../../api/streamed-upload.js';
 import type { CapabilityContract } from '../../types/capability.js';
 import type { CapabilityKind } from '../../types/enums.js';
 import { toKebabCase } from '../utils.js';
@@ -174,23 +176,58 @@ export function generateOpenApiPath(cap: CapabilityContract): Record<string, unk
         ? 'get'
         : 'post';
   const urlPath = `/api/${cap.domain}/${toKebabCase(cap.name)}`;
-  const pathParameters = buildGeneratePathParameters(cap.input, urlPath);
-  const queryParameters = method === 'get' ? buildGenerateQueryParameters(cap.input, urlPath) : [];
-  const parameters = [...pathParameters, ...queryParameters];
+  // An upload (`streamedUploadInput`): the body is the bytes; the other fields travel in the
+  // query string (or, as the generated client sends them, the `x-plumbus-input` header).
+  const upload = streamedUploadFieldOf(cap.input);
+  const fieldsSchema = upload
+    ? ((cap.input as unknown as z.ZodObject<z.ZodRawShape>).omit({
+        [upload.field]: true,
+      }) as unknown as z.ZodTypeAny)
+    : cap.input;
+  const pathParameters = buildGeneratePathParameters(fieldsSchema, urlPath);
+  // With an upload the fields may come from the header instead, so none is required here.
+  const queryParameters =
+    method === 'get'
+      ? buildGenerateQueryParameters(fieldsSchema, urlPath)
+      : upload
+        ? buildGenerateQueryParameters(fieldsSchema, urlPath).map((parameter) => ({
+            ...parameter,
+            required: false,
+          }))
+        : [];
+  const parameters: unknown[] = [...pathParameters, ...queryParameters];
+  if (upload) {
+    parameters.push({
+      in: 'header',
+      name: UPLOAD_INPUT_HEADER,
+      required: false,
+      description:
+        'The non-body input fields as base64url-encoded JSON (instead of the query string; keeps secrets out of URLs)',
+      schema: { type: 'string' },
+    });
+  }
 
   const operation: Record<string, unknown> = {
     operationId: cap.name,
     summary: cap.description ?? cap.name,
     tags: [cap.domain],
     responses: {
-      '200': {
-        description: 'Successful response',
-        content: {
-          'application/json': {
-            schema: wrapGenerateSuccessEnvelope(zodToGenerateOpenApiSchema(cap.output)),
+      '200': isStreamedBodySchema(cap.output)
+        ? {
+            // A streamed answer (`streamedBodyOutput`): the bytes, not a JSON envelope.
+            description: 'Successful response: the bytes of the answer',
+            content: {
+              'application/octet-stream': { schema: { type: 'string', format: 'binary' } },
+            },
+          }
+        : {
+            description: 'Successful response',
+            content: {
+              'application/json': {
+                schema: wrapGenerateSuccessEnvelope(zodToGenerateOpenApiSchema(cap.output)),
+              },
+            },
           },
-        },
-      },
     },
   };
 
@@ -198,7 +235,16 @@ export function generateOpenApiPath(cap: CapabilityContract): Record<string, unk
     operation.parameters = parameters;
   }
 
-  if (method !== 'get') {
+  if (upload) {
+    const types = upload.options.contentTypes ?? ['application/octet-stream'];
+    operation.requestBody = {
+      required: true,
+      content: Object.fromEntries(
+        types.map((type) => [type, { schema: { type: 'string', format: 'binary' } }]),
+      ),
+    };
+    operation['x-plumbus-upload'] = { maxBytes: upload.options.maxBytes };
+  } else if (method !== 'get') {
     operation.requestBody = {
       required: true,
       content: {

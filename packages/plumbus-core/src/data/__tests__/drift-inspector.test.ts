@@ -7,9 +7,9 @@ import {
 } from '../drift-inspector.js';
 
 describe('FRAMEWORK_TABLE_NAMES', () => {
-  it('contains all 23 framework table names', () => {
-    expect(FRAMEWORK_TABLE_NAMES).toHaveLength(23);
-    expect(FRAMEWORK_TABLE_NAMES).toContain('audit_outbox');
+  it('contains all 22 framework table names', () => {
+    expect(FRAMEWORK_TABLE_NAMES).toHaveLength(22);
+    expect(FRAMEWORK_TABLE_NAMES).not.toContain('audit_outbox');
   });
 
   it('includes expected table names', () => {

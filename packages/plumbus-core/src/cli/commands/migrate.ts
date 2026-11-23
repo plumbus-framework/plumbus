@@ -2,6 +2,7 @@
 // Migration CLI — the framework governs all database schema operations.
 // Never run manual SQL DDL — use these commands instead.
 
+import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Command } from 'commander';
@@ -25,6 +26,7 @@ import {
 import {
   applyMigrations,
   collectSchemas,
+  MIGRATION_NO_TRANSACTION_DIRECTIVE,
   type MigrationLockRetryInfo,
   readPendingMigrations,
   reconcileMigrationHistory,
@@ -244,8 +246,9 @@ export function registerMigrateCommand(program: Command): void {
           return;
         }
 
-        // Write migration file
-        const timestamp = Date.now();
+        // Write migration file. Its tag (and so its snapshot's file name) comes after every journal
+        // entry, even ones dated ahead of the clock, so the next generate diffs from this snapshot.
+        const timestamp = nextMigrationTimestamp(journalPath);
         const tag = `${String(timestamp).padStart(14, '0')}_migration`;
 
         // ── Framework-drift rewrite ──
@@ -361,6 +364,33 @@ export function registerMigrateCommand(program: Command): void {
         } else {
           logError(`Migration generation failed: ${msg}`);
         }
+      }
+    });
+
+  // ── plumbus migrate new <name> ──
+  cmd
+    .command('new <name>')
+    .description(
+      'Create an empty hand-written SQL migration in the journal (extensions, triggers, functions, indexes on framework tables, table storage settings)',
+    )
+    .option('--no-transaction', 'Run it outside a transaction (CREATE INDEX CONCURRENTLY)')
+    .option('--json', 'Output as JSON')
+    .action(async (name: string, opts: { transaction?: boolean; json?: boolean }) => {
+      try {
+        const created = await createHandWrittenMigration(resolvePath('drizzle'), name, {
+          noTransaction: opts.transaction === false,
+        });
+        if (opts.json) {
+          console.log(JSON.stringify({ status: 'created', ...created }, null, 2));
+        } else {
+          success(`Migration created: ${created.file}`);
+          info('Write its SQL, then run `plumbus migrate apply`.');
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (opts.json) console.log(JSON.stringify({ status: 'error', error: msg }, null, 2));
+        else logError(`Migration creation failed: ${msg}`);
+        process.exitCode = 1;
       }
     });
 
@@ -1095,4 +1125,89 @@ export function registerDbCommand(program: Command): void {
         }
       }
     });
+}
+
+/**
+ * `plumbus migrate new <name>`: an empty SQL migration registered in the stream's journal, for
+ * what the entity model cannot express. `plumbus migrate apply` runs it in journal order like a
+ * generated one (each `--> statement-breakpoint` part on its own, all in one transaction unless
+ * the file starts with `-- plumbus:no-transaction`). Its snapshot is the previous one carried
+ * forward, so the next `plumbus migrate generate` diffs the entities as if it were not there and
+ * never undoes it.
+ */
+export async function createHandWrittenMigration(
+  outDir: string,
+  name: string,
+  options: { noTransaction?: boolean; now?: number } = {},
+): Promise<{ file: string; tag: string }> {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  if (!slug || slug.length > 60) {
+    throw new Error('Migration name must contain letters or digits (at most 60 characters)');
+  }
+  const metaDir = path.join(outDir, 'meta');
+  fs.mkdirSync(metaDir, { recursive: true });
+  const journalPath = path.join(metaDir, '_journal.json');
+  const journal = fs.existsSync(journalPath)
+    ? JSON.parse(fs.readFileSync(journalPath, 'utf-8'))
+    : { version: '7', dialect: 'postgresql', entries: [] };
+  const entries = journal.entries as Array<{ when: number; tag: string }>;
+  const timestamp = nextMigrationTimestamp(journalPath, options.now ?? Date.now());
+  const tag = `${String(timestamp).padStart(14, '0')}_${slug}`;
+
+  const snapshotFiles = fs
+    .readdirSync(metaDir)
+    .filter((file) => file.endsWith('.json') && file !== '_journal.json')
+    .sort();
+  let snapshot: Record<string, unknown>;
+  const previousFile = snapshotFiles[snapshotFiles.length - 1];
+  if (previousFile) {
+    const previous = JSON.parse(fs.readFileSync(path.join(metaDir, previousFile), 'utf-8'));
+    snapshot = { ...previous, id: crypto.randomUUID(), prevId: previous.id };
+  } else {
+    const { generateDrizzleJson } = await import('drizzle-kit/api');
+    snapshot = generateDrizzleJson({}) as unknown as Record<string, unknown>;
+  }
+
+  const header = [
+    ...(options.noTransaction ? [MIGRATION_NO_TRANSACTION_DIRECTIVE] : []),
+    `-- Hand-written migration "${slug}" (plumbus migrate new).`,
+    '-- For what entities cannot declare: CREATE EXTENSION, functions and triggers, indexes on',
+    '-- framework tables, ALTER TABLE … SET (autovacuum_…). Separate statements with the',
+    "-- statement-breakpoint line generated files use (two dashes, '>', a space, the word).",
+    '-- `plumbus migrate generate` never rewrites this file.',
+    '',
+  ].join('\n');
+  const file = path.join(outDir, `${tag}.sql`);
+  fs.writeFileSync(file, header, 'utf-8');
+  fs.writeFileSync(path.join(metaDir, `${tag}.json`), JSON.stringify(snapshot, null, 2), 'utf-8');
+  entries.push({
+    idx: entries.length,
+    version: '7',
+    when: timestamp,
+    tag,
+    breakpoints: true,
+  } as never);
+  fs.writeFileSync(journalPath, JSON.stringify(journal, null, 2), 'utf-8');
+  return { file, tag };
+}
+
+/**
+ * The timestamp a new migration tag gets: now, or just after the newest journal entry when one is
+ * dated ahead of the clock (a hand-dated file, `plumbus migrate new`). File order, journal order
+ * and the "last snapshot by file name" that `generate` diffs from then always agree.
+ */
+export function nextMigrationTimestamp(journalPath: string, now: number = Date.now()): number {
+  if (!fs.existsSync(journalPath)) return now;
+  const journal = JSON.parse(fs.readFileSync(journalPath, 'utf-8')) as {
+    entries?: Array<{ when?: number }>;
+  };
+  const last = (journal.entries ?? []).reduce(
+    (max, entry) => Math.max(max, Number(entry.when) || 0),
+    0,
+  );
+  return Math.max(now, last + 1);
 }

@@ -172,6 +172,7 @@ export async function startProductionServer(
       onCapabilityError: extensions.onCapabilityError,
       onProcessError: extensions.onProcessError,
       onAICostRecorded: extensions.onAICostRecorded,
+      onAuditWriteFailure: extensions.onAuditWriteFailure,
       decisions: extensions.decisions,
       enableStrictStructuredOutputs: extensions.enableStrictStructuredOutputs,
       credentials: extensions.credentials,

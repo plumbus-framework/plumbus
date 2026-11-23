@@ -147,6 +147,7 @@ export async function buildResourceContext(options: {
             bypassTenantScope: options?.bypassTenantScope,
             getCausationId: () => resolveInvocationCausationId(invocationEmitScope),
             encryptionKey,
+            onAuditWriteFailure: extensions.onAuditWriteFailure,
           },
           {
             ...(requestFlowEngine

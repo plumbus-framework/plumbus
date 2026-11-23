@@ -177,6 +177,43 @@ export function isStreamedOutput(cap: Pick<CapabilityContract, 'output'>): boole
   }
 }
 
+/**
+ * The upload field of a capability (`streamedUploadInput` in `@plumbus/core`), read from schema
+ * metadata: its options and the input without it.
+ */
+export function uploadOf(
+  cap: Pick<CapabilityContract, 'input'>,
+):
+  | { field: string; maxBytes: number; contentTypes: string[]; fields: CapabilityContract['input'] }
+  | undefined {
+  const input = cap.input as unknown as {
+    shape?: Record<string, unknown>;
+    omit?: (mask: Record<string, true>) => unknown;
+  };
+  if (!input.shape || typeof input.shape !== 'object') return undefined;
+  for (const [field, schema] of Object.entries(input.shape)) {
+    const meta = (schema as { meta?: () => Record<string, unknown> | undefined } | null)?.meta;
+    if (typeof meta !== 'function') continue;
+    let options: { maxBytes?: number; contentTypes?: string[] } | undefined;
+    try {
+      options = meta.call(schema)?.plumbusUpload as typeof options;
+    } catch {
+      options = undefined;
+    }
+    if (!options) continue;
+    const fields = (
+      typeof input.omit === 'function' ? input.omit.call(cap.input, { [field]: true }) : cap.input
+    ) as CapabilityContract['input'];
+    return {
+      field,
+      maxBytes: options.maxBytes ?? 0,
+      contentTypes: options.contentTypes ?? ['application/octet-stream'],
+      fields,
+    };
+  }
+  return undefined;
+}
+
 export function generateOpenApi(
   caps: CapabilityContract[],
   manifest: ApiManifest,
@@ -266,15 +303,47 @@ export function generateOpenApi(
       operation['x-plumbus-test'] = resolved.test;
     }
 
-    const pathParameters = buildPathParameters(cap.input, routePath);
+    // An upload (`streamedUploadInput`): the body is the bytes; the other fields travel in the
+    // query string or the `x-plumbus-input` header.
+    const upload = uploadOf(cap);
+    const fieldsInput = upload ? upload.fields : cap.input;
+    const pathParameters = buildPathParameters(fieldsInput, routePath);
     const queryParameters =
-      resolved.method === 'GET' ? buildGetQueryParameters(cap.input, routePath) : [];
-    const allParameters = [...pathParameters, ...queryParameters];
+      resolved.method === 'GET'
+        ? buildGetQueryParameters(fieldsInput, routePath)
+        : upload
+          ? buildGetQueryParameters(fieldsInput, routePath).map((parameter) => ({
+              ...(parameter as Record<string, unknown>),
+              required: false,
+            }))
+          : [];
+    const allParameters: unknown[] = [...pathParameters, ...queryParameters];
+    if (upload) {
+      allParameters.push({
+        in: 'header',
+        name: 'x-plumbus-input',
+        required: false,
+        description:
+          'The non-body input fields as base64url-encoded JSON (keeps secrets out of URLs)',
+        schema: { type: 'string' },
+      });
+    }
     if (allParameters.length > 0) {
       operation.parameters = allParameters;
     }
 
-    if (resolved.method !== 'GET') {
+    if (upload) {
+      operation.requestBody = {
+        required: true,
+        content: Object.fromEntries(
+          upload.contentTypes.map((type) => [
+            type,
+            { schema: { type: 'string', format: 'binary' } },
+          ]),
+        ),
+      };
+      operation['x-plumbus-upload'] = { maxBytes: upload.maxBytes };
+    } else if (resolved.method !== 'GET') {
       operation.requestBody = {
         required: true,
         content: {

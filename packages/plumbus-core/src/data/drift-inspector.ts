@@ -14,7 +14,6 @@ import { collectSchemas } from './migration.js';
 /** Framework-managed table names (actual DB names). */
 export const FRAMEWORK_TABLE_NAMES = [
   'audit_records',
-  'audit_outbox',
   'event_outbox',
   'event_idempotency',
   'event_dead_letter',

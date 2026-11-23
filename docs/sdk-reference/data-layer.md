@@ -620,6 +620,41 @@ Every migration statement runs under a PostgreSQL `lock_timeout`, five seconds b
 
 The setting is `SET LOCAL` inside each migration's transaction (and reset after a non-transactional migration), so it never reaches the connection pool. It bounds waits for locks only; a statement that holds its lock and takes long (an index build on a big table) is not cut short.
 
+### Entity indexes beyond plain fields (core 0.9.0-beta.17+)
+
+An index entry may name framework columns (`id`, `createdAt`, `updatedAt`, and `tenantId` on a tenant-scoped entity), give per-column options, index SQL expressions, be partial, and use any index method:
+
+```ts
+indexes: [
+  // Newest first within a tenant (ORDER BY created_at DESC LIMIT n).
+  { columns: ['tenantId', 'createdAt'], columnOptions: { createdAt: { order: 'desc' } } },
+  // Case-insensitive sort or lookup: expressions in database column names; a name is required.
+  { columns: [], expressions: ['lower(display_name)'], name: 'customer_display_name_lower_idx' },
+  // Partial: only the rows a sweep reads.
+  { columns: ['state'], where: "state = 'pending'", name: 'invoice_pending_idx' },
+  // Substring search (ILIKE '%x%'): trigram GIN; create the extension with `plumbus migrate new`.
+  { columns: ['displayName'], columnOptions: { displayName: { opclass: 'gin_trgm_ops' } }, using: 'gin', name: 'customer_display_name_trgm_idx' },
+]
+```
+
+- `columnOptions[column]`: `order` (`'asc'` / `'desc'`), `nulls` (`'first'` / `'last'`; default PostgreSQL's own, so `ORDER BY col DESC` can read a `desc` key), `opclass` (an operator class name).
+- `using`: `btree` (default), `gin`, `gist`, `hash`, `brin`. `gin` on one json field with no `opclass` keeps its meaning (`jsonb_path_ops`, for `contains`).
+- `expressions` and `where` are SQL fragments in database column names (snake_case), one expression each, no `;`. They are passed to the migration as written.
+- `plumbus migrate generate` emits them like any index (`CREATE INDEX IF NOT EXISTS …`). On a large table make the file concurrent (see non-transactional migrations).
+
+### Hand-written migrations: `plumbus migrate new` (core 0.9.0-beta.17+)
+
+For schema the entity model cannot express — an extension (`CREATE EXTENSION pg_trgm`), functions and triggers (a counter kept in the database), an index on a framework table (`core_plumbus.approval_request`), per-table storage settings (`ALTER TABLE … SET (autovacuum_vacuum_scale_factor = 0.02)`), the schema a stream's first file needs — write SQL into the stream itself:
+
+```bash
+plumbus migrate new "enable trigram search"        # drizzle/<tag>_enable_trigram_search.sql
+plumbus migrate new "email lookup" --no-transaction  # first line: -- plumbus:no-transaction
+```
+
+The file is registered in the stream's journal after every entry already there, so `plumbus migrate apply` runs it in order with the generated ones (same lock timeout and retries; each part between statement-breakpoint lines on its own; outside a transaction with `--no-transaction`). Its snapshot is the previous one carried forward: the next `plumbus migrate generate` diffs the entities as if the file were not there, so it never repeats or undoes it. Write each statement idempotently where you can (`IF NOT EXISTS`, `CREATE OR REPLACE`).
+
+`plumbus migrate generate` names its file after every journal entry as well, so a stream whose entries are dated ahead of the clock keeps file order, journal order and snapshot order the same (core 0.9.0-beta.17; before, a generated file could sort before them and the next generate diffed from the wrong snapshot).
+
 ### Non-transactional migrations: `CREATE INDEX CONCURRENTLY`
 
 Each migration file normally runs in one transaction. `CREATE INDEX CONCURRENTLY` cannot run in a transaction, and a plain `CREATE INDEX` blocks every write to the table until the transaction commits. A file whose leading comment block (the `--` lines before its first statement) has this line of its own runs outside a transaction:

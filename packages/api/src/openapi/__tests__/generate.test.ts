@@ -438,3 +438,40 @@ describe('generateOpenApi — a streamed answer', () => {
     expect(Object.keys(jsonOp.responses['200'].content)).toEqual(['application/json']);
   });
 });
+
+describe('generateOpenApi — an upload', () => {
+  it('documents the body as bytes and the other fields as optional query and header input', async () => {
+    const { streamedUploadInput } = await import('@plumbus/core');
+    const cap = defineCapability({
+      name: 'attachRefundReceipt',
+      kind: 'action',
+      domain: 'billing',
+      description: 'Attach a receipt',
+      input: z.object({
+        refundId: z.string(),
+        note: z.string(),
+        file: streamedUploadInput({ maxBytes: 2048, contentTypes: ['image/png'] }),
+      }),
+      output: z.object({ ok: z.boolean() }),
+      effects: { data: ['Refund'], events: [], external: [], ai: false },
+      exposeAs: ['api'],
+      api: {
+        operationId: 'attachRefundReceipt',
+        method: 'POST',
+        path: '/refunds/{refundId}/receipt',
+      },
+      handler: async () => ({ ok: true }),
+    });
+    const doc = generateOpenApi([cap], { ...manifest, expose: [] });
+    const op = (Object.values(doc.paths)[0] as Record<string, any>).post;
+    expect(op.requestBody.content).toEqual({
+      'image/png': { schema: { type: 'string', format: 'binary' } },
+    });
+    expect(op.parameters.map((p: any) => `${p.in}:${p.name}:${p.required}`)).toEqual([
+      'path:refundId:true',
+      'query:note:false',
+      'header:x-plumbus-input:false',
+    ]);
+    expect(op['x-plumbus-upload']).toEqual({ maxBytes: 2048 });
+  });
+});

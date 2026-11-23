@@ -74,6 +74,33 @@ export function isStreamedOutput(cap: Pick<CapabilityContract, 'output'>): boole
   }
 }
 
+/**
+ * The upload field of a capability (`streamedUploadInput` in `@plumbus/core`), read from the
+ * input schema's metadata so this generator keeps working with a core without uploads.
+ */
+export function uploadFieldOf(cap: Pick<CapabilityContract, 'input'>): string | undefined {
+  const shape = (cap.input as unknown as { shape?: Record<string, unknown> }).shape;
+  if (!shape || typeof shape !== 'object') return undefined;
+  for (const [field, schema] of Object.entries(shape)) {
+    const meta = (schema as { meta?: () => Record<string, unknown> | undefined } | null)?.meta;
+    if (typeof meta !== 'function') continue;
+    try {
+      if (meta.call(schema)?.plumbusUpload) return field;
+    } catch {
+      // not a zod 4 schema with metadata
+    }
+  }
+  return undefined;
+}
+
+/** The input schema without its upload field (the fields the client sends beside the body). */
+function uploadFieldsSchema(cap: CapabilityContract, field: string): CapabilityContract['input'] {
+  const omit = (cap.input as unknown as { omit?: (mask: Record<string, true>) => unknown }).omit;
+  return (
+    typeof omit === 'function' ? omit.call(cap.input, { [field]: true }) : cap.input
+  ) as CapabilityContract['input'];
+}
+
 /** Client export name for a capability (matches `generateTypedClient`). */
 export function capabilityClientFnName(cap: Pick<CapabilityContract, 'name'>): string {
   return toCamelCase(cap.name);
@@ -387,7 +414,13 @@ function unwrapWrappers(schema: unknown): unknown {
 /** Generate TypeScript types from a capability's Zod input/output schemas */
 export function generateCapabilityTypes(cap: CapabilityContract): string {
   const pascal = toPascalCase(cap.name);
-  const inputType = zodSchemaToTypeString(cap.input, '', 'input');
+  // An upload's file is passed beside the input (`request.body`), not in it.
+  const upload = uploadFieldOf(cap);
+  const inputType = zodSchemaToTypeString(
+    upload ? uploadFieldsSchema(cap, upload) : cap.input,
+    '',
+    'input',
+  );
   // A streamed answer reaches the caller as the fetch Response: read it with `blob()`,
   // `body` (a ReadableStream) or save it, without the bytes passing through JSON.
   const outputType = isStreamedOutput(cap)
@@ -425,6 +458,7 @@ export function generateTypedClient(
       : '';
 
   const streamed = isStreamedOutput(cap);
+  if (uploadFieldOf(cap)) return generateUploadClient(cap, config, streamed);
   const fetchUrl = method === 'GET' ? 'url' : `"${base}${urlPath}"`;
   const fetchBody = method === 'GET' ? '' : `\n    body: JSON.stringify(input),`;
   // Every state-changing call carries an Idempotency-Key (one per invocation) unless the
@@ -471,6 +505,66 @@ export function generateTypedClient(
   options?: { headers?: Record<string, string>; signal?: AbortSignal; keepalive?: boolean },
 ): Promise<${pascal}Output> {${queryParams}${forget}
   ${request}
+}`;
+}
+
+/**
+ * Client of a capability taking an upload: the file is the request body (sent as is, never as
+ * JSON or base64) and the other fields travel in the `x-plumbus-input` header (base64url JSON),
+ * so a token among them never appears in a URL.
+ */
+function generateUploadClient(
+  cap: CapabilityContract,
+  config: ClientGeneratorConfig | undefined,
+  streamed: boolean,
+): string {
+  const fnName = toCamelCase(cap.name);
+  const pascal = toPascalCase(cap.name);
+  const method = httpMethod(cap);
+  const url = `${config?.baseUrl ?? ''}${capabilityPath(cap.domain, cap.name)}`;
+  const jsdoc = config?.includeJsDoc
+    ? `/** ${cap.description ?? `${cap.kind} — ${cap.name}`} (upload: pass the file as request.body) */\n`
+    : '';
+  const forget = config?.dedupeQueries ? '\n  forgetSharedQueries();' : '';
+  return `${jsdoc}export async function ${fnName}(
+  input: ${pascal}Input,
+  request: {
+    body: Blob | ArrayBuffer | Uint8Array;
+    contentType?: string;
+    headers?: Record<string, string>;
+    signal?: AbortSignal;
+  },
+): Promise<${pascal}Output> {${forget}
+  const json = new TextEncoder().encode(JSON.stringify(input));
+  let binary = "";
+  for (const byte of json) binary += String.fromCharCode(byte);
+  const fields = btoa(binary).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");
+  const contentType =
+    request.contentType ??
+    (typeof Blob !== "undefined" && request.body instanceof Blob && request.body.type
+      ? request.body.type
+      : "application/octet-stream");
+  const init = clientFetchInit(
+    "${method}",
+    withIdempotencyKey({ ...request.headers, "Content-Type": contentType, "x-plumbus-input": fields }),
+  );
+  const response = await fetch("${url}", {
+    method: "${method}",
+    ...init,
+    body: request.body as BodyInit,
+    signal: request.signal,
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    const err = body.error ?? body;
+    throw Object.assign(new Error(err.message ?? \`Request failed: \${response.status}\`), {
+      status: response.status,
+      code: err.code,
+      metadata: err.metadata,
+      requestId: plumbusRequestIdOf(body, response),
+    });
+  }
+  ${streamed ? 'return response;' : `return unwrapEnvelope<${pascal}Output>(await response.json());`}
 }`;
 }
 
@@ -522,12 +616,13 @@ export function generateMutationHook(
     ? `/** Hook for ${cap.description ?? cap.name} (${cap.kind}) */\n`
     : '';
 
+  const upload = uploadFieldOf(cap) !== undefined;
   return `${jsdoc}export function ${hookName}(options?: { onError?: (err: Error) => void }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [data, setData] = useState<${pascal}Output | null>(null);
 
-  const mutate = async (input: ${pascal}Input, request?: Parameters<typeof ${fnName}>[1]) => {
+  const mutate = async (input: ${pascal}Input, request${upload ? '' : '?'}: Parameters<typeof ${fnName}>[1]) => {
     setLoading(true);
     setError(null);
     try {
@@ -794,13 +889,16 @@ export function generateSplitClientFiles(
   for (const cap of capabilities) {
     const fnName = capabilityClientFnName(cap);
     const isGet = httpMethod(cap) === 'GET';
+    const code = generateTypedClient(cap, config);
+    // Only the helpers the function calls: a streamed answer never unwraps an envelope, and an
+    // unused import fails a consumer compiled with `noUnusedLocals`.
     const runtimeImports = [
       'clientFetchInit',
       'plumbusRequestIdOf',
       'unwrapEnvelope',
       ...(isGet ? [] : ['withIdempotencyKey']),
       ...(config?.dedupeQueries ? [isGet ? 'sharedQuery' : 'forgetSharedQueries'] : []),
-    ];
+    ].filter((name) => new RegExp(`\\b${name}\\s*[<(]`).test(code));
     files.push({
       path: `lib/client/${fnName}.ts`,
       content: [
@@ -808,7 +906,7 @@ export function generateSplitClientFiles(
         `import type { ${capabilityTypeNames(cap).join(', ')} } from "./_types${ext}";`,
         `import { ${runtimeImports.join(', ')} } from "./_runtime${ext}";`,
         '',
-        generateTypedClient(cap, config),
+        code,
         '',
       ].join('\n'),
     });

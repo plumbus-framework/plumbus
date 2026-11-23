@@ -199,6 +199,8 @@ export type {
   StreamedBody,
   StreamedBodyOptions,
   StreamedBodySource,
+  StreamedUpload,
+  StreamedUploadOptions,
 } from './api/index.js';
 // ── API (HTTP route generation) ──
 export {
@@ -241,6 +243,12 @@ export {
   StreamedBodyLengthError,
   streamedBody,
   streamedBodyOutput,
+  isStreamedUpload,
+  streamedUpload,
+  streamedUploadFieldOf,
+  streamedUploadInput,
+  UPLOAD_INPUT_HEADER,
+  uploadRequestFields,
   withRequestId,
 } from './api/index.js';
 export type {
@@ -263,24 +271,16 @@ export {
   createMemoryApprovalStore,
   createSqlApprovalStore,
 } from './approvals/index.js';
-export type { AuditServiceConfig } from './audit/index.js';
+export type { AuditServiceConfig, AuditSuccessHold, AuditWriteFailure } from './audit/index.js';
 // ── Audit ──
 export {
-  AUDIT_OUTBOX_TABLE,
-  auditOutboxDdl,
-  auditOutboxTable,
+  AUDIT_RETRY_DELAYS_MS,
   auditRecords,
-  createAuditOutbox,
   createAuditService,
   createDatabaseAuditWriter,
-  relayAuditOutbox,
-  runWithAuditOutbox,
-} from './audit/index.js';
-export type {
-  AuditOutbox,
-  AuditOutboxFlushResult,
-  RelayAuditOutboxOptions,
-  RelayAuditOutboxResult,
+  holdAuditSuccess,
+  recordAfterEffects,
+  withAuditWriter,
 } from './audit/index.js';
 export type {
   AuthAdapter,

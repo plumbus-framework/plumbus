@@ -6,6 +6,52 @@ The 0.8 numbers now belong to the stable **stabilization family** published from
 
 Core 0.9.0-beta.0 contains everything in the 0.8.0-beta.N line plus every stable change merged from `main`: the core 0.8.0 stabilization (PLB-01 to PLB-10), core 0.8.1, auth 0.3.1 and the Vitest 5.0.4 toolchain. See [Included in v0.9.0-beta.0](#included-in-v090-beta0).
 
+## v0.9.0-beta.18 (2026-11-24): uploads, entity indexes beyond fields, hand-written migrations, `withAuditWriter`; audit outbox removed
+
+Prepared for repository release `v0.9.0-beta.18` under npm dist-tag `plumbus-next`. Three packages change: `@plumbus/core` **0.9.0-beta.16 → 0.9.0-beta.17**, `@plumbus/api` **0.4.0-beta.6 → 0.4.0-beta.7**, `@plumbus/ui` **0.10.0-beta.6 → 0.10.0-beta.7**. Peer ranges unchanged. Consumer agents: [`instructions/upgrading-uploads-indexes-and-migrations.md`](../packages/plumbus-core/instructions/upgrading-uploads-indexes-and-migrations.md).
+
+**Breaking (beta): the audit outbox of v0.9.0-beta.17 is removed.** `createAuditOutbox`, `runWithAuditOutbox`, `relayAuditOutbox`, `auditOutboxTable`, `auditOutboxDdl`, `AUDIT_OUTBOX_TABLE`, `workers.auditOutboxRelayIntervalMs` / `PLUMBUS_AUDIT_OUTBOX_RELAY_INTERVAL_MS` and the `audit_outbox` framework table are gone. An app that used it:
+
+1. Builds its own with `withAuditWriter(ctx.audit, writer)`: the writer inserts each success record (it carries its `id`) into a table of the app's own in the transaction, and after the commit the app hands the records to `createDatabaseAuditWriter(ledgerDb).writeMany(events)` (an id it already holds is ignored) and deletes them; a scheduled flow relays leftovers. See [tenant data planes › audit records of work in a transaction the app opens](./sdk-reference/tenant-data-planes.md#audit-records-of-work-in-a-transaction-the-app-opens-withauditwriter).
+2. Drains the old table first: keep the old relay running (or copy the rows to the new table) until `SELECT count(*) FROM audit_outbox` is 0 on every database.
+3. Runs `plumbus migrate generate`: in a stream that created `audit_outbox` it emits `DROP TABLE "audit_outbox" CASCADE`. Apply it after step 2. A stream that never generated it gets no change.
+
+An app that never called these is not affected; its next `generate` of a stream generated with beta.16 drops the empty table.
+
+**Fixed without a change on your side:** `plumbus start` / `plumbus dev` hand `export const onAuditWriteFailure` to the API server too (it reached only the worker); `plumbus generate`'s OpenAPI describes streamed answers as `application/octet-stream`; a generated migration file always sorts after every journal entry and creates the schemas it uses (`CREATE SCHEMA IF NOT EXISTS`; a new app's first stream failed on an empty database); split UI client modules import only the helpers they call.
+
+### Uploads
+
+`streamedUploadInput({ maxBytes, contentTypes? })` as one input field: the body arrives as bytes, read while sent, after access and `authorize`; other fields from `x-plumbus-input` (base64url JSON) or the query string; 413 past `maxBytes`, 415 for another type. Adopt:
+
+```ts
+input: z.object({ invoiceId: z.string(), file: streamedUploadInput({ maxBytes: 50 * 1024 * 1024 }) }),
+handler: async (ctx, input) => { for await (const chunk of input.file) await sink.write(chunk); return { ok: true }; },
+```
+
+Client: `await attachInvoiceScan({ invoiceId }, { body: file })`. Remove base64 fields and raise nothing else: the route's body limit does not apply to an upload, `maxBytes` does. Details: [capabilities › taking a file](./core-concepts/capabilities.md#taking-a-file-streamed-uploads).
+
+### Entity indexes beyond fields
+
+Framework columns (`createdAt`, `updatedAt`, `id`, `tenantId`), `columnOptions` (order, nulls, operator class), `expressions` (with `name`), `where` (partial), `using` gin/gist/hash/brin:
+
+```ts
+{ columns: ['tenantId', 'createdAt'], columnOptions: { createdAt: { order: 'desc' } } },
+{ columns: [], expressions: ['lower(display_name)'], name: 'customer_display_name_lower_idx' },
+{ columns: ['state'], where: "state = 'pending'", name: 'invoice_pending_idx' },
+{ columns: ['displayName'], columnOptions: { displayName: { opclass: 'gin_trgm_ops' } }, using: 'gin', name: 'customer_display_name_trgm_idx' },
+```
+
+Then `plumbus migrate generate`. Details: [data layer › entity indexes beyond plain fields](./sdk-reference/data-layer.md#entity-indexes-beyond-plain-fields-core-090-beta17).
+
+### Hand-written migrations
+
+`plumbus migrate new <name> [--no-transaction]` for an extension, a trigger, an index on a framework table or table storage settings: write the SQL, `plumbus migrate apply`. Details: [data layer › hand-written migrations](./sdk-reference/data-layer.md#hand-written-migrations-plumbus-migrate-new-core-090-beta17).
+
+### Root exports
+
+`AuditWriteFailure`, `AuditSuccessHold`, `recordAfterEffects`, `holdAuditSuccess`, `AUDIT_RETRY_DELAYS_MS`, `withAuditWriter` and the upload names.
+
 ## v0.9.0-beta.17 (2026-11-23): streamed answers, audit outbox for tenant-plane work, per-row bulk insert audit, `notIn`, audit failure hook, dead letters on tenant planes
 
 Prepared for repository release `v0.9.0-beta.17` under npm dist-tag `plumbus-next`. Three packages change: `@plumbus/core` **0.9.0-beta.15 → 0.9.0-beta.16**, `@plumbus/api` **0.4.0-beta.5 → 0.4.0-beta.6**, `@plumbus/ui` **0.10.0-beta.5 → 0.10.0-beta.6**. Every other package stays. Peer ranges unchanged: the `@plumbus/api` and `@plumbus/ui` changes detect a streamed answer structurally and do nothing with a core that has none. Consumer agents: [`instructions/upgrading-streams-and-audit-outbox.md`](../packages/plumbus-core/instructions/upgrading-streams-and-audit-outbox.md).
@@ -31,7 +77,7 @@ handler: async (ctx, input) => {
 
 Remove `api.idempotency.required` and MCP exposure from such a capability (both are refused). The generated client (`plumbus ui generate`) returns the `Response` for it: `const blob = await (await downloadArchive(input)).blob()`. Details: [capabilities › answering with bytes](./core-concepts/capabilities.md#answering-with-bytes-streamed-answers).
 
-### Audit outbox for work on a tenant plane
+### Audit outbox for work on a tenant plane (removed in v0.9.0-beta.18)
 
 For a host whose requests audit on the spine while its handlers write on a tenant plane in their own transaction: `runWithAuditOutbox(ctx.audit, handle.db, (tx, audit) => …)` (or `createAuditOutbox(ctx.audit)` → `bind(tx)` inside, `flush(handle.db)` after the commit) keeps each success record in `audit_outbox` in that transaction and delivers it to the spine after the commit. No spine connection is held during the tenant transaction, a rolled-back write leaves no record, and a record the spine does not take survives a crash and is delivered by the worker relay. Turn the relay on with `PLUMBUS_AUDIT_OUTBOX_RELAY_INTERVAL_MS=60000` (or `workers.auditOutboxRelayIntervalMs`). Details: [tenant data planes › audit records of tenant-plane work](./sdk-reference/tenant-data-planes.md#audit-records-of-tenant-plane-work-audit-outbox).
 

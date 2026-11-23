@@ -178,6 +178,42 @@ export const downloadInvoicePdf = defineCapability({
   read `response.body`). Partner routes (`@plumbus/api`) send the same bytes, and the OpenAPI
   document describes them as `application/octet-stream`.
 
+## Taking a file (streamed uploads)
+
+(core 0.9.0-beta.17+; generated client: `@plumbus/ui` 0.10.0-beta.7+; partner routes and OpenAPI: `@plumbus/api` 0.4.0-beta.7+.) A capability that takes a file declares one input field `streamedUploadInput({ maxBytes, contentTypes? })`. Its route takes the HTTP body as raw bytes — never JSON, never base64 — and the handler reads the field as an async iterable of chunks while the client sends them:
+
+```ts
+import { defineCapability, streamedUploadInput } from '@plumbus/core';
+import { z } from '@plumbus/core/zod';
+
+export const attachInvoiceScan = defineCapability({
+  name: 'attachInvoiceScan',
+  kind: 'action',
+  domain: 'billing',
+  input: z.object({
+    invoiceId: z.string().uuid(),
+    file: streamedUploadInput({ maxBytes: 50 * 1024 * 1024, contentTypes: ['application/pdf', 'image/png'] }),
+  }),
+  output: z.object({ bytes: z.number() }),
+  access: { roles: ['accountant'], tenantScoped: true },
+  effects: { data: ['Invoice'], events: [], external: ['object-storage'], ai: false },
+  handler: async (ctx, input) => {
+    let bytes = 0;
+    const upload = storage.openWrite(`scans/${input.invoiceId}`);   // your object store
+    for await (const chunk of input.file) { bytes += chunk.byteLength; await upload.write(chunk); }
+    await upload.close();
+    return { bytes };
+  },
+});
+```
+
+- The other input fields come from the `x-plumbus-input` header (base64url of their JSON) or from the query string. Use the header for anything secret: a query string is written to access logs. The generated client always uses the header.
+- Nothing is read before authentication, the access policy and `authorize` passed. When the handler starts reading, a `Content-Length` above `maxBytes` answers **413** at once, a body that grows past it stops at the limit (413), a content type outside `contentTypes` answers **415**. `input.file.contentType` and `input.file.contentLength` (when the client sent one) are on the field; `await input.file.bytes()` reads a small upload whole (the limit still applies). Read it once.
+- A body the handler does not read to the end is not drained: the connection is closed after the answer.
+- Not allowed (refused by `defineCapability`): more than one upload field, `GET`/`DELETE`, a job or event handler, MCP exposure, `api.idempotency.required`.
+- The generated client takes the file beside the input: `await attachInvoiceScan({ invoiceId }, { body: file })` (a `File`, `Blob`, `ArrayBuffer` or `Uint8Array`; its type is sent as `Content-Type` unless `contentType` is given). Partner routes (`@plumbus/api`) take uploads the same way, and both OpenAPI documents describe the body as binary with the fields as optional query parameters and the header.
+- Tests and in-process callers build a field value with `streamedUpload(source, { contentType, contentLength? })`.
+
 ## Access Policies
 
 Every capability **must** declare an access policy. The framework evaluates it before handler execution:

@@ -274,12 +274,25 @@ export function registerApiRoutes(
     return { cap, resolved, fullPath: joinApiPath(manifest.basePath, resolved.path) };
   });
 
-  // A streamed answer cannot be stored and replayed, so an idempotent route cannot serve one.
+  // A streamed answer or an uploaded body cannot be stored and replayed, so an idempotent route
+  // cannot serve one; an upload needs a method with a body.
   for (const { cap, resolved } of routes) {
     if (resolved.idempotency?.required === true && isStreamedOutput(cap)) {
       throw new ApiManifestError(
         `Operation "${resolved.operationId}" answers with a streamed body and cannot require idempotency`,
       );
+    }
+    if (uploadFieldName(cap) !== undefined) {
+      if (resolved.idempotency?.required === true) {
+        throw new ApiManifestError(
+          `Operation "${resolved.operationId}" takes an upload and cannot require idempotency`,
+        );
+      }
+      if (resolved.method === 'GET' || resolved.method === 'DELETE') {
+        throw new ApiManifestError(
+          `Operation "${resolved.operationId}" takes an upload and needs POST, PUT or PATCH`,
+        );
+      }
     }
   }
 
@@ -307,6 +320,7 @@ export function registerApiRoutes(
   }
 
   for (const { cap, resolved, fullPath } of routes) {
+    const upload = uploadRouteOf(cap);
     const handler = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
       // `requestIds.expose` on the route config (core `createServer({ requestIds })`): the envelope,
       // the `x-request-id` header and the audit row share one id. Off: a fresh envelope id, as before.
@@ -342,8 +356,33 @@ export function registerApiRoutes(
         const ctx = createExecutionContext(deps);
 
         const pathParams = (request.params ?? {}) as Record<string, unknown>;
-        const bodyOrQuery =
-          resolved.method === 'GET' ? coerceQueryParams(request.query, cap.input) : request.body;
+        // An upload (`streamedUploadInput`): the body is the bytes; the other fields come from
+        // the `x-plumbus-input` header or the query string.
+        let uploadBody: { readonly consumed: boolean } | undefined;
+        let uploadFields: Record<string, unknown> | undefined;
+        if (upload) {
+          try {
+            uploadFields = upload.fields(headers, () =>
+              coerceQueryParams(request.query, cap.input),
+            );
+          } catch (err) {
+            const plumbusErr = toPlumbusErrorLike(err);
+            const mapped = plumbusErr
+              ? mapCoreError(plumbusErr, requestId, apiVersion)
+              : mapUnknownError(requestId, apiVersion);
+            return reply.status(mapped.status).send(mapped.body);
+          }
+          uploadBody = upload.body(request);
+          const body = uploadBody;
+          reply.raw.once?.('finish', () => {
+            if (!body.consumed) request.raw.destroy();
+          });
+        }
+        const bodyOrQuery = uploadFields
+          ? uploadFields
+          : resolved.method === 'GET'
+            ? coerceQueryParams(request.query, cap.input)
+            : request.body;
 
         const tenantViolations = collectExplicitTenantViolations(manifest, pathParams, bodyOrQuery);
         if (tenantViolations.length > 0) {
@@ -381,6 +420,9 @@ export function registerApiRoutes(
           throw err;
         }
 
+        if (upload && uploadBody && rawInput && typeof rawInput === 'object') {
+          rawInput = { ...(rawInput as Record<string, unknown>), [upload.field]: uploadBody };
+        }
         const parsed = safeParseBounded(cap.input, rawInput);
         if (!parsed.success) {
           const validationErr = ctx.errors.validation('Invalid input', {
@@ -625,7 +667,16 @@ export function registerApiRoutes(
       }
     };
 
-    registerMethod(app, resolved.method, fullPath, handler);
+    if (upload) {
+      // The body reaches the capability unparsed, as for the core route.
+      app.register(async (scope) => {
+        scope.removeAllContentTypeParsers();
+        scope.addContentTypeParser('*', (_request, payload, done) => done(null, payload));
+        registerMethod(scope, resolved.method, fullPath, handler);
+      });
+    } else {
+      registerMethod(app, resolved.method, fullPath, handler);
+    }
   }
 }
 
@@ -667,6 +718,69 @@ function sendIfStreamed(
   if (!core.isStreamedBody(data)) return false;
   core.sendStreamedBody(reply, data, onError);
   return true;
+}
+
+type UploadHelpers = {
+  streamedUploadFieldOf?: (
+    schema: unknown,
+  ) => { field: string; options: { maxBytes: number; contentTypes?: string[] } } | undefined;
+  streamedUpload?: (
+    source: AsyncIterable<Uint8Array>,
+    options: {
+      contentType?: string;
+      contentLength?: number;
+      maxBytes?: number;
+      contentTypes?: string[];
+    },
+  ) => { readonly consumed: boolean };
+  uploadRequestFields?: (
+    header: string | string[] | undefined,
+    fromQuery: () => Record<string, unknown>,
+  ) => Record<string, unknown>;
+  UPLOAD_INPUT_HEADER?: string;
+};
+
+/** The upload field of a capability, when the core in use has uploads. */
+function uploadFieldName(cap: CapabilityContract): string | undefined {
+  return (plumbusCore as UploadHelpers).streamedUploadFieldOf?.(cap.input)?.field;
+}
+
+/**
+ * How a partner route reads an upload: the field, the other fields (header or query) and the
+ * body. Looked up on the core namespace: an upload capability exists only with a core that has
+ * these, and an older core in this package's peer range has none.
+ */
+function uploadRouteOf(cap: CapabilityContract):
+  | {
+      field: string;
+      fields(
+        headers: Record<string, string | string[] | undefined>,
+        fromQuery: () => Record<string, unknown>,
+      ): Record<string, unknown>;
+      body(request: FastifyRequest): { readonly consumed: boolean };
+    }
+  | undefined {
+  const core = plumbusCore as UploadHelpers;
+  const found = core.streamedUploadFieldOf?.(cap.input);
+  if (!found || !core.streamedUpload || !core.uploadRequestFields) return undefined;
+  const makeUpload = core.streamedUpload;
+  const readFields = core.uploadRequestFields;
+  const headerName = core.UPLOAD_INPUT_HEADER ?? 'x-plumbus-input';
+  return {
+    field: found.field,
+    fields: (headers, fromQuery) => readFields(headers[headerName], fromQuery),
+    body(request) {
+      const length = request.headers['content-length'];
+      return makeUpload(request.body as AsyncIterable<Uint8Array>, {
+        contentType: request.headers['content-type'],
+        ...(typeof length === 'string' && /^\d+$/.test(length)
+          ? { contentLength: Number(length) }
+          : {}),
+        maxBytes: found.options.maxBytes,
+        ...(found.options.contentTypes ? { contentTypes: found.options.contentTypes } : {}),
+      });
+    },
+  };
 }
 
 function partnerRequestIdOf(request: FastifyRequest): string {

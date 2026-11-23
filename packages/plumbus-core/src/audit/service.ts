@@ -63,6 +63,50 @@ interface FrameworkAuditState extends DatabaseAuditBinding {
 const databaseAuditServices = new WeakMap<AuditService, DatabaseAuditBinding>();
 /** Every service `createAuditService` built, custom writer or not. */
 const frameworkAuditServices = new WeakMap<AuditService, FrameworkAuditState>();
+/**
+ * Services the framework derived from another one (bound to a transaction, held until a lazy
+ * transaction opens): derived → the service it records for. `withAuditWriter` follows it.
+ */
+const derivedAuditServices = new WeakMap<AuditService, AuditService>();
+
+/** @internal Note that `derived` records on behalf of `origin` (same actor and component). */
+export function registerDerivedAuditService(derived: AuditService, origin: AuditService): void {
+  if (derived !== origin) derivedAuditServices.set(derived, origin);
+}
+
+/**
+ * The same audit service — actor, tenant, component, failure reporting — writing through
+ * `writer` instead: for work whose records belong somewhere else than the service's own table,
+ * e.g. an app's own table inside a transaction it opens on another database, relayed later.
+ * Records keep their own ids (`AuditEvent.id`), so a writer that hands them on can do so
+ * idempotently (`createDatabaseAuditWriter` ignores an id it already holds).
+ *
+ * Works for any service the framework built (`createAuditService`, `ctx.audit`, the audit
+ * service inside a framework transaction). Returns `undefined` for another implementation.
+ * `component` overrides the component name.
+ */
+export function withAuditWriter(
+  service: AuditService,
+  writer: AuditWriter,
+  options: { component?: string } = {},
+): AuditService | undefined {
+  let origin = service;
+  for (let hops = 0; hops < 16; hops += 1) {
+    const next = derivedAuditServices.get(origin);
+    if (!next) break;
+    origin = next;
+  }
+  const state = frameworkAuditServices.get(origin);
+  if (!state) return undefined;
+  return createAuditService({
+    db: undefined as unknown as PostgresJsDatabase,
+    auth: state.auth,
+    component: options.component ?? state.component,
+    writer,
+    retryDelaysMs: state.retryDelaysMs,
+    onWriteFailure: state.onWriteFailure,
+  });
+}
 
 function defaultWriteFailureReport(failure: AuditWriteFailure): void {
   console.error(
@@ -374,38 +418,6 @@ export function holdAuditSuccess(service: AuditService): AuditSuccessHold | unde
 }
 
 /**
- * @internal What the audit outbox needs from a default (database-backed, no custom writer)
- * service: how it builds its records, the writer it writes them with, and how it reports a
- * record it could not write. `undefined` for any other service.
- */
-export function defaultAuditServiceInternals(service: AuditService):
-  | {
-      buildEvent(eventType: string, metadata?: Record<string, unknown>): AuditEvent;
-      writer: AuditWriter;
-      /** Write `events` now (three quick attempts); throws when the store refuses or is down. */
-      write(events: AuditEvent[]): Promise<void>;
-      reportFailure(failure: AuditWriteFailure): void;
-    }
-  | undefined {
-  if (!databaseAuditServices.has(service)) return undefined;
-  const state = frameworkAuditServices.get(service);
-  if (!state) return undefined;
-  return {
-    buildEvent: (eventType, metadata) =>
-      buildAuditEvent(state.auth, state.component, eventType, metadata),
-    writer: state.writer,
-    write: (events) => writeAuditEvents(state.writer, events),
-    reportFailure: (failure) => {
-      try {
-        state.onWriteFailure(failure);
-      } catch {
-        // A failing reporter must not reach the caller.
-      }
-    },
-  };
-}
-
-/**
  * An audit service bound to one open transaction, and the hooks the transaction runner
  * calls once that transaction has ended.
  */
@@ -497,34 +509,36 @@ export function bindAuditServiceToTransaction(
     }
   }
 
-  return {
-    audit: {
-      async recordMany(entries: AuditBatchEntry[]): Promise<void> {
-        await recordEvents(
-          entries.map((entry) => buildAuditEvent(auth, component, entry.eventType, entry.metadata)),
-        );
-      },
-      async record(eventType: string, metadata?: Record<string, unknown>): Promise<void> {
-        const event = buildAuditEvent(auth, component, eventType, metadata);
-        if (!open) {
-          await writeAuditEvent(outerWriter, event);
-          return;
-        }
-        if (event.outcome === 'success') {
-          // A failed statement aborts the transaction, so a retry inside it cannot succeed.
-          await writeAuditEvent(txWriter, event, 1);
-          return;
-        }
-        try {
-          await txWriter.write(event);
-          kept.push(event);
-        } catch (error) {
-          if (isPlumbusError(error)) throw error;
-          // Written after the transaction ends, whichever way it ends.
-          pending.push(event);
-        }
-      },
+  const boundService: AuditService = {
+    async recordMany(entries: AuditBatchEntry[]): Promise<void> {
+      await recordEvents(
+        entries.map((entry) => buildAuditEvent(auth, component, entry.eventType, entry.metadata)),
+      );
     },
+    async record(eventType: string, metadata?: Record<string, unknown>): Promise<void> {
+      const event = buildAuditEvent(auth, component, eventType, metadata);
+      if (!open) {
+        await writeAuditEvent(outerWriter, event);
+        return;
+      }
+      if (event.outcome === 'success') {
+        // A failed statement aborts the transaction, so a retry inside it cannot succeed.
+        await writeAuditEvent(txWriter, event, 1);
+        return;
+      }
+      try {
+        await txWriter.write(event);
+        kept.push(event);
+      } catch (error) {
+        if (isPlumbusError(error)) throw error;
+        // Written after the transaction ends, whichever way it ends.
+        pending.push(event);
+      }
+    },
+  };
+  registerDerivedAuditService(boundService, outer);
+  return {
+    audit: boundService,
     async committed(): Promise<void> {
       open = false;
       kept.length = 0;
