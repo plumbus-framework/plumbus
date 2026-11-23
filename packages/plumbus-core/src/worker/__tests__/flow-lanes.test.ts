@@ -104,9 +104,9 @@ function flow(name: string, domain: string) {
 function registry(): FlowRegistry {
   const flows = new FlowRegistry();
   for (const definition of [
-    flow('runCourseJudge', 'course-builder'),
-    flow('prepareSources', 'course-builder'),
-    flow('evaluateSubmission', 'packages'),
+    flow('runReportBuild', 'report-builder'),
+    flow('prepareSources', 'report-builder'),
+    flow('evaluateInvoice', 'packages'),
     flow('sweepFailedFlows', 'platform'),
     flow('deliverPackageEvents', 'platform'),
   ]) {
@@ -234,7 +234,7 @@ describe('resolveFlowLanes', () => {
       { maxPerFlow: 1.5 },
       { reservedUntenanted: -1 },
       { tenantOrder: 'random' },
-      { lanes: { heavy: { max: 0, flows: ['runCourseJudge'] } } },
+      { lanes: { heavy: { max: 0, flows: ['runReportBuild'] } } },
       { surprise: true },
     ]) {
       expect(() => resolveFlowLanes(bad as FlowLanesConfig, 3, catalog)).toThrow(
@@ -249,14 +249,14 @@ describe('resolveFlowLanes', () => {
   it('expands domains to their flows and warns about names the worker does not have', () => {
     const warn = vi.fn();
     const lanes = resolveFlowLanes(
-      { lanes: { authoring: { max: 1, domains: ['course-builder', 'nowhere'], flows: ['typo'] } } },
+      { lanes: { authoring: { max: 1, domains: ['report-builder', 'nowhere'], flows: ['typo'] } } },
       3,
       catalog,
       warn,
     );
     expect([...(lanes?.lanes[0]?.flows ?? [])].sort()).toEqual([
       'prepareSources',
-      'runCourseJudge',
+      'runReportBuild',
       'typo',
     ]);
     expect(warn).toHaveBeenCalledWith('Flow lane names a flow this worker does not have', {
@@ -279,9 +279,9 @@ describe('flow lane tracker', () => {
 
   it('claims only untenanted work once tenant executions fill the slots not held back', () => {
     const lanes = tracker({ reservedUntenanted: 1, tenantOrder: 'fifo' });
-    lanes.admit({ executionId: '1', tenant: 'a', flow: 'evaluateSubmission' });
+    lanes.admit({ executionId: '1', tenant: 'a', flow: 'evaluateInvoice' });
     expect(lanes.claimPlan()).toEqual([{}]);
-    lanes.admit({ executionId: '2', tenant: 'b', flow: 'evaluateSubmission' });
+    lanes.admit({ executionId: '2', tenant: 'b', flow: 'evaluateInvoice' });
     expect(lanes.claimPlan()).toEqual([{ tenancy: 'untenanted' }]);
   });
 
@@ -290,17 +290,17 @@ describe('flow lane tracker', () => {
       {
         maxPerTenant: 1,
         maxPerFlow: 2,
-        lanes: { authoring: { max: 1, domains: ['course-builder'] } },
+        lanes: { authoring: { max: 1, domains: ['report-builder'] } },
         tenantOrder: 'fifo',
       },
       6,
     );
-    lanes.admit({ executionId: '1', tenant: 'a', flow: 'runCourseJudge' });
-    lanes.admit({ executionId: '2', tenant: 'b', flow: 'evaluateSubmission' });
-    lanes.admit({ executionId: '3', tenant: 'c', flow: 'evaluateSubmission' });
+    lanes.admit({ executionId: '1', tenant: 'a', flow: 'runReportBuild' });
+    lanes.admit({ executionId: '2', tenant: 'b', flow: 'evaluateInvoice' });
+    lanes.admit({ executionId: '3', tenant: 'c', flow: 'evaluateInvoice' });
     expect(lanes.claimPlan()).toEqual([
       {
-        excludeFlows: ['evaluateSubmission', 'prepareSources', 'runCourseJudge'],
+        excludeFlows: ['evaluateInvoice', 'prepareSources', 'runReportBuild'],
         excludeTenants: ['a', 'b', 'c'],
       },
     ]);
@@ -309,9 +309,9 @@ describe('flow lane tracker', () => {
   it('plans fair claims: tenants with fewer running first, untenanted first among equals', () => {
     const lanes = tracker({ maxPerTenant: 3 }, 8);
     expect(lanes.claimPlan()).toEqual([{ untenantedFirst: true }]);
-    lanes.admit({ executionId: '1', tenant: 'a', flow: 'evaluateSubmission' });
-    lanes.admit({ executionId: '2', tenant: 'a', flow: 'evaluateSubmission' });
-    lanes.admit({ executionId: '3', tenant: 'b', flow: 'evaluateSubmission' });
+    lanes.admit({ executionId: '1', tenant: 'a', flow: 'evaluateInvoice' });
+    lanes.admit({ executionId: '2', tenant: 'a', flow: 'evaluateInvoice' });
+    lanes.admit({ executionId: '3', tenant: 'b', flow: 'evaluateInvoice' });
     lanes.admit({ executionId: '4', flow: 'sweepFailedFlows' });
     expect(lanes.claimPlan()).toEqual([
       { excludeTenants: ['a', 'b'], untenantedFirst: true, tenancy: 'tenanted' },
@@ -323,7 +323,7 @@ describe('flow lane tracker', () => {
   it('reports a limit when it is reached, again only after it had room, and in the snapshot', () => {
     const onFull = vi.fn();
     const lanes = tracker({ maxPerTenant: 1 }, 3, onFull);
-    const first = lanes.admit({ executionId: '1', tenant: 'a', flow: 'evaluateSubmission' });
+    const first = lanes.admit({ executionId: '1', tenant: 'a', flow: 'evaluateInvoice' });
     expect(onFull).toHaveBeenCalledTimes(1);
     expect(onFull).toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'tenant', key: 'a', running: 1, max: 1 }),
@@ -332,18 +332,18 @@ describe('flow lane tracker', () => {
       running: { total: 1, tenanted: 1, untenanted: 0, byTenant: { a: 1 } },
       full: [{ kind: 'tenant', key: 'a', running: 1, max: 1 }],
     });
-    lanes.admit({ executionId: '2', tenant: 'b', flow: 'evaluateSubmission' });
+    lanes.admit({ executionId: '2', tenant: 'b', flow: 'evaluateInvoice' });
     expect(onFull).toHaveBeenCalledTimes(2);
     lanes.release(first);
     expect(lanes.snapshot().full.map((full) => full.key)).toEqual(['b']);
-    lanes.admit({ executionId: '3', tenant: 'a', flow: 'evaluateSubmission' });
+    lanes.admit({ executionId: '3', tenant: 'a', flow: 'evaluateInvoice' });
     expect(onFull).toHaveBeenCalledTimes(3);
   });
 
   it('marks an execution that breaks a limit it was claimed past', () => {
     const lanes = tracker({ maxPerTenant: 1 });
-    lanes.admit({ executionId: '1', tenant: 'a', flow: 'evaluateSubmission' });
-    expect(lanes.admit({ executionId: '2', tenant: 'a', flow: 'evaluateSubmission' })).toEqual(
+    lanes.admit({ executionId: '1', tenant: 'a', flow: 'evaluateInvoice' });
+    expect(lanes.admit({ executionId: '2', tenant: 'a', flow: 'evaluateInvoice' })).toEqual(
       expect.objectContaining({ exceeded: { kind: 'tenant', key: 'a' } }),
     );
   });
@@ -352,19 +352,19 @@ describe('flow lane tracker', () => {
 describe('worker pool flow lanes', () => {
   it('without lanes, one tenant fills every slot and untenanted flows wait (the old claim)', async () => {
     enqueue(
-      'college-a/runCourseJudge#1',
+      'college-a/runReportBuild#1',
       'college-a/prepareSources#2',
-      'college-a/runCourseJudge#3',
+      'college-a/runReportBuild#3',
       '-/sweepFailedFlows#4',
-      'college-b/evaluateSubmission#5',
+      'college-b/evaluateInvoice#5',
     );
     const pool = await started({ flowConcurrency: 3 });
     await vi.waitFor(() => expect(engine.state.running.size).toBe(3));
     await settle();
     expect(running()).toEqual([
       'college-a/prepareSources#2',
-      'college-a/runCourseJudge#1',
-      'college-a/runCourseJudge#3',
+      'college-a/runReportBuild#1',
+      'college-a/runReportBuild#3',
     ]);
     expect(pool.flowLanes).toBeUndefined();
     // No filter is passed: the engine claims exactly as before.
@@ -373,11 +373,11 @@ describe('worker pool flow lanes', () => {
 
   it('holds a slot for untenanted flows and caps one tenant, so spine sweeps and other tenants run', async () => {
     enqueue(
-      'college-a/runCourseJudge#1',
+      'college-a/runReportBuild#1',
       'college-a/prepareSources#2',
-      'college-a/runCourseJudge#3',
+      'college-a/runReportBuild#3',
       '-/sweepFailedFlows#4',
-      'college-b/evaluateSubmission#5',
+      'college-b/evaluateInvoice#5',
     );
     const pool = await started({
       flowConcurrency: 3,
@@ -387,8 +387,8 @@ describe('worker pool flow lanes', () => {
     await settle();
     expect(running()).toEqual([
       '-/sweepFailedFlows#4',
-      'college-a/runCourseJudge#1',
-      'college-b/evaluateSubmission#5',
+      'college-a/runReportBuild#1',
+      'college-b/evaluateInvoice#5',
     ]);
     expect(pool.flowLanes?.running).toMatchObject({ total: 3, tenanted: 2, untenanted: 1 });
 
@@ -397,58 +397,58 @@ describe('worker pool flow lanes', () => {
     await settle();
     expect(running()).not.toContain('college-a/prepareSources#2');
     // college-b ends: a tenant slot is free and college-a has none other running there.
-    finish('college-b/evaluateSubmission#5');
+    finish('college-b/evaluateInvoice#5');
     await settle();
-    expect(running()).toEqual(['college-a/runCourseJudge#1']);
-    finish('college-a/runCourseJudge#1');
+    expect(running()).toEqual(['college-a/runReportBuild#1']);
+    finish('college-a/runReportBuild#1');
     await vi.waitFor(() => expect(running()).toEqual(['college-a/prepareSources#2']));
   });
 
   it('a named lane keeps heavy authoring flows to their share of the slots', async () => {
     enqueue(
-      'college-a/runCourseJudge#1',
+      'college-a/runReportBuild#1',
       'college-b/prepareSources#2',
-      'college-c/runCourseJudge#3',
-      'college-a/evaluateSubmission#4',
-      'college-b/evaluateSubmission#5',
+      'college-c/runReportBuild#3',
+      'college-a/evaluateInvoice#4',
+      'college-b/evaluateInvoice#5',
     );
     await started({
       flowConcurrency: 3,
       config: makeConfig({
-        flowLanes: { lanes: { authoring: { max: 1, domains: ['course-builder'] } } },
+        flowLanes: { lanes: { authoring: { max: 1, domains: ['report-builder'] } } },
       }),
     });
     await vi.waitFor(() => expect(engine.state.running.size).toBe(3));
     await settle();
     expect(running()).toEqual([
-      'college-a/evaluateSubmission#4',
-      'college-a/runCourseJudge#1',
-      'college-b/evaluateSubmission#5',
+      'college-a/evaluateInvoice#4',
+      'college-a/runReportBuild#1',
+      'college-b/evaluateInvoice#5',
     ]);
     // The lane has room again. College c has nothing running and college b has one, so the
     // fair order takes c's judge run, and the lane keeps b's preparation waiting.
-    finish('college-a/runCourseJudge#1');
-    await vi.waitFor(() => expect(running()).toContain('college-c/runCourseJudge#3'));
+    finish('college-a/runReportBuild#1');
+    await vi.waitFor(() => expect(running()).toContain('college-c/runReportBuild#3'));
     await settle();
     expect(running()).not.toContain('college-b/prepareSources#2');
   });
 
   it('serves the tenant with the fewest running first (fair), or the oldest (fifo)', async () => {
     const backlog = [
-      'college-a/evaluateSubmission#1',
-      'college-a/evaluateSubmission#2',
-      'college-a/evaluateSubmission#3',
-      'college-b/evaluateSubmission#4',
-      'college-c/evaluateSubmission#5',
+      'college-a/evaluateInvoice#1',
+      'college-a/evaluateInvoice#2',
+      'college-a/evaluateInvoice#3',
+      'college-b/evaluateInvoice#4',
+      'college-c/evaluateInvoice#5',
     ];
     enqueue(...backlog);
     await started({ flowConcurrency: 3, flowLanes: { maxPerTenant: 2 } });
     await vi.waitFor(() => expect(engine.state.running.size).toBe(3));
     await settle();
     expect(running()).toEqual([
-      'college-a/evaluateSubmission#1',
-      'college-b/evaluateSubmission#4',
-      'college-c/evaluateSubmission#5',
+      'college-a/evaluateInvoice#1',
+      'college-b/evaluateInvoice#4',
+      'college-c/evaluateInvoice#5',
     ]);
     for (const pool of pools.splice(0)) {
       for (const gates of engine.state.gates.values()) for (const open of gates.splice(0)) open();
@@ -462,14 +462,14 @@ describe('worker pool flow lanes', () => {
     await vi.waitFor(() => expect(engine.state.running.size).toBe(3));
     await settle();
     expect(running()).toEqual([
-      'college-a/evaluateSubmission#fifo-1',
-      'college-a/evaluateSubmission#fifo-2',
-      'college-b/evaluateSubmission#fifo-4',
+      'college-a/evaluateInvoice#fifo-1',
+      'college-a/evaluateInvoice#fifo-2',
+      'college-b/evaluateInvoice#fifo-4',
     ]);
   });
 
   it('hands back an execution claimed past its lane and does not claim it again in a loop', async () => {
-    enqueue('college-a/evaluateSubmission#1', 'college-a/evaluateSubmission#2');
+    enqueue('college-a/evaluateInvoice#1', 'college-a/evaluateInvoice#2');
     const logger = makeLogger();
     await started({
       flowConcurrency: 2,
@@ -477,19 +477,19 @@ describe('worker pool flow lanes', () => {
       logger,
       flowPollIntervalMs: 15,
     });
-    await vi.waitFor(() => expect(running()).toEqual(['college-a/evaluateSubmission#1']));
+    await vi.waitFor(() => expect(running()).toEqual(['college-a/evaluateInvoice#1']));
     // The next claim returns an execution its filter excluded: a spine hint whose tenant route
     // differs from its row's tenant.
     engine.state.ignoreFilterOnce = true;
     await vi.waitFor(() =>
       expect(engine.mock.releaseClaim).toHaveBeenCalledWith(
-        'college-a/evaluateSubmission#2',
-        'token-college-a/evaluateSubmission#2',
+        'college-a/evaluateInvoice#2',
+        'token-college-a/evaluateInvoice#2',
       ),
     );
     expect(logger.warn).toHaveBeenCalledWith(
       'Claimed a flow execution a flow lane holds back; released it',
-      expect.objectContaining({ executionId: 'college-a/evaluateSubmission#2', lane: 'tenant' }),
+      expect.objectContaining({ executionId: 'college-a/evaluateInvoice#2', lane: 'tenant' }),
     );
     // Many poll ticks later it has not been claimed again: every claim leaves it out.
     const claimsBefore = engine.mock.claimNext.mock.calls.length;
@@ -497,26 +497,26 @@ describe('worker pool flow lanes', () => {
     const later = engine.mock.claimNext.mock.calls.slice(claimsBefore);
     expect(later.length).toBeGreaterThan(2);
     for (const [, filter] of later) {
-      expect(filter?.excludeExecutions).toEqual(['college-a/evaluateSubmission#2']);
+      expect(filter?.excludeExecutions).toEqual(['college-a/evaluateInvoice#2']);
     }
     expect(engine.mock.releaseClaim).toHaveBeenCalledTimes(1);
     expect(engine.mock.runNext).not.toHaveBeenCalledWith(
-      'college-a/evaluateSubmission#2',
+      'college-a/evaluateInvoice#2',
       expect.anything(),
       expect.anything(),
     );
     // Its tenant's running execution ends: it is claimed and runs.
-    finish('college-a/evaluateSubmission#1');
-    await vi.waitFor(() => expect(running()).toEqual(['college-a/evaluateSubmission#2']));
+    finish('college-a/evaluateInvoice#1');
+    await vi.waitFor(() => expect(running()).toEqual(['college-a/evaluateInvoice#2']));
   });
 
   it('logs a reached limit once and reports it in pool.flowLanes', async () => {
-    enqueue('college-a/evaluateSubmission#1', 'college-a/evaluateSubmission#2');
+    enqueue('college-a/evaluateInvoice#1', 'college-a/evaluateInvoice#2');
     const logger = makeLogger();
     const pool = await started({ flowConcurrency: 2, flowLanes: { maxPerTenant: 1 }, logger });
-    await vi.waitFor(() => expect(running()).toEqual(['college-a/evaluateSubmission#1']));
+    await vi.waitFor(() => expect(running()).toEqual(['college-a/evaluateInvoice#1']));
     await settle();
-    expect(running()).toEqual(['college-a/evaluateSubmission#1']);
+    expect(running()).toEqual(['college-a/evaluateInvoice#1']);
     expect(logger.info).toHaveBeenCalledWith(
       'Flow lane full: the executions it covers wait, runnable, until one of its running executions ends',
       { lane: 'tenant', key: 'college-a', running: 1, max: 1 },
