@@ -118,7 +118,30 @@ const total = await ctx.data.User.count({ active: true }, filters);
 - Need to walk a set that can grow (all seats of a course, all rows of a tenant)? Keyset paging with `findPage!(query, { limit, orderBy, after })`, which returns `{ rows, nextCursor }`; loop until `nextCursor` is `null`. See [data-layer](../../../docs/sdk-reference/data-layer.md#findpagequery-options--keyset-paging).
 - Really need every row, and the set is known to stay small? `{ unbounded: true }` — greppable on purpose.
 
-`in: { field: [] }` (an empty list) matches **no** rows. To make an `in` filter optional, leave the key out when there is nothing to filter by: `...(ids.length ? { in: { id: ids } } : {})`.
+`in: { field: [] }` (an empty list) matches **no** rows. To make an `in` filter optional, leave the key out when there is nothing to filter by: `...(ids.length ? { in: { id: ids } } : {})`. An `in` list of ids, text or numbers travels as one array parameter, so a list of any length works (no chunking needed for the 65,535-parameter limit).
+
+### Deleting or updating many rows (set-based writes)
+
+Never load rows only to delete or update them one by one. Use `deleteMany` / `updateMany`, which change at most `limit` matching rows in one statement and return `{ count, ids }`:
+
+```ts
+// Purge in bounded batches.
+for (;;) {
+  const { count } = await ctx.data.UsageCounter.deleteMany!(undefined, { dateFilters: { day: { lte: cutoff } }, limit: 500 });
+  if (count < 500) break;
+}
+// Update a set; exclude rows already changed if you loop.
+await ctx.data.Hold.updateMany!({ batchId }, { state: 'released' }, { notEq: { state: 'released' }, limit: 1000 });
+```
+
+- `limit` is required. Filters are those of `findMany` (`query`, `dateFilters`, `in`, `notEq`, `search`, `contains`); `orderBy` picks which rows a call takes.
+- Audit: by default one audit row per affected record, exactly what a loop of `delete(id)` / `update(id, …)` writes. Pass `audit: 'summary'` for one row per statement (count + masked filter, no ids) only where the per-record trail is not needed.
+- `updateMany` cannot set `id` or `tenantId`.
+- When you do not use the updated row, `update(id, values, { returning: false })` skips reading it back.
+
+### JSON containment
+
+`contains: { jsonField: value }` filters on a `field.json()` column with `@>` (`{ assetIds: [assetId] }`). Declare `indexes: [{ columns: ['assetIds'], using: 'gin' }]` on the entity so the filter uses a GIN index instead of reading every row.
 
 ### Reading only some fields (core 0.8.3+)
 

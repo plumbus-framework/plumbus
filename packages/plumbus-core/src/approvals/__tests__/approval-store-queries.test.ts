@@ -243,3 +243,27 @@ describe('approval_request_live_idx in app migrations', () => {
     expect(rewritten[0]).toContain(`WHERE state IN ('pending', 'approved')`);
   });
 });
+
+describe('getRequests (memory store)', () => {
+  it('returns the stored requests among the ids, once each, and nothing for an empty list', async () => {
+    const { createMemoryApprovalStore } = await import('../memory-store.js');
+    const store = createMemoryApprovalStore();
+    for (const id of ['a', 'b', 'c']) {
+      await store.putRequest({
+        approvalRequestId: id,
+        capabilityId: 'x.y',
+        definitionVersion: '1',
+        inputDigest: 'd',
+        riskClass: 'consequential',
+        reviewReason: 'risk-tier',
+        state: 'pending',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        expiresAt: '2026-01-02T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      } as never);
+    }
+    const rows = await store.getRequests?.(['c', 'a', 'zz', 'a']);
+    expect(rows?.map((row) => row.approvalRequestId).sort()).toEqual(['a', 'c']);
+    expect(await store.getRequests?.([])).toEqual([]);
+  });
+});

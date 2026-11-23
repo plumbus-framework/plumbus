@@ -82,15 +82,85 @@ export function createRequestAdmission(settings: z.input<typeof settingsSchema>)
   };
 }
 
-/** Serialize admission count/check/write on an app's already-bound database, across processes. */
+/** How {@link withRequestAdmissionLock} takes its lock. */
+export interface RequestAdmissionLockOptions {
+  /**
+   * `'exclusive'` (default): one holder of `key` at a time. `'shared'`: any number of shared
+   * holders run together, and they exclude, and are excluded by, exclusive holders of the same
+   * key — for work that only has to keep a rare exclusive operation (a cutover, a purge) out,
+   * not each other. Both modes derive the same lock id from `key`.
+   */
+  mode?: 'exclusive' | 'shared';
+  /**
+   * Wait at most this long for the lock (whole milliseconds, 1 or more), then refuse with
+   * `RequestAdmissionLockTimeoutError` (HTTP 503). Applies to taking this lock only; the
+   * transaction's own `lock_timeout` is restored once it is held. Default: the session's
+   * `lock_timeout` (normally no limit).
+   */
+  lockTimeoutMs?: number;
+}
+
+/** The admission lock was not granted within `lockTimeoutMs`. Nothing ran. */
+export class RequestAdmissionLockTimeoutError extends PlumbusError {
+  constructor(key: string, mode: 'exclusive' | 'shared', lockTimeoutMs: number) {
+    super(
+      'conflict',
+      `The ${mode} admission lock "${key}" was not granted within ${lockTimeoutMs} ms`,
+      { key, mode, lockTimeoutMs, reason: 'admission-lock-timeout', httpStatus: 503 },
+    );
+    this.name = 'RequestAdmissionLockTimeoutError';
+  }
+}
+
+/**
+ * Serialize admission count/check/write on an app's already-bound database, across processes:
+ * `work` runs in a transaction (a savepoint when `db` is one) holding the transaction-scoped
+ * advisory lock of `key`, exclusive by default or shared (`{ mode: 'shared' }`).
+ */
 export async function withRequestAdmissionLock<T>(
   db: PostgresJsDatabase,
   key: string,
   work: (transaction: PostgresJsDatabase) => Promise<T>,
+  options: RequestAdmissionLockOptions = {},
 ): Promise<T> {
+  const mode = options.mode ?? 'exclusive';
+  if (mode !== 'exclusive' && mode !== 'shared') {
+    throw new PlumbusError('validation', "Admission lock mode must be 'exclusive' or 'shared'");
+  }
+  const timeout = options.lockTimeoutMs;
+  if (timeout !== undefined && (!Number.isSafeInteger(timeout) || timeout < 1)) {
+    throw new PlumbusError(
+      'validation',
+      'Admission lockTimeoutMs must be a whole number of 1 or more',
+    );
+  }
+  const lockId = sql`hashtextextended(${`plumbus/admission:${key}`}, 0)`;
+  const take =
+    mode === 'shared'
+      ? sql`SELECT pg_advisory_xact_lock_shared(${lockId})`
+      : sql`SELECT pg_advisory_xact_lock(${lockId})`;
   return db.transaction(async (transaction) => {
+    if (timeout === undefined) {
+      await transaction.execute(take);
+      return work(transaction);
+    }
+    const [row] = (await transaction.execute(
+      sql`SELECT current_setting('lock_timeout') AS previous, set_config('lock_timeout', ${`${timeout}ms`}, true)`,
+    )) as unknown as Array<{ previous: string }>;
+    try {
+      await transaction.execute(take);
+    } catch (error) {
+      // 55P03 lock_not_available, on the driver error or on the error Drizzle wraps it in.
+      const code =
+        (error as { code?: unknown })?.code ??
+        (error as { cause?: { code?: unknown } })?.cause?.code;
+      if (code === '55P03') {
+        throw new RequestAdmissionLockTimeoutError(key, mode, timeout);
+      }
+      throw error;
+    }
     await transaction.execute(
-      sql`SELECT pg_advisory_xact_lock(hashtextextended(${`plumbus/admission:${key}`}, 0))`,
+      sql`SELECT set_config('lock_timeout', ${row?.previous ?? '0'}, true)`,
     );
     return work(transaction);
   });

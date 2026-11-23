@@ -6,6 +6,10 @@
 // step (how a connection is opened).
 
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import type {
+  DataPlaneConnectionBudget,
+  DataPlaneConnectionBudgetStats,
+} from './connection-budget.js';
 
 /**
  * A resolved data plane — everything a request, flow step or worker needs to
@@ -123,12 +127,24 @@ export interface DataPlaneConnection {
   db: PostgresJsDatabase;
   /** Called when the resolver evicts, invalidates or closes this connection. */
   close?(): Promise<void>;
+  /**
+   * The connection budget this pool opens its connections under (`openDataPlaneConnection`
+   * sets it from its `connectionBudget` option). A resolver with `maxTotalConnections` refuses a
+   * plane whose connection does not report its budget.
+   */
+  connectionBudget?: DataPlaneConnectionBudget;
 }
 
 /** Arguments handed to the host's `connect` step. */
 export interface DataPlaneConnectRequest<TConnectionInfo = unknown> {
   tenantRef: string;
   descriptor: DataPlaneDescriptor<TConnectionInfo>;
+  /**
+   * Present when the resolver has `maxTotalConnections`: pass it to
+   * `openDataPlaneConnection({ connectionBudget })` so every connection of this plane counts
+   * against the shared ceiling.
+   */
+  connectionBudget?: DataPlaneConnectionBudget;
 }
 
 export interface PooledDataPlaneResolverOptions<TConnectionInfo = unknown> {
@@ -157,6 +173,26 @@ export interface PooledDataPlaneResolverOptions<TConnectionInfo = unknown> {
    */
   capacityWaitMs?: number;
   /**
+   * One ceiling on server connections across every plane this resolver opens, whatever their
+   * pool sizes. Unset (the default): no shared ceiling — `cacheSize × pool size` bounds them.
+   *
+   * Set, `connect` receives `request.connectionBudget` and must open the plane under it
+   * (`openDataPlaneConnection({ connectionBudget })`); a plane whose connection does not report
+   * that budget is closed and refused. Every connection takes a slot before its socket opens and
+   * gives it back when the socket closes (idle timeout, lifetime, pool close). With no free slot
+   * the resolver closes the least recently used plane nobody leases (as `cacheSize` eviction
+   * does), then waits up to `connectionWaitMs`, then refuses with
+   * `DataPlaneConnectionBudgetError` (HTTP 503). A leased plane's connections are never closed to
+   * make room; its idle connections keep their slots until the pool's idle timeout, so keep
+   * `idleTimeoutSeconds` short where the budget is tight.
+   */
+  maxTotalConnections?: number;
+  /**
+   * How long a connection waits for a free slot under `maxTotalConnections`, in milliseconds.
+   * Default: `capacityWaitMs`.
+   */
+  connectionWaitMs?: number;
+  /**
    * Re-run `describe` for a cached tenant once its entry is older than this
    * many milliseconds. Omitted (the default) means cached entries are only
    * refreshed by an explicit `invalidate`.
@@ -184,6 +220,8 @@ export interface DataPlaneResolverStats {
   leases: number;
   /** Callers waiting for a free slot. */
   waiting: number;
+  /** Server connections under `maxTotalConnections`; absent without a shared ceiling. */
+  connections?: DataPlaneConnectionBudgetStats;
 }
 
 /** A `DataPlaneResolver` that caches connections and can be invalidated. */

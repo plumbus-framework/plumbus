@@ -268,3 +268,24 @@ describe('defineCapability', () => {
     expect(Object.isFrozen(cap.api)).toBe(true);
   });
 });
+
+describe('audit.success and audit.deferSuccess', () => {
+  it('accept booleans and refuse anything else', () => {
+    const base = {
+      name: 'auditFlags',
+      kind: 'action' as const,
+      domain: 'test',
+      input: z.object({}),
+      output: z.object({}),
+      effects: { data: [], events: [], external: [], ai: false },
+      access: { public: true },
+      handler: async () => ({}),
+    };
+    expect(() =>
+      defineCapability({ ...base, audit: { event: 'x', success: false, deferSuccess: true } }),
+    ).not.toThrow();
+    expect(() =>
+      defineCapability({ ...base, audit: { event: 'x', deferSuccess: 'yes' as never } }),
+    ).toThrow(/deferSuccess/);
+  });
+});

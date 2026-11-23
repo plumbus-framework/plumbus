@@ -39,8 +39,32 @@ export function defineEntity(config: DefineEntityInput): EntityDefinition {
           );
         }
       }
+      if (!Array.isArray(idx)) validateIndexMethod(config, idx);
     }
   }
 
   return deepFreeze({ ...config });
+}
+
+/** `using: 'gin'`: exactly one json column, not unique. Any other method name is refused. */
+function validateIndexMethod(config: DefineEntityInput, idx: EntityIndexDefinition): void {
+  if (idx.using === undefined || idx.using === 'btree') return;
+  if (idx.using !== 'gin') {
+    throwDefineValidationError(
+      `Entity "${config.name}": index method must be 'btree' or 'gin' (received "${String(idx.using)}")`,
+      { field: 'indexes' },
+    );
+  }
+  const [column, ...rest] = idx.columns;
+  if (!column || rest.length > 0 || config.fields[column]?.type !== 'json') {
+    throwDefineValidationError(
+      `Entity "${config.name}": a gin index covers exactly one json field (columns: ${JSON.stringify(idx.columns)})`,
+      { field: 'indexes' },
+    );
+  }
+  if (idx.unique === true) {
+    throwDefineValidationError(`Entity "${config.name}": a gin index cannot be unique`, {
+      field: 'indexes',
+    });
+  }
 }

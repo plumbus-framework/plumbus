@@ -6,6 +6,124 @@ The 0.8 numbers now belong to the stable **stabilization family** published from
 
 Core 0.9.0-beta.0 contains everything in the 0.8.0-beta.N line plus every stable change merged from `main`: the core 0.8.0 stabilization (PLB-01 to PLB-10), core 0.8.1, auth 0.3.1 and the Vitest 5.0.4 toolchain. See [Included in v0.9.0-beta.0](#included-in-v090-beta0).
 
+## Unreleased (core 0.9.0-beta.15): set-based writes, idempotency records on the tenant's plane, success audit rows, connection ceiling
+
+Not yet released; prepared in the working tree. Only `@plumbus/core` changes. Peer ranges unchanged.
+Consumer agents: [`instructions/upgrading-set-writes-and-audit.md`](../packages/plumbus-core/instructions/upgrading-set-writes-and-audit.md).
+
+### Core: set-based repository writes and narrower reads
+
+Additive except where marked. No migration is required; `plumbus migrate generate` emits one new
+framework table (below).
+
+- **`deleteMany(query, { limit, …filters, orderBy?, audit? })` and
+  `updateMany(query, values, { … })`** change at most `limit` matching rows in one statement and
+  return `{ count, ids }`. `limit` is required. Audited per row by default — the same rows a loop of
+  `delete(id)` / `update(id, …)` writes, inserted in one multi-row `INSERT` per 1000 — or with one
+  summary row per statement (`audit: 'summary'`: count and masked filter, no ids). They are writes
+  for lazily opened capability transactions. Optional on the `Repository` type; the Drizzle and
+  in-memory repositories have them. See [data layer](./sdk-reference/data-layer.md#deletemanyquery-options--updatemanyquery-values-options--set-based-writes).
+- **`contains: { jsonField: value }`** filter (`col @> $1::jsonb`) on every read and set-based
+  write; a non-json field is refused. Entities declare a GIN `jsonb_path_ops` index with
+  `indexes: [{ columns: ['assetIds'], using: 'gin' }]` (`plumbus migrate generate` emits it;
+  build it `CONCURRENTLY` on a large table).
+- **`in` lists are one array parameter** (`col = ANY($1::uuid[])`) for uuid, text, varchar,
+  integer, numeric, real/double and boolean columns. A list past 65,535 values no longer fails, and
+  every length shares one statement. SQL text changes; results do not. Timestamps, json and
+  host-named enum columns keep one parameter per value.
+- **`update(id, values, { returning: false })`** reads back only `id` and resolves `undefined`.
+  The signature is one generic method, so custom `Repository` implementations still compile.
+- **`createRepository` returns `FrameworkRepository<T>`**, where `findManyFields`, `exists`,
+  `findPage`, `updateWhere`, `deleteMany` and `updateMany` are not optional — a host's own data
+  surface over the repository reaches keyset paging without `!`.
+- `count`, `exists`, `aggregate` and `findPage` take `QueryFilters` (the four filters plus
+  `contains`). New `AuditService.recordMany` (optional) and `AuditWriter.writeMany` (optional);
+  `recordAuditBatch(service, entries)` falls back to `record` per entry.
+- Projection (`findManyFields`), `exists`, `count` and keyset `findPage` already existed
+  (beta.13 and earlier); nothing changes for them.
+
+### Core: idempotency records on the database the host chooses
+
+- **`createDatabaseIdempotencyStore({ resolveDatabase })`** decides per request where an
+  `Idempotency-Key` record is kept: `({ principal, auth, plane, database }) => ({ database, plane,
+  schema?, release? }) | undefined`. A host with `requestDataPlane: 'control-plane'` returns the
+  tenant's plane so stored answers stay off the control plane. When the target is not the
+  request's database, the completion is written right after the capability returns instead of
+  inside its transaction (the crash window of a capability without a transaction).
+  `IdempotencyStore.completeInTransaction` may resolve `false` ("complete after"), and the new
+  optional `IdempotencyStore.release` is called once per claimed request by `executeIdempotently`.
+  The core `/api` routes pass `auth` in the store options.
+- **`request_idempotency` is a generated framework table** (`core_plumbus.request_idempotency`,
+  in `FRAMEWORK_TABLE_NAMES`): the next `plumbus migrate generate` adds it to every stream you
+  generate, an app's own tenant stream included. A database that already has it in `core_plumbus`
+  (from `migrations/durable-tenant/0003` or `requestIdempotencyDdl('core_plumbus')`) is recognised
+  by the generator's drift check when it can reach that database; otherwise `plumbus migrate apply`
+  refuses the duplicate `CREATE TABLE` and you regenerate with the database reachable. The spine's
+  shipped table stays unqualified (`migrations/spine/0001`); to use the generated one there pass
+  `spineSchema: 'core_plumbus'`. New export `createRequestIdempotencyTable(schema?)`.
+
+### Core: success audit rows
+
+**Behaviour change.** No migration.
+
+- **In the transaction.** An `action` / `eventHandler` with a framework transaction and the
+  default audit service writes its `capability.<name>` success row inside that transaction, on
+  its connection, before commit (it was inserted after commit on a second pool checkout). It
+  commits with the work; a failed insert rolls the work back and the call fails, instead of
+  failing a call whose work had already committed. Audit row content is unchanged; the row's
+  timestamp is now before the commit rather than after it.
+- **After the work, never failing the call.** The success row of an action, event handler or job
+  without a framework transaction (`transactional: false`, AI or external effects, `job`, the
+  outbox kill switch), with a custom audit service, or nested and written after its parent
+  committed, no longer throws `Audit persistence failed` when it cannot be written. It is retried
+  in the background with the same id (1 s, 5 s, 30 s, 2 min, 10 min) and reported each time —
+  by default an error-level log line `[plumbus] audit record could not be written; retrying in
+  the background`, and `[plumbus] audit record lost …` with the record after the last retry.
+  Alert on that line, or pass `createAuditService({ onWriteFailure, retryDelaysMs })`. A row is
+  lost only if the process dies before a retry lands. A held success record of a lazily opened
+  transaction that never opened is written the same way. **Queries** keep writing their success
+  row before the answer and fail when it cannot be written; `denied` and `failure` rows are
+  unchanged (written at once, a failed write fails the call).
+- **`audit: { event, deferSuccess: true }`** (opt-in) on a capability without a framework
+  transaction holds all its success rows (repository writes, events, `ctx.audit`, its own row)
+  until the handler ends, then writes them in one batch — for a handler running its own tenant
+  transaction, which otherwise waited for an audit insert on a second connection.
+- **`audit: { event, success: false }`** (opt-in) drops only the success row of an action;
+  denied and failed calls, and its data rows, are still recorded.
+- New exports from `audit/`: `recordAfterEffects`, `holdAuditSuccess`, `AUDIT_RETRY_DELAYS_MS`,
+  types `AuditWriteFailure`, `AuditSuccessHold`; `AuditServiceConfig.retryDelaysMs`,
+  `onWriteFailure`.
+
+### Core: one connection ceiling across data planes, per-pool session settings
+
+Opt-in; nothing changes unless set.
+
+- **`createPooledDataPlaneResolver({ maxTotalConnections, connectionWaitMs })`**: one ceiling on
+  server connections across every plane the resolver opens. `connect` receives
+  `request.connectionBudget` and must pass it to `openDataPlaneConnection({ connectionBudget })`
+  (a plane opened without it is refused). With no free slot the resolver closes the least
+  recently used unleased plane, then waits `connectionWaitMs` (default `capacityWaitMs`), then
+  refuses with **`DataPlaneConnectionBudgetError`** (HTTP 503). Leased planes keep their
+  connections; idle connections keep their slot until the pool's idle timeout.
+  `stats().connections` reports `{ max, open, waiting }`. See
+  [tenant data planes](./sdk-reference/tenant-data-planes.md#one-ceiling-on-connections-across-planes-maxtotalconnections).
+- **`openDataPlaneConnection({ sessionSettings: { jit: 'off' } })`**: run-time parameters for every
+  session of the pool, sent in the startup packet.
+
+### Core: smaller changes
+
+- **`dropDataPlane`** refuses new connections, then drops with `DROP DATABASE … WITH (FORCE)`
+  (PostgreSQL 13+; older servers terminate then drop). `terminateConnections: false` is a plain
+  drop that fails on attached sessions and leaves the database accepting connections. New step
+  name `refuse-connections` in `DataPlaneStepName` (a `switch` over every step name needs the
+  new case).
+- **`withRequestAdmissionLock(db, key, work, { mode: 'shared', lockTimeoutMs })`**: a shared
+  variant on the same lock id, and a bounded wait (`RequestAdmissionLockTimeoutError`, HTTP 503).
+  Default unchanged (exclusive, no timeout). An app that derived the lock id itself
+  (`hashtextextended('plumbus/admission:' || key, 0)`) can use `mode: 'shared'` instead.
+- **`ApprovalStore.getRequests(ids)`** (optional; SQL and memory stores): many requests by id in
+  one statement with one array parameter.
+
 ## v0.9.0-beta.15 (2026-11-20): image input in `ctx.ai`
 
 Prepared for repository release `v0.9.0-beta.15` under npm dist-tag `plumbus-next`. Two packages

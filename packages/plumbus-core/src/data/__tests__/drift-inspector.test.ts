@@ -7,8 +7,8 @@ import {
 } from '../drift-inspector.js';
 
 describe('FRAMEWORK_TABLE_NAMES', () => {
-  it('contains all 21 framework table names', () => {
-    expect(FRAMEWORK_TABLE_NAMES).toHaveLength(21);
+  it('contains all 22 framework table names', () => {
+    expect(FRAMEWORK_TABLE_NAMES).toHaveLength(22);
   });
 
   it('includes expected table names', () => {
@@ -33,6 +33,7 @@ describe('FRAMEWORK_TABLE_NAMES', () => {
     expect(FRAMEWORK_TABLE_NAMES).toContain('human_task');
     expect(FRAMEWORK_TABLE_NAMES).toContain('approval_request');
     expect(FRAMEWORK_TABLE_NAMES).toContain('approval_decision');
+    expect(FRAMEWORK_TABLE_NAMES).toContain('request_idempotency');
   });
 });
 

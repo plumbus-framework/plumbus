@@ -42,6 +42,8 @@ const plane = await provisionDataPlane({
 
 Identifiers are validated and quoted. The call is idempotent: a retry after a partial failure reports `created` or `already-present` per step.
 
+**Teardown.** `dropDataPlane({ adminConnection, databaseName, allowedNamePattern, roles? })` drops a plane whose name matches the caller's naming convention. With `terminateConnections` (default `true`, core 0.9.0-beta.15+) it first stops the database accepting connections (`ALTER DATABASE … ALLOW_CONNECTIONS false`), then ends the attached sessions and drops it in one statement (`DROP DATABASE … WITH (FORCE)`), so a pool that reconnects cannot slip in between and fail the drop (servers before PostgreSQL 13: terminate, then drop). With `terminateConnections: false` it is a plain `DROP DATABASE`, which fails while a session is attached; after any failed drop the database accepts connections again. Steps reported: `refuse-connections`, `terminate-connections`, `drop-database`, then roles. Every `DROP DATABASE` makes PostgreSQL run an immediate checkpoint; schedule large or repeated drops off-peak.
+
 ### 2. Apply generated migrations as the owner
 
 Generate SQL once for the app (`plumbus migrate generate`). Apply that same folder to **each** tenant database.
@@ -167,6 +169,49 @@ is used. A tenant that fails to resolve is logged and skipped; the others are st
 
 A capacity refusal is not a flow failure: a runner that cannot get a claimed execution's plane
 hands the claim back for a later cycle.
+
+#### One ceiling on connections across planes: `maxTotalConnections`
+
+`cacheSize` bounds **pools**, not connections. A host with many tenants on one small database
+server otherwise has to choose between a cache as large as its fleet with tiny pools, or a cache
+smaller than the fleet that evicts and reconnects as the outbox walks the tenants.
+`maxTotalConnections` (unset by default) is one ceiling on **server connections** across every
+plane the resolver opens:
+
+```typescript
+const resolver = createPooledDataPlaneResolver<Placement>({
+  cacheSize: 200,                 // every tenant may stay open…
+  maxTotalConnections: 40,        // …but together they hold at most 40 server connections
+  connectionWaitMs: 5_000,        // default: capacityWaitMs
+  describe: (tenantRef) => placements.get(tenantRef),
+  connect: ({ descriptor, connectionBudget }) =>
+    openDataPlaneConnection({
+      target: descriptor.connectionInfo,
+      maxConnections: 4,
+      idleTimeoutSeconds: 10,     // idle connections give their slot back sooner
+      connectionBudget,           // required when maxTotalConnections is set
+    }),
+});
+```
+
+- **How it is enforced.** `connect` receives `request.connectionBudget`; `openDataPlaneConnection`
+  opens every socket of that pool through it. A connection takes a slot before its socket
+  opens and gives it back when the socket closes (idle timeout, `maxLifetimeSeconds`, pool
+  close). The verification probe counts too. A `connect` that opens the plane without the budget
+  is refused (`reason: 'data-plane-connection-budget-unused'`) and its pool closed.
+- **When no slot is free.** The resolver closes the least recently used plane nobody leases
+  (never the asking tenant's) — the plane `cacheSize` eviction would pick — and its connections
+  free their slots as they close; then the connection waits up to `connectionWaitMs` and is
+  refused with **`DataPlaneConnectionBudgetError`** (`reason: 'data-plane-connection-budget'`,
+  HTTP 503, metadata `maxTotalConnections`, `open`, `waitedMs`). The refusal reaches the caller
+  as the failure of the statement that needed the connection (or of `acquire`, when it happens
+  while the plane is being opened).
+- **Leases.** A leased plane's connections are never closed to make room. Its idle connections
+  keep their slots until the pool's `idleTimeoutSeconds`; with a tight budget keep that short.
+- **Eviction.** Unchanged: `cacheSize` still closes the least recently used unleased plane to
+  open another; closing a plane frees its slots.
+- `resolver.stats().connections` reports `{ max, open, waiting }`. Only the first host of a
+  multi-host connection URL is used under a budget.
 
 **What `resolve()` alone gives you.** `resolve()` still works and returns the same handle, but
 it takes no lease. Such a handle is protected only by recency: it can be closed under its
@@ -326,5 +371,7 @@ Shipped durable-core / human-task SQL under `packages/plumbus-core/migrations/` 
 
 - **Bounded.** Default pool size 5; ceiling 64. Migrate uses `maxConnections: 1`.
 - **Server-side timeouts (opt-in).** `statementTimeoutMs` and `idleInTransactionTimeoutMs` (whole milliseconds, 1–2147483647; core 0.9.0-beta.5+) become the sessions' `statement_timeout` and `idle_in_transaction_session_timeout`. Unset keeps the server's settings; migrate opens its connection without them.
+- **Session settings (opt-in, core 0.9.0-beta.15+).** `sessionSettings: { jit: 'off', work_mem: '16MB' }` sends any run-time parameter in the startup packet of every session of the pool (booleans become `on`/`off`). Names must be plain parameter names; `user`, `database`, `options`, `replication` and `_pq_.*` are refused, and so is a parameter a dedicated option also sets. The server refuses an unknown parameter when the first connection opens.
+- **Connection budget (opt-in).** `connectionBudget` (the resolver's `request.connectionBudget` under `maxTotalConnections`): every connection of the pool counts against the shared ceiling.
 - **Quiet.** Passwords and connection strings never reach a message or error metadata.
 - **Per-tenant.** Each call owns its pool. `close` is idempotent.

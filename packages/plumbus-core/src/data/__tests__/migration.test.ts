@@ -126,10 +126,11 @@ describe('collectSchemas', () => {
     expect(getTableName(getSchema(schemas, '__approval_decision'))).toBe('approval_decision');
   });
 
-  it('includes all 21 framework tables with zero entities', () => {
+  it('includes all 22 framework tables with zero entities', () => {
     const schemas = collectSchemas([]);
     const frameworkKeys = Object.keys(schemas).filter((k) => k.startsWith('__'));
-    expect(frameworkKeys).toHaveLength(21);
+    expect(frameworkKeys).toHaveLength(22);
+    expect(getTableName(getSchema(schemas, '__request_idempotency'))).toBe('request_idempotency');
   });
 
   it('throws when an extra schema collides with an entity table name', () => {

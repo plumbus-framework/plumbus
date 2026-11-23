@@ -37,7 +37,9 @@ import type {
   PageOptions,
   QueryOptions,
   Repository,
+  SetWriteOptions,
   TimeService,
+  UpdateOptions,
 } from '../types/context.js';
 import type { EntityDefinition } from '../types/entity.js';
 import type { FieldDescriptor } from '../types/fields.js';
@@ -407,6 +409,12 @@ export function createInMemoryRepository<
         });
       }
     }
+    if (options?.contains) {
+      for (const [field, value] of Object.entries(options.contains)) {
+        // Mirror jsonb `@>`: the column holds the value (nested objects by key, arrays by member).
+        results = results.filter((item) => jsonContains((item as any)[field], value));
+      }
+    }
     if (options?.search?.term) {
       const term = options.search.term.toLowerCase();
       const cols = options.search.columns;
@@ -456,6 +464,35 @@ export function createInMemoryRepository<
     return results;
   }
 
+  /** The rows a set-based write takes: the filtered rows in its order, at most `limit`. */
+  function setWriteRows(
+    operation: 'deleteMany' | 'updateMany',
+    query: Partial<T> | undefined,
+    options: SetWriteOptions,
+  ): T[] {
+    if (!Number.isInteger(options?.limit) || options.limit < 1) {
+      throw new PlumbusError(
+        'validation',
+        `${operation} needs limit: a whole number of at least 1`,
+        {
+          entity: entityName,
+          operation,
+          field: 'limit',
+        },
+      );
+    }
+    const rows = filterRows(query, {
+      dateFilters: options.dateFilters,
+      search: options.search,
+      in: options.in,
+      notEq: options.notEq,
+      contains: options.contains,
+      orderBy: options.orderBy ?? [{ column: 'id', dir: 'asc' }],
+      orderDir: options.orderDir ?? 'asc',
+    });
+    return rows.slice(0, options.limit);
+  }
+
   function compareKeyValues(a: unknown, b: unknown): number {
     const av = a instanceof Date ? a.getTime() : (a as any);
     const bv = b instanceof Date ? b.getTime() : (b as any);
@@ -488,6 +525,7 @@ export function createInMemoryRepository<
       search: options.search,
       in: options.in,
       notEq: options.notEq,
+      contains: options.contains,
     }).sort((a, b) => order(keyOf(a), keyOf(b)));
     if (options.after !== undefined) {
       const after = decodeKeysetCursor(entityName, keys, options.after);
@@ -527,12 +565,12 @@ export function createInMemoryRepository<
       }
       return out;
     },
-    async update(id, updates) {
+    async update(id: string, updates: Record<string, any>, options?: UpdateOptions): Promise<any> {
       const existing = store.get(id);
       if (!existing) throw new Error(`Record not found: ${id}`);
       const updated = { ...existing, ...updates } as T;
       store.set(id, updated);
-      return updated;
+      return options?.returning === false ? undefined : updated;
     },
     async updateWhere(id, predicate, updates) {
       const existing = store.get(id);
@@ -549,6 +587,34 @@ export function createInMemoryRepository<
     },
     async delete(id) {
       store.delete(id);
+    },
+    async deleteMany(query, options) {
+      const ids = setWriteRows('deleteMany', query, options).map((row) => String(row.id));
+      for (const id of ids) store.delete(id);
+      return { count: ids.length, ids };
+    },
+    async updateMany(query, values, options) {
+      for (const key of Object.keys(values as Record<string, unknown>)) {
+        if (key === 'id' || key === 'tenantId') {
+          throw new PlumbusError('validation', `updateMany cannot set "${key}"`, {
+            entity: entityName,
+            field: key,
+            operation: 'updateMany',
+          });
+        }
+      }
+      if (Object.keys(values as Record<string, unknown>).length === 0) {
+        throw new PlumbusError('validation', 'updateMany needs at least one value', {
+          entity: entityName,
+          operation: 'updateMany',
+        });
+      }
+      const ids = setWriteRows('updateMany', query, options).map((row) => String(row.id));
+      for (const id of ids) {
+        const existing = store.get(id);
+        if (existing) store.set(id, { ...existing, ...(values as Record<string, unknown>) } as T);
+      }
+      return { count: ids.length, ids };
     },
     async findMany(query, options) {
       return pageRows(query, options, 'findMany');
@@ -584,6 +650,7 @@ export function createInMemoryRepository<
         search: options?.search,
         in: options?.in,
         notEq: options?.notEq,
+        contains: options?.contains,
       });
 
       const groupCols = toColumnArray(options?.groupBy);
@@ -696,6 +763,32 @@ function toColumnArray(value?: string | string[]): string[] {
   return Array.isArray(value) ? value : [value];
 }
 
+/**
+ * PostgreSQL's jsonb containment (`haystack @> needle`): an object contains another when every
+ * key of the needle is in it with a contained value; an array contains another when every
+ * element of the needle is contained by some element; an array also contains a bare scalar it
+ * holds; scalars contain only an equal scalar.
+ */
+function jsonContains(haystack: unknown, needle: unknown): boolean {
+  if (Array.isArray(haystack)) {
+    if (Array.isArray(needle)) {
+      return needle.every((n) => haystack.some((h) => jsonContains(h, n)));
+    }
+    if (needle !== null && typeof needle === 'object') return false;
+    return haystack.some((h) => !Array.isArray(h) && jsonContains(h, needle));
+  }
+  if (haystack !== null && typeof haystack === 'object') {
+    if (needle === null || typeof needle !== 'object' || Array.isArray(needle)) return false;
+    return Object.entries(needle as Record<string, unknown>).every(
+      ([key, value]) =>
+        key in (haystack as Record<string, unknown>) &&
+        jsonContains((haystack as Record<string, unknown>)[key], value),
+    );
+  }
+  if (Array.isArray(needle) || (needle !== null && typeof needle === 'object')) return false;
+  return haystack === needle;
+}
+
 // ── Validating Repository Wrapper ──
 
 function withFieldValidation<T extends Record<string, unknown>>(
@@ -728,9 +821,9 @@ function withFieldValidation<T extends Record<string, unknown>>(
       }
       return repo.createMany(records);
     },
-    async update(id, updates) {
+    async update(id: string, updates: Record<string, any>, options?: UpdateOptions): Promise<any> {
       check(updates as Record<string, unknown>);
-      return repo.update(id, updates);
+      return repo.update(id, updates, options);
     },
     async updateWhere(id, predicate, updates) {
       check(updates as Record<string, unknown>);
@@ -740,6 +833,17 @@ function withFieldValidation<T extends Record<string, unknown>>(
       return repo.updateWhere(id, predicate, updates);
     },
     delete: (id) => repo.delete(id),
+    deleteMany: (query, options) => {
+      if (!repo.deleteMany)
+        throw new Error('deleteMany is not supported by the wrapped repository');
+      return repo.deleteMany(query, options);
+    },
+    async updateMany(query, values, options) {
+      check(values as Record<string, unknown>);
+      if (!repo.updateMany)
+        throw new Error('updateMany is not supported by the wrapped repository');
+      return repo.updateMany(query, values, options);
+    },
     findMany: (query, options) => repo.findMany(query, options),
     findManyFields: (query, fields, options) => {
       if (!repo.findManyFields) {

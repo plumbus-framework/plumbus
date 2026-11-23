@@ -14,7 +14,7 @@ export {
 export { APPROVAL_PENDING_WAIT } from '../approvals/wait.js';
 // ── Audit ──
 export type { AnyZodSchema } from './schema.js';
-export type { AuditRecord, AuditService } from './audit.js';
+export type { AuditBatchEntry, AuditRecord, AuditService } from './audit.js';
 // ── Capability ──
 export type {
   ApiDeprecationConfig,
@@ -79,14 +79,21 @@ export type {
   FlowExecution,
   FlowService,
   FlowWakeResult,
+  FrameworkRepository,
   LoggerService,
   Page,
   PageOptions,
+  QueryFilters,
   QueryOptions,
   Repository,
   RequestMeta,
   SecurityService,
+  SetWriteAudit,
+  SetWriteOptions,
+  SetWriteResult,
   TimeService,
+  UpdateOptions,
+  UpdateResult,
 } from './context.js';
 // ── Entity ──
 export type { EntityDefinition, EntityIndexDefinition, EntityRetention } from './entity.js';

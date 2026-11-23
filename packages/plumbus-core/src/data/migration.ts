@@ -7,6 +7,7 @@ import type { PgTableWithColumns } from 'drizzle-orm/pg-core';
 import { PgDialect, PgTable } from 'drizzle-orm/pg-core';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { documentChunksTable, documentsTable } from '../ai/rag/schema.js';
+import { createRequestIdempotencyTable } from '../api/idempotency-schema.js';
 import { auditRecords } from '../audit/schema.js';
 import { createTenantApprovalTables } from '../approvals/schema.js';
 import { createTenantDurableTables } from '../durable/schema.js';
@@ -928,6 +929,10 @@ export function collectSchemas(
   tableNames.add(getTableName(approvals.approvalRequest));
   schemas.__approval_decision = approvals.approvalDecision as unknown as PgTableWithColumns<any>;
   tableNames.add(getTableName(approvals.approvalDecision));
+  // `Idempotency-Key` records of the database idempotency store (core_plumbus)
+  const requestIdempotency = createRequestIdempotencyTable(FRAMEWORK_SCHEMA);
+  schemas.__request_idempotency = requestIdempotency as unknown as PgTableWithColumns<any>;
+  tableNames.add(getTableName(requestIdempotency));
   // RAG tables
   schemas.__documents = documentsTable as unknown as PgTableWithColumns<any>;
   tableNames.add(getTableName(documentsTable));

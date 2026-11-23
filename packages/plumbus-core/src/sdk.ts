@@ -7,9 +7,14 @@
  * `@plumbus/core/runtime` (see `src/runtime-entry.ts`).
  */
 
-export type { RequestAdmissionChallenge, RequestAdmissionProof } from './admission/index.js';
+export type {
+  RequestAdmissionChallenge,
+  RequestAdmissionLockOptions,
+  RequestAdmissionProof,
+} from './admission/index.js';
 export {
   createRequestAdmission,
+  RequestAdmissionLockTimeoutError,
   requestAdmissionChallengeSchema,
   requestAdmissionProofSchema,
   withRequestAdmissionLock,
@@ -179,6 +184,8 @@ export type {
   DatabaseIdempotencyStoreOptions,
   ExecuteIdempotentlyParams,
   IdempotencyClaimResult,
+  IdempotencyDatabaseRequest,
+  IdempotencyDatabaseTarget,
   IdempotencyPrincipal,
   IdempotencyRecord,
   IdempotencyStore,
@@ -198,6 +205,7 @@ export {
   capabilityHttpMethod,
   createDatabaseIdempotencyStore,
   createInMemoryIdempotencyStore,
+  createRequestIdempotencyTable,
   DEFAULT_IN_MEMORY_IDEMPOTENCY_MAX_ENTRIES,
   DEFAULT_IN_MEMORY_IDEMPOTENCY_TTL_MS,
   executeIdempotently,
@@ -644,6 +652,8 @@ export type {
   DataPlaneAdminConnection,
   DataPlaneConnection,
   DataPlaneConnectionFields,
+  DataPlaneConnectionBudget,
+  DataPlaneConnectionBudgetStats,
   DataPlaneConnectionTarget,
   DataPlaneConnectionUrl,
   DataPlaneConnectRequest,
@@ -680,6 +690,7 @@ export {
   createSingleDataPlaneResolver,
   DATA_PLANE_MIGRATE_APPLICATION_NAME,
   DataPlaneCapacityError,
+  DataPlaneConnectionBudgetError,
   DataPlaneConnectionError,
   DataPlaneGuardError,
   DataPlaneNameError,

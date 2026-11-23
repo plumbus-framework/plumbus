@@ -19,6 +19,7 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { logHookError } from '../errors/hook-log.js';
 import { PlumbusError } from '../errors/plumbus-error.js';
 import { ErrorCode } from '../types/enums.js';
+import { createSharedConnectionBudget, type SharedConnectionBudget } from './connection-budget.js';
 import type {
   DataPlaneAcquireOptions,
   DataPlaneConnection,
@@ -223,6 +224,18 @@ export function createPooledDataPlaneResolver<TConnectionInfo = unknown>(
   assertWaitMs(capacityWaitMs, 'capacityWaitMs');
   const now = options.now ?? Date.now;
   const revalidateAfterMs = options.revalidateAfterMs;
+  const maxTotalConnections = options.maxTotalConnections;
+  if (
+    maxTotalConnections !== undefined &&
+    (!Number.isInteger(maxTotalConnections) || maxTotalConnections < 1)
+  ) {
+    throw new PlumbusError(
+      ErrorCode.Validation,
+      `Data plane maxTotalConnections must be a positive integer (received ${String(maxTotalConnections)})`,
+    );
+  }
+  const connectionWaitMs = options.connectionWaitMs ?? capacityWaitMs;
+  assertWaitMs(connectionWaitMs, 'connectionWaitMs');
   const onCloseError =
     options.onCloseError ??
     ((info: { tenantRef: string; error: unknown }) =>
@@ -241,6 +254,27 @@ export function createPooledDataPlaneResolver<TConnectionInfo = unknown>(
   let closing = 0;
   let connecting = 0;
   let closed = false;
+  /** The shared ceiling on server connections, when `maxTotalConnections` is set. */
+  const budget: SharedConnectionBudget | undefined =
+    maxTotalConnections === undefined
+      ? undefined
+      : createSharedConnectionBudget({
+          max: maxTotalConnections,
+          waitMs: connectionWaitMs,
+          isClosed: () => closed,
+          // Free connections by closing the least recently used plane nobody leases (never the
+          // one asking): the same choice `cacheSize` eviction makes.
+          reclaim: async (tenantRef) => {
+            for (const entry of entries.values()) {
+              if (entry.leases === 0 && entry.tenantRef !== tenantRef) {
+                await retire(entry);
+                return true;
+              }
+            }
+            return false;
+          },
+          now,
+        });
 
   function currentEpoch(tenantRef: string): number {
     return epochs.get(tenantRef) ?? 0;
@@ -387,12 +421,28 @@ export function createPooledDataPlaneResolver<TConnectionInfo = unknown>(
   ): Promise<DataPlaneHandle | undefined> {
     await reserveSlot(tenantRef, wait);
     let connection: DataPlaneConnection;
+    const connectionBudget = budget?.forTenant(tenantRef);
     try {
-      connection = await options.connect({ tenantRef, descriptor });
+      connection = await options.connect({
+        tenantRef,
+        descriptor,
+        ...(connectionBudget ? { connectionBudget } : {}),
+      });
     } catch (error) {
       connecting -= 1;
       wakeWaiters();
       throw error;
+    }
+    if (connectionBudget && connection.connectionBudget !== connectionBudget) {
+      // A pool outside the ceiling would quietly break it: refuse the plane instead.
+      connecting -= 1;
+      await closeQuietly(tenantRef, connection);
+      throw new PlumbusError(
+        ErrorCode.Validation,
+        `maxTotalConnections is set, but connect() opened the plane of "${tenantRef}" outside the ` +
+          'connection budget: pass request.connectionBudget to openDataPlaneConnection({ connectionBudget })',
+        { tenantRef, reason: 'data-plane-connection-budget-unused' },
+      );
     }
     // The slot passes from the connect to whatever holds the connection next.
     connecting -= 1;
@@ -599,6 +649,7 @@ export function createPooledDataPlaneResolver<TConnectionInfo = unknown>(
         bumpEpoch(tenantRef);
       }
       wakeWaiters();
+      budget?.wakeAll();
       for (const entry of [...entries.values(), ...retired]) {
         await retire(entry, true);
       }
@@ -613,6 +664,7 @@ export function createPooledDataPlaneResolver<TConnectionInfo = unknown>(
         connecting,
         leases: leaseCount(),
         waiting: waiters.size,
+        ...(budget ? { connections: budget.stats() } : {}),
       };
     },
   };

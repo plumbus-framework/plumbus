@@ -13,6 +13,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import type { AuthContext } from '../types/security.js';
 import { FRAMEWORK_SCHEMA } from '../data/schema-generator.js';
 import { qualifyTable } from '../durable/apply-ddl.js';
 import { PlumbusError } from '../errors/index.js';
@@ -24,8 +25,9 @@ import type {
   IdempotencyStoreOptions,
 } from './idempotency.js';
 
-/** The framework table on every plane. */
-export const REQUEST_IDEMPOTENCY_TABLE = 'request_idempotency';
+import { REQUEST_IDEMPOTENCY_TABLE } from './idempotency-schema.js';
+
+export { REQUEST_IDEMPOTENCY_TABLE };
 
 const DEFAULT_LEASE_MS = 60_000;
 /** Kept this long when the route declares no `ttl`. */
@@ -37,7 +39,52 @@ const DEFAULT_SWEEP_BATCH_SIZE = 1000;
 const DEFAULT_SWEEP_MAX_BATCHES = 50;
 const DEFAULT_SWEEP_MAX_DURATION_MS = 5_000;
 
+/** What `resolveDatabase` is told about one request's key. */
+export interface IdempotencyDatabaseRequest {
+  /** Whose key it is (`userId`, `tenantId`). */
+  principal: IdempotencyPrincipal;
+  /** The caller's auth context, when the route passes it (the core `/api` routes do). */
+  auth?: AuthContext;
+  /** The request's database: where the capability's own transaction runs. */
+  database: PostgresJsDatabase;
+  /** Whether `database` is the control plane or a tenant plane. */
+  plane: 'spine' | 'tenant';
+}
+
+/** Where `resolveDatabase` puts one request's key. */
+export interface IdempotencyDatabaseTarget {
+  database: PostgresJsDatabase;
+  /** Selects the schema (`tenantSchema` / `spineSchema`) unless `schema` names one. */
+  plane: 'spine' | 'tenant';
+  /** Schema of `request_idempotency` on `database`. Default: the plane's schema. */
+  schema?: string;
+  /**
+   * Called once when the store is done with the request's key (its completion or release
+   * was written, or the claim was refused): give back what the resolution holds, such as a
+   * data-plane lease.
+   */
+  release?: () => void;
+}
+
 export interface DatabaseIdempotencyStoreOptions {
+  /**
+   * Where a request's key is kept. Default: the request's database (`options.database`, the
+   * database the route runs the capability's transaction on). A host whose request
+   * repositories live on the control plane while tenant work runs on per-tenant databases
+   * returns the tenant's plane here, so stored responses — tenant-private content included —
+   * stay on that tenant's database instead of the control plane. Return `undefined` for the
+   * default. A throw refuses the request.
+   *
+   * Called once per request that presents a key, before the claim; the target (and its
+   * `release`) is held until the store has written the completion or the release. When the
+   * target is not the request's database the completion cannot join the capability's
+   * transaction: it is written right after the capability returns (`complete`), and a crash
+   * between the capability's commit and that write lets a retry run the capability again once
+   * the claim's lease lapses — the window a capability without a transaction always has.
+   */
+  resolveDatabase?: (
+    request: IdempotencyDatabaseRequest,
+  ) => IdempotencyDatabaseTarget | undefined | Promise<IdempotencyDatabaseTarget | undefined>;
   /**
    * How long a claim holds the key before a retry may run the request again (default 60 s).
    * Make it longer than the slowest idempotent capability: a request still running when its
@@ -196,11 +243,17 @@ export function createDatabaseIdempotencyStore(
   /** When the next sweep may start on each database. */
   const nextSweepAt = new WeakMap<object, number>();
 
-  function target(storeOptions: IdempotencyStoreOptions | undefined): {
+  interface Target {
     database: PostgresJsDatabase;
     table: string;
     schemaName: string | undefined;
-  } {
+    release?: () => void;
+  }
+
+  /** Targets resolved at claim time, by claim token, until the completion or release. */
+  const held = new Map<string, Target>();
+
+  function requestDatabase(storeOptions: IdempotencyStoreOptions | undefined): PostgresJsDatabase {
     const database = storeOptions?.database;
     if (!database) {
       throw new PlumbusError(
@@ -209,8 +262,57 @@ export function createDatabaseIdempotencyStore(
         { reason: 'idempotency-database-missing' },
       );
     }
-    const schemaName = storeOptions?.plane === 'tenant' ? tenantSchema : options.spineSchema;
-    return { database, table: qualifyTable(schemaName, REQUEST_IDEMPOTENCY_TABLE), schemaName };
+    return database;
+  }
+
+  function targetOf(
+    database: PostgresJsDatabase,
+    plane: 'spine' | 'tenant' | undefined,
+    schema?: string,
+    release?: () => void,
+  ): Target {
+    const schemaName = schema ?? (plane === 'tenant' ? tenantSchema : options.spineSchema);
+    return {
+      database,
+      table: qualifyTable(schemaName, REQUEST_IDEMPOTENCY_TABLE),
+      schemaName,
+      ...(release ? { release } : {}),
+    };
+  }
+
+  /** The default target: the request's database. */
+  function target(storeOptions: IdempotencyStoreOptions | undefined): Target {
+    const token = storeOptions?.claimToken;
+    const claimed = token ? held.get(token) : undefined;
+    if (claimed) return claimed;
+    return targetOf(requestDatabase(storeOptions), storeOptions?.plane);
+  }
+
+  /** Ask the host where this request's key goes (default: the request's database). */
+  async function resolveTarget(
+    principal: IdempotencyPrincipal,
+    storeOptions: IdempotencyStoreOptions | undefined,
+  ): Promise<Target> {
+    const database = requestDatabase(storeOptions);
+    const plane = storeOptions?.plane ?? 'spine';
+    if (!options.resolveDatabase) return targetOf(database, storeOptions?.plane);
+    const resolved = await options.resolveDatabase({
+      principal,
+      ...(storeOptions?.auth ? { auth: storeOptions.auth } : {}),
+      database,
+      plane,
+    });
+    if (!resolved) return targetOf(database, storeOptions?.plane);
+    return targetOf(resolved.database, resolved.plane, resolved.schema, resolved.release);
+  }
+
+  /** The store is done with this request's key: give back what its resolution holds. */
+  function settle(storeOptions: IdempotencyStoreOptions | undefined): void {
+    const token = storeOptions?.claimToken;
+    if (!token) return;
+    const claimed = held.get(token);
+    held.delete(token);
+    claimed?.release?.();
   }
 
   /** Start a sweep beside the request when one is due; the request never waits for it. */
@@ -270,13 +372,33 @@ export function createDatabaseIdempotencyStore(
     principal: IdempotencyPrincipal,
     storeOptions: IdempotencyStoreOptions | undefined,
   ): Promise<IdempotencyClaimResult> {
-    const { database, table, schemaName } = target(storeOptions);
+    const resolved = await resolveTarget(principal, storeOptions);
+    let result: IdempotencyClaimResult;
+    try {
+      result = await claimOn(resolved, key, payloadHash, principal, ttlOf(storeOptions));
+    } catch (error) {
+      resolved.release?.();
+      throw error;
+    }
+    if (result.status === 'new' && result.token) held.set(result.token, resolved);
+    else resolved.release?.();
+    return result;
+  }
+
+  async function claimOn(
+    resolved: Target,
+    key: string,
+    payloadHash: string,
+    principal: IdempotencyPrincipal,
+    ttlMs: number,
+  ): Promise<IdempotencyClaimResult> {
+    const { database, table, schemaName } = resolved;
     sweepWhenDue(database, schemaName);
     const keyHash = sha256(key);
     const payloadDigest = sha256(payloadHash);
     const token = randomUUID();
     const lease = `${leaseMs} milliseconds`;
-    const ttl = `${Math.max(ttlOf(storeOptions), leaseMs)} milliseconds`;
+    const ttl = `${Math.max(ttlMs, leaseMs)} milliseconds`;
     // One committed statement: a new key, an expired record, or an abandoned claim of the
     // same request becomes this request's claim; anything else is left as it is.
     const claimed = asRows(
@@ -322,7 +444,7 @@ export function createDatabaseIdempotencyStore(
     )[0];
     if (!current) {
       // Swept between the two statements: claim again.
-      return claim(key, payloadHash, principal, storeOptions);
+      return claimOn(resolved, key, payloadHash, principal, ttlMs);
     }
     if (
       current.principal_id !== (principal.userId ?? '') ||
@@ -351,12 +473,17 @@ export function createDatabaseIdempotencyStore(
     claim,
 
     async completeInTransaction(tx, key, result, storeOptions) {
+      // A key kept on another database than the capability's transaction cannot commit with
+      // it: say so, and the caller writes the completion once the capability has returned.
+      if (target(storeOptions).database !== storeOptions?.database) return false;
       if (!(await finish(tx, key, result, storeOptions))) throw new IdempotencyClaimLostError();
+      return true;
     },
 
     async complete(key, result, storeOptions) {
-      // Outside a business transaction (the capability has none): written after the fact. A
-      // crash before this statement leaves the claim to lapse, and a retry runs again.
+      // Outside a business transaction (the capability has none, or the key is kept on another
+      // database): written after the fact. A crash before this statement leaves the claim to
+      // lapse, and a retry runs again.
       await finish(target(storeOptions).database, key, result, storeOptions);
     },
 
@@ -371,6 +498,10 @@ export function createDatabaseIdempotencyStore(
           AND state = 'in-progress'
           AND claim_token = ${token}::uuid
       `);
+    },
+
+    release(_key, storeOptions) {
+      settle(storeOptions);
     },
   };
 }

@@ -9,6 +9,12 @@ export interface EntityRetention {
 export interface EntityIndexDefinition {
   columns: string[];
   unique?: boolean;
+  /**
+   * Index method. Default `btree`. `gin` indexes one `field.json()` column with the
+   * `jsonb_path_ops` operator class, which serves the repository's `contains` filter
+   * (`col @> value`); a gin index cannot be `unique`.
+   */
+  using?: 'btree' | 'gin';
 }
 
 // ── Entity Definition ──

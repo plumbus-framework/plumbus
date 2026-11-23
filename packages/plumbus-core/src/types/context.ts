@@ -79,11 +79,87 @@ export interface QueryOptions {
    * field → allowed values (SQL IN). An empty list allows no value, so the read matches no
    * rows (core 0.9.0-beta.12 and earlier ignored an empty list, so the read matched every row).
    * To make a filter optional, leave the key out when there is nothing to filter by.
+   *
+   * The list travels as one array parameter (`col = ANY($1::type[])`), not one bind parameter
+   * per value, so a list of any length stays under PostgreSQL's 65,535-parameter limit and
+   * every length shares one prepared statement.
    */
   in?: Record<string, Array<string | number>>;
   /** field → value the row must NOT equal (SQL <>). */
   notEq?: Record<string, string | number>;
+  /**
+   * JSON containment on `field.json()` columns: field → a JSON value the column must contain
+   * (`col @> $1::jsonb`). `{ assetIds: [id] }` matches rows whose `assetIds` array holds `id`;
+   * `{ meta: { kind: 'draft' } }` matches rows whose object has that key and value. Several
+   * fields must all match. A GIN index declared on the column
+   * (`indexes: [{ columns: ['assetIds'], using: 'gin' }]`, `jsonb_path_ops`) serves it.
+   * Only json fields may be named; any other field is refused.
+   */
+  contains?: Record<string, unknown>;
 }
+
+/** The WHERE filters of a call, without order, limit or paging keys. */
+export type QueryFilters = Pick<
+  QueryOptions,
+  'dateFilters' | 'search' | 'in' | 'notEq' | 'contains'
+>;
+
+// ── Set-based writes (deleteMany / updateMany) ──
+
+/**
+ * How a set-based write is recorded in the audit trail.
+ *
+ * - `'per-row'` (the default): one row per affected record, the same rows a loop of
+ *   `delete(id)` / `update(id, …)` would write (`<Entity>.delete` with `{ id }`,
+ *   `<Entity>.update` with `{ id, …masked values }`), inserted in batches. Nothing is less
+ *   visible than the loop it replaces.
+ * - `'summary'`: one `<Entity>.deleteMany` / `<Entity>.updateMany` row per statement with the
+ *   masked filter, the limit and the row count (and, for an update, the masked values) — not
+ *   the ids. Choose it explicitly where the per-record trail is not needed.
+ *
+ * Masked fields are masked in both. An entity whose repository has no audit service writes
+ * neither, as for its single-record writes.
+ */
+export type SetWriteAudit = 'per-row' | 'summary';
+
+/** Options of `deleteMany` / `updateMany`: the filters of `findMany`, a bound and the audit mode. */
+export interface SetWriteOptions extends QueryFilters {
+  /**
+   * Most rows one call changes: a whole number of at least 1. Required, so no set-based write
+   * is unbounded by accident. To process more, call again until `count` is below `limit` — for
+   * `updateMany`, with a filter the updated rows no longer match, or the same rows are found again.
+   */
+  limit: number;
+  /**
+   * Which rows a call takes when more than `limit` match (default `id` ascending). Columns of
+   * the entity, as for `findMany`.
+   */
+  orderBy?: string | Array<{ column: string; dir?: 'asc' | 'desc' }>;
+  /** Direction for a string `orderBy` and array specs without `dir` (default 'asc'). */
+  orderDir?: 'asc' | 'desc';
+  /** Audit mode (default `'per-row'`); see {@link SetWriteAudit}. */
+  audit?: SetWriteAudit;
+}
+
+/** What a set-based write changed. */
+export interface SetWriteResult {
+  /** Rows deleted or updated by this call (at most `limit`). */
+  count: number;
+  /** Their ids. */
+  ids: string[];
+}
+
+/** Options of `Repository.update`. */
+export interface UpdateOptions {
+  /**
+   * `false`: read nothing back (`RETURNING id` only, to detect a missing row); the call resolves
+   * to `undefined`. Default: the whole updated row.
+   */
+  returning?: false;
+}
+
+/** What `update` resolves to for its options: the row, or nothing (`returning: false`). */
+export type UpdateResult<T, O> = O extends { returning: false } ? unknown : T;
 
 // ── Aggregate Options (SUM / AVG / MIN / MAX / COUNT / DISTINCT in SQL) ──
 
@@ -111,8 +187,7 @@ export type AggregateRow = Record<string, AggregateValue>;
  * `query` equality argument) are identical to `findMany`, so tenant scoping,
  * soft-delete filtering, and encrypted-field guards all apply unchanged.
  */
-export interface AggregateOptions
-  extends Pick<QueryOptions, 'dateFilters' | 'search' | 'in' | 'notEq'> {
+export interface AggregateOptions extends QueryFilters {
   /** Columns to GROUP BY. Omit for a single grand-total row over all matches. */
   groupBy?: string | string[];
   /** Columns to SUM — each emits `sum_<col>` (numeric; empty set = `0`). */
@@ -150,7 +225,7 @@ export interface AggregateOptions
  * the previous page returned. Paging is keyset ("after this row"), not OFFSET, so a deep page
  * costs the same as the first and rows inserted meanwhile do not shift the pages.
  */
-export interface PageOptions extends Pick<QueryOptions, 'dateFilters' | 'search' | 'in' | 'notEq'> {
+export interface PageOptions extends QueryFilters {
   /** Rows per page: a whole number from 1 to the read ceiling. */
   limit: number;
   /**
@@ -203,7 +278,18 @@ export interface Repository<
    * loop (typically > ~10 records).
    */
   createMany(records: TCreate[]): Promise<T[]>;
-  update(id: string, updates: TUpdate): Promise<T>;
+  /**
+   * Update one row by id. By default the whole updated row is read back and returned.
+   * `{ returning: false }` reads nothing back (`RETURNING id` only, so a missing row is still
+   * refused) and resolves to `undefined` (typed `unknown`): use it where the caller ignores the
+   * result and the row is wide. One generic signature, so a custom repository written before
+   * the option (it ignores the third argument and returns the row) still satisfies the interface.
+   */
+  update<O extends UpdateOptions = Record<never, never>>(
+    id: string,
+    updates: TUpdate,
+    options?: O,
+  ): Promise<UpdateResult<T, O>>;
   /**
    * Compare-and-set update: applies `updates` to the row with `id` only if the
    * row currently equals every field in `predicate` (a `null` predicate value
@@ -225,6 +311,29 @@ export interface Repository<
     updates: TUpdate,
   ): Promise<ConditionalUpdateResult<T>>;
   delete(id: string): Promise<void>;
+  /**
+   * Delete the rows `query` and the filters match, at most `options.limit` of them, in one
+   * statement (`DELETE … WHERE id IN (SELECT id … LIMIT n) AND <filters>`). Tenant scope and
+   * soft delete apply as in `delete` (a soft-deleting repository sets `deletedAt`). Audited per
+   * row by default, or with one summary row (`audit: 'summary'`); see {@link SetWriteAudit}.
+   * Call again while `count === limit` to delete the rest in bounded batches.
+   *
+   * Optional, like `updateWhere`, so a custom `Repository` written before it existed still
+   * satisfies this interface; the framework's repositories (drizzle + in-memory) provide it.
+   */
+  deleteMany?(query: Partial<T> | undefined, options: SetWriteOptions): Promise<SetWriteResult>;
+  /**
+   * Apply `values` to the rows `query` and the filters match, at most `options.limit` of them,
+   * in one statement. `id` and `tenantId` cannot be set. `updatedAt` is set as by `update`;
+   * encrypted fields are encrypted. Audited per row by default (the rows `update` writes), or
+   * with one summary row; an update of `auditSilent` fields only writes none, as `update`.
+   * Optional for the same reason as `deleteMany`.
+   */
+  updateMany?(
+    query: Partial<T> | undefined,
+    values: TUpdate,
+    options: SetWriteOptions,
+  ): Promise<SetWriteResult>;
   findMany(query?: Partial<T>, options?: QueryOptions): Promise<T[]>;
   /**
    * `findMany` that reads only `fields` (nonempty; unknown fields fail rather than
@@ -240,19 +349,13 @@ export interface Repository<
     fields: readonly K[],
     options?: QueryOptions,
   ): Promise<Pick<T, K>[]>;
-  count(
-    query?: Partial<T>,
-    options?: Pick<QueryOptions, 'dateFilters' | 'search' | 'in' | 'notEq'>,
-  ): Promise<number>;
+  count(query?: Partial<T>, options?: QueryFilters): Promise<number>;
   /**
    * Whether any row matches, without loading one (`SELECT 1 … LIMIT 1`). Same filters as
    * `count`. Optional, like `updateWhere`, so a custom `Repository` written before it existed
    * still satisfies this interface; the framework's repositories (drizzle + in-memory) provide it.
    */
-  exists?(
-    query?: Partial<T>,
-    options?: Pick<QueryOptions, 'dateFilters' | 'search' | 'in' | 'notEq'>,
-  ): Promise<boolean>;
+  exists?(query?: Partial<T>, options?: QueryFilters): Promise<boolean>;
   /**
    * Keyset paging: one page of at most `options.limit` rows after `options.after`, in a total
    * order (`orderBy` plus `id`), and the cursor of the next page. Use it to walk a set that may
@@ -271,6 +374,24 @@ export interface Repository<
    */
   aggregate(query?: Partial<T>, options?: AggregateOptions): Promise<AggregateRow[]>;
 }
+
+/**
+ * What `createRepository` returns: a {@link Repository} whose optional methods are all present,
+ * so code that builds its own data surface over the framework repository (a host's bound
+ * repository, a package facade) can call `findPage`, `exists`, `findManyFields`, `updateWhere`,
+ * `deleteMany` and `updateMany` without a presence check.
+ */
+export type FrameworkRepository<
+  T = Record<string, any>,
+  TCreate = Record<string, any>,
+  TUpdate = Record<string, any>,
+> = Repository<T, TCreate, TUpdate> &
+  Required<
+    Pick<
+      Repository<T, TCreate, TUpdate>,
+      'updateWhere' | 'findManyFields' | 'exists' | 'findPage' | 'deleteMany' | 'updateMany'
+    >
+  >;
 
 // ── Data Service (all entity repositories) ──
 // Uses RegisteredEntities from the type registry. When consumer apps run

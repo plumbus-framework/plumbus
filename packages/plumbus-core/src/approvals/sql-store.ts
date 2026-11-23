@@ -242,6 +242,17 @@ export function createSqlApprovalStore(config: SqlApprovalStoreConfig): Approval
       return rows[0] ? mapRequest(rows[0]) : undefined;
     },
 
+    async getRequests(ids) {
+      const unique = [...new Set(ids)];
+      if (unique.length === 0) return [];
+      const db = await resolveDb();
+      const rows = await db
+        .select()
+        .from(request)
+        .where(sql`${request.approvalRequestId} = ANY(${sql.param(unique)}::text[])`);
+      return rows.map(mapRequest);
+    },
+
     async listRequests() {
       const db = await resolveDb();
       const rows = await db.select().from(tables.approvalRequest);

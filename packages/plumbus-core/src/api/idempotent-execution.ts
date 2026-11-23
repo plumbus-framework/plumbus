@@ -73,23 +73,28 @@ export async function executeIdempotently<T>(
   const executeOptions: ExecuteCapabilityOptions | undefined = completeInTransaction
     ? {
         beforeCommit: async (tx, output) => {
-          await completeInTransaction(tx, key, output, options);
-          completedInTransaction = true;
+          // `false`: the store keeps this key on another database; complete after the call.
+          completedInTransaction =
+            (await completeInTransaction(tx, key, output, options)) !== false;
         },
       }
     : undefined;
 
-  let result: CapabilityResult<T>;
   try {
-    result = await params.execute(executeOptions);
-  } catch (execErr) {
-    await store.abort(key, options);
-    throw execErr;
+    let result: CapabilityResult<T>;
+    try {
+      result = await params.execute(executeOptions);
+    } catch (execErr) {
+      await store.abort(key, options);
+      throw execErr;
+    }
+    if (result.success) {
+      if (!completedInTransaction) await store.complete(key, result.data, options);
+    } else {
+      await store.abort(key, options);
+    }
+    return { kind: 'executed', result };
+  } finally {
+    store.release?.(key, options);
   }
-  if (result.success) {
-    if (!completedInTransaction) await store.complete(key, result.data, options);
-  } else {
-    await store.abort(key, options);
-  }
-  return { kind: 'executed', result };
 }

@@ -130,6 +130,12 @@ export interface ApprovalStore {
   putRequest(row: ApprovalRequestRecord): Promise<void>;
   getRequest(id: string): Promise<ApprovalRequestRecord | undefined>;
   /**
+   * The requests with these ids, in one read (the SQL store sends the ids as one array
+   * parameter, so any number fits in a statement); ids with no request are left out, duplicates
+   * count once, order is not guaranteed. Optional: callers fall back to `getRequest` per id.
+   */
+  getRequests?(ids: readonly string[]): Promise<ApprovalRequestRecord[]>;
+  /**
    * Every request in the store, in one read. On the SQL store this loads the whole
    * `approval_request` table into memory: use `findRequests` for a lookup and
    * `listAllRequests` to page through everything. Kept for stores and callers written before

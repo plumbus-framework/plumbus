@@ -31,10 +31,14 @@ import type {
   AggregateRow,
   AggregateValue,
   ConditionalUpdateResult,
+  FrameworkRepository,
   Page,
   PageOptions,
+  QueryFilters,
   QueryOptions,
-  Repository,
+  SetWriteOptions,
+  SetWriteResult,
+  UpdateOptions,
 } from '../types/context.js';
 import {
   decodeKeysetCursor,
@@ -66,6 +70,17 @@ import {
   maskSensitiveValues,
   AUDIT_MASK_TOKEN,
 } from './mask-fields.js';
+import { recordAuditBatch } from '../audit/index.js';
+
+/**
+ * Column types whose `in` list is sent as one typed array parameter. Other types (enums named by
+ * the host, json, timestamps) keep one parameter per value, as before.
+ */
+const ARRAY_PARAM_TYPE =
+  /^(uuid|text|integer|bigint|smallint|real|double precision|boolean|numeric(\(\d+(, ?\d+)?\))?|varchar(\(\d+\))?|character varying(\(\d+\))?)$/;
+
+/** `in` values per column that a summary audit row lists before it gives only their number. */
+const SUMMARY_IN_LIST_MAX = 1000;
 
 export interface RepositoryOptions {
   entity: EntityDefinition;
@@ -96,7 +111,7 @@ export function createRepository<
   T = Record<string, unknown>,
   TCreate extends Record<string, unknown> = Record<string, any>,
   TUpdate extends Record<string, unknown> = Record<string, any>,
->(options: RepositoryOptions): Repository<T, TCreate, TUpdate> {
+>(options: RepositoryOptions): FrameworkRepository<T, TCreate, TUpdate> {
   const {
     entity,
     table,
@@ -202,6 +217,11 @@ export function createRepository<
         names.push(key);
       }
     }
+    if (options?.contains) {
+      for (const key of Object.keys(options.contains)) {
+        names.push(key);
+      }
+    }
     if (options?.orderBy) {
       const specs =
         typeof options.orderBy === 'string' ? [{ column: options.orderBy }] : options.orderBy;
@@ -259,6 +279,39 @@ export function createRepository<
     });
   }
 
+  /**
+   * `col = ANY($1::type[])`: one array parameter however long the list, so no list crosses
+   * PostgreSQL's 65,535 bind-parameter limit and every length shares one statement text. Each
+   * value goes through the column's own driver mapping first, as `inArray` would have done.
+   */
+  function anyOf(column: any, values: ReadonlyArray<string | number>): SQL {
+    const sqlType = typeof column.getSQLType === 'function' ? String(column.getSQLType()) : '';
+    if (!ARRAY_PARAM_TYPE.test(sqlType)) return inArray(column, values as any[]);
+    const encoded = values.map((value) =>
+      typeof column.mapToDriverValue === 'function' ? column.mapToDriverValue(value) : value,
+    );
+    return sql`${column} = ANY(${sql.param(encoded)}::${sql.raw(sqlType)}[])`;
+  }
+
+  /** `col @> $1::jsonb` for a json field; any other field is refused. */
+  function containsCondition(fieldName: string, value: unknown): SQL {
+    const descriptor = entity.fields[fieldName];
+    const column = (table as any)[fieldName];
+    if (!descriptor || descriptor.type !== 'json' || !column) {
+      throw new DataValidationError(
+        `contains on "${entity.name}": "${fieldName}" is not a json field of the entity`,
+        { entity: entity.name, field: fieldName, operation: 'contains' },
+      );
+    }
+    if (value === undefined) {
+      throw new DataValidationError(
+        `contains on "${entity.name}": no value given for "${fieldName}"`,
+        { entity: entity.name, field: fieldName, operation: 'contains' },
+      );
+    }
+    return sql`${column} @> ${JSON.stringify(value)}::jsonb`;
+  }
+
   function buildConditions(query?: Partial<T>, options?: QueryOptions): SQL[] {
     assertQueryableFields(query, options);
     const conditions: SQL[] = [];
@@ -286,7 +339,12 @@ export function createRepository<
         if (!c) continue;
         // An empty allow-list allows nothing. Dropping the filter instead (as earlier
         // releases did) turned "rows for none of these ids" into "every row".
-        conditions.push(vals.length ? inArray(c, vals) : sql`false`);
+        conditions.push(vals.length ? anyOf(c, vals) : sql`false`);
+      }
+    }
+    if (options?.contains) {
+      for (const [k, value] of Object.entries(options.contains)) {
+        conditions.push(containsCondition(k, value));
       }
     }
     if (options?.notEq) {
@@ -311,6 +369,128 @@ export function createRepository<
     return conditions;
   }
 
+  /**
+   * The statement shape every set-based write shares: the filters (tenant scope, soft delete,
+   * the caller's query and filters), and the bounded id subquery that picks at most `limit`
+   * of the matching rows in a stable order. The outer statement repeats the filters, so a row
+   * changed by another transaction since the subquery read it is re-checked before it is
+   * written (PostgreSQL re-evaluates the outer WHERE on the newest row version).
+   */
+  function planSetWrite(
+    operation: 'deleteMany' | 'updateMany',
+    query: Partial<T> | undefined,
+    setOptions: SetWriteOptions,
+  ): { limit: number; conditions: SQL[]; inner: any } {
+    const limit = setOptions?.limit;
+    if (!Number.isInteger(limit) || limit < 1) {
+      throw new DataValidationError(`${operation} needs limit: a whole number of at least 1`, {
+        entity: entity.name,
+        operation,
+        field: 'limit',
+      });
+    }
+    if (
+      setOptions.audit !== undefined &&
+      setOptions.audit !== 'per-row' &&
+      setOptions.audit !== 'summary'
+    ) {
+      throw new DataValidationError(`${operation} audit must be 'per-row' or 'summary'`, {
+        entity: entity.name,
+        operation,
+        field: 'audit',
+      });
+    }
+    const conditions = buildConditions(query, filtersOf(setOptions));
+    const idColumn = (table as any).id;
+    let inner: any = db.select({ id: idColumn }).from(table).where(combine(conditions));
+    inner = setOptions.orderBy
+      ? applyOrder(inner, { orderBy: setOptions.orderBy, orderDir: setOptions.orderDir ?? 'asc' })
+      : inner.orderBy(asc(idColumn));
+    inner = inner.limit(limit);
+    return { limit, conditions, inner };
+  }
+
+  /** The filter of a set-based write as a summary audit row records it, masked. */
+  function auditedFilter(query: Partial<T> | undefined, setOptions: SetWriteOptions) {
+    const maskedSet = new Set(maskedFields);
+    const maskValue = (fieldName: string, value: unknown) =>
+      maskedSet.has(fieldName) ? AUDIT_MASK_TOKEN : value;
+    const maskEach = (record: Record<string, unknown> | undefined) =>
+      record
+        ? Object.fromEntries(Object.entries(record).map(([k, v]) => [k, maskValue(k, v)]))
+        : undefined;
+    const inLists = setOptions.in
+      ? Object.fromEntries(
+          Object.entries(setOptions.in).map(([k, vals]) => {
+            const shown = maskedSet.has(k) ? vals.map(() => AUDIT_MASK_TOKEN) : vals;
+            return [
+              k,
+              shown.length > SUMMARY_IN_LIST_MAX
+                ? {
+                    values: shown.slice(0, SUMMARY_IN_LIST_MAX),
+                    total: shown.length,
+                    truncated: true,
+                  }
+                : shown,
+            ];
+          }),
+        )
+      : undefined;
+    const search = setOptions.search
+      ? {
+          columns: setOptions.search.columns,
+          term: setOptions.search.columns.some((c) => maskedSet.has(c))
+            ? AUDIT_MASK_TOKEN
+            : setOptions.search.term,
+        }
+      : undefined;
+    return Object.fromEntries(
+      Object.entries({
+        where: query ? maskData(query as Record<string, unknown>) : undefined,
+        in: inLists,
+        notEq: maskEach(setOptions.notEq),
+        dateFilters: maskEach(setOptions.dateFilters as Record<string, unknown> | undefined),
+        contains: maskEach(setOptions.contains),
+        search,
+        orderBy: setOptions.orderBy,
+      }).filter(([, v]) => v !== undefined),
+    );
+  }
+
+  /**
+   * Audit rows of a set-based write: per row (the rows a loop of single writes leaves) or one
+   * summary row. Nothing when no row changed.
+   */
+  async function auditSetWrite(
+    action: 'delete' | 'update',
+    ids: string[],
+    query: Partial<T> | undefined,
+    setOptions: SetWriteOptions,
+    limit: number,
+    updateData?: Record<string, unknown>,
+  ): Promise<void> {
+    if (!audit || ids.length === 0) return;
+    if ((setOptions.audit ?? 'per-row') === 'per-row') {
+      const values = updateData ? maskData(updateData) : undefined;
+      await recordAuditBatch(
+        audit,
+        ids.map((id) => ({
+          eventType: `${entity.name}.${action}`,
+          // Exactly what `delete(id)` / `update(id, …)` record for one row.
+          metadata: { id, ...values, _maskedFields: maskedFields },
+        })),
+      );
+      return;
+    }
+    await audit.record(`${entity.name}.${action}Many`, {
+      count: ids.length,
+      limit,
+      filter: auditedFilter(query, setOptions),
+      ...(updateData ? { values: maskData(updateData) } : {}),
+      _maskedFields: maskedFields,
+    });
+  }
+
   function combine(conds: SQL[]): SQL | undefined {
     return conds.length > 1 ? and(...conds) : conds[0];
   }
@@ -332,15 +512,14 @@ export function createRepository<
   }
 
   /** Only the WHERE filters of a call (no order, limit or aggregate keys). */
-  function filtersOf(
-    options?: Pick<QueryOptions, 'dateFilters' | 'search' | 'in' | 'notEq'>,
-  ): QueryOptions | undefined {
+  function filtersOf(options?: QueryFilters): QueryOptions | undefined {
     return options
       ? {
           dateFilters: options.dateFilters,
           search: options.search,
           in: options.in,
           notEq: options.notEq,
+          contains: options.contains,
         }
       : undefined;
   }
@@ -479,7 +658,7 @@ export function createRepository<
       }) as T[];
     },
 
-    async update(id: string, updates: TUpdate): Promise<T> {
+    async update(id: string, updates: TUpdate, updateOptions?: UpdateOptions): Promise<any> {
       await assertTenantContext('update');
       const conditions: SQL[] = [];
       const idCol = (table as any).id;
@@ -502,7 +681,16 @@ export function createRepository<
         updatedAt: new Date(),
       });
 
-      const rows = await db.update(table).set(updateData).where(where).returning();
+      // `returning: false` reads back only the id, to tell a missing row; the row's other
+      // (possibly wide) columns are not read.
+      const quiet = updateOptions?.returning === false;
+      const rows = quiet
+        ? await db
+            .update(table)
+            .set(updateData)
+            .where(where)
+            .returning({ id: (table as any).id })
+        : await db.update(table).set(updateData).where(where).returning();
 
       const updated = decryptRow(rows[0] as T | undefined);
       if (!updated) {
@@ -514,7 +702,7 @@ export function createRepository<
       if (!isAuditSilentUpdate(updates as Record<string, unknown>)) {
         await auditMutation('update', { id, ...updateData });
       }
-      return updated;
+      return quiet ? undefined : updated;
     },
 
     async updateWhere(
@@ -591,6 +779,66 @@ export function createRepository<
       await auditMutation('delete', { id });
     },
 
+    async deleteMany(query: Partial<T> | undefined, setOptions: SetWriteOptions) {
+      await assertTenantContext('deleteMany');
+      const { limit, conditions, inner } = planSetWrite('deleteMany', query, setOptions);
+      const outer = and(inArray((table as any).id, inner), ...conditions) as SQL;
+      const rows =
+        softDelete && hasDeletedAt
+          ? await db
+              .update(table)
+              .set({ deletedAt: new Date() } as any)
+              .where(outer)
+              .returning({ id: (table as any).id })
+          : await db
+              .delete(table)
+              .where(outer)
+              .returning({ id: (table as any).id });
+      const ids = (Array.isArray(rows) ? rows : []).map((row) => String((row as any).id));
+      await auditSetWrite('delete', ids, query, setOptions, limit);
+      return { count: ids.length, ids } satisfies SetWriteResult;
+    },
+
+    async updateMany(
+      query: Partial<T> | undefined,
+      values: TUpdate,
+      setOptions: SetWriteOptions,
+    ): Promise<SetWriteResult> {
+      await assertTenantContext('updateMany');
+      const changes = { ...(values as Record<string, unknown>) };
+      const columns = getTableColumns(table);
+      for (const key of Object.keys(changes)) {
+        if (key === 'id' || key === 'tenantId' || !columns[key]) {
+          throw new DataValidationError(`updateMany on "${entity.name}" cannot set "${key}"`, {
+            entity: entity.name,
+            field: key,
+            operation: 'updateMany',
+          });
+        }
+      }
+      if (Object.keys(changes).length === 0) {
+        throw new DataValidationError(`updateMany on "${entity.name}" needs at least one value`, {
+          entity: entity.name,
+          operation: 'updateMany',
+        });
+      }
+      const { limit, conditions, inner } = planSetWrite('updateMany', query, setOptions);
+      const updateData: Record<string, unknown> = encryptRecordFields({
+        ...changes,
+        updatedAt: new Date(),
+      });
+      const rows = await db
+        .update(table)
+        .set(updateData)
+        .where(and(inArray((table as any).id, inner), ...conditions) as SQL)
+        .returning({ id: (table as any).id });
+      const ids = (Array.isArray(rows) ? rows : []).map((row) => String((row as any).id));
+      if (!isAuditSilentUpdate(changes)) {
+        await auditSetWrite('update', ids, query, setOptions, limit, updateData);
+      }
+      return { count: ids.length, ids };
+    },
+
     findMany(query?: Partial<T>, options?: QueryOptions): Promise<T[]> {
       return queryMany(query, options) as Promise<T[]>;
     },
@@ -603,10 +851,7 @@ export function createRepository<
       return queryMany(query, options, fields ?? null, 'findManyFields') as Promise<Pick<T, K>[]>;
     },
 
-    async exists(
-      query?: Partial<T>,
-      options?: Pick<QueryOptions, 'dateFilters' | 'search' | 'in' | 'notEq'>,
-    ): Promise<boolean> {
+    async exists(query?: Partial<T>, options?: QueryFilters): Promise<boolean> {
       await assertTenantContext('exists');
       const where = combine(buildConditions(query, filtersOf(options)));
       const rows = await db.select({ one: sql<number>`1` }).from(table).where(where).limit(1);
@@ -653,12 +898,9 @@ export function createRepository<
       };
     },
 
-    async count(
-      query?: Partial<T>,
-      options?: Pick<QueryOptions, 'dateFilters' | 'search' | 'in' | 'notEq'>,
-    ): Promise<number> {
+    async count(query?: Partial<T>, options?: QueryFilters): Promise<number> {
       await assertTenantContext('count');
-      const where = combine(buildConditions(query, options));
+      const where = combine(buildConditions(query, filtersOf(options)));
       const res = await db.select({ count: count() }).from(table).where(where);
       return Number(res[0]?.count ?? 0);
     },
@@ -671,15 +913,7 @@ export function createRepository<
       // the filter subset is forwarded — an aggregate `orderBy` may reference
       // aggregate aliases (e.g. `sum_cost`) that are not table columns, so it
       // must not flow into the WHERE/field-validation pass.
-      const filterOpts: QueryOptions | undefined = options
-        ? {
-            dateFilters: options.dateFilters,
-            search: options.search,
-            in: options.in,
-            notEq: options.notEq,
-          }
-        : undefined;
-      const where = combine(buildConditions(query, filterOpts));
+      const where = combine(buildConditions(query, filtersOf(options)));
 
       const selection: Record<string, any> = {};
       // `sum_*`/`count`/`countDistinct_*` are always numeric; `sum_*` additionally

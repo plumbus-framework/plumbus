@@ -38,6 +38,14 @@ export type {
   SingleDataPlaneResolverOptions,
 } from './types.js';
 
+// One ceiling on server connections across every plane a pooled resolver opens
+// (`maxTotalConnections`), handed to `connect` and on to `openDataPlaneConnection`.
+export { DataPlaneConnectionBudgetError } from './connection-budget.js';
+export type {
+  DataPlaneConnectionBudget,
+  DataPlaneConnectionBudgetStats,
+} from './connection-budget.js';
+
 // Opening a data plane: a bounded, per-tenant pool against one named database,
 // opened as one named role, in the shape `connect` must return. Credentials
 // never reach a message, an error's metadata, or the notice stream.

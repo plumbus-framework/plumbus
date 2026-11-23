@@ -23,6 +23,26 @@ export interface CapabilityAuditConfig {
   event: string;
   includeInput?: string[];
   includeOutput?: string[];
+  /**
+   * `false`: write no `success` row for this capability's calls; `denied` and `failure` rows are
+   * written as always, and so are the rows its data writes record. The action counterpart of
+   * `execution.auditSuccessfulQueries: false`, for high-volume actions whose success is already
+   * recorded by their data. Default `true`.
+   */
+  success?: boolean;
+  /**
+   * For a capability that runs without a framework transaction (`transactional: false`, AI or
+   * external effects, `kind: 'job'`): hold every `success` row its handler writes — `ctx.audit`,
+   * its repository writes, its events, its own success row — in the process until the handler
+   * ends, then write them in one batch. Its own tenant transaction then never waits for an audit
+   * insert on a second connection. `denied` and `failure` rows are written at once. Held rows are
+   * written whether the handler succeeds or fails (the writes they describe are done), never fail
+   * the call, and are retried and reported if they cannot be written; they are lost only if the
+   * process dies before the handler ends. No effect on a capability with a framework transaction,
+   * whose rows already commit with it, nor on a `query`, whose success row records a disclosure
+   * and is written before the answer. Default `false`.
+   */
+  deferSuccess?: boolean;
 }
 
 // ── Capability Explanation Config ──
