@@ -52,6 +52,10 @@ export async function loadServerExtensions(
       if (typeof authorizeFlowAccess === 'function') {
         extensions.authorizeFlowAccess = authorizeFlowAccess;
       }
+      const pumpEventOutbox = mod.pumpEventOutbox ?? mod.default?.pumpEventOutbox;
+      if (typeof pumpEventOutbox === 'function' || typeof pumpEventOutbox === 'boolean') {
+        extensions.pumpEventOutbox = pumpEventOutbox;
+      }
       const onFlowDefinitionUnavailable =
         mod.onFlowDefinitionUnavailable ?? mod.default?.onFlowDefinitionUnavailable;
       if (typeof onFlowDefinitionUnavailable === 'function') {

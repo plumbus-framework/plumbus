@@ -73,11 +73,21 @@ export interface DispatcherConfig {
    * on every poll.
    */
   frameworkSchema?: string;
+  /**
+   * Whether this dispatcher publishes a plane's `event_outbox` rows (core 0.9.0-beta.15).
+   * Default `true`. `false`, or a function answering `false` for a plane, leaves that plane's
+   * `event_outbox` to a host that relays it itself; `dispatch_outbox` (flow dispatch hints) is
+   * still pumped. The function gets the tenant reference, or `undefined` for the pool's own
+   * database (the single-database pump).
+   */
+  pumpEventOutbox?: boolean | ((tenantRef: string | undefined) => boolean);
 }
 
 interface PumpTarget {
   db: PostgresJsDatabase;
   tenantRef: string;
+  /** Whether to pump the plane's `event_outbox` (see `DispatcherConfig.pumpEventOutbox`). */
+  events: boolean;
 }
 
 /** What one visit to a plane found: rows dispatched or published, and rows still waiting. */
@@ -162,9 +172,15 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
     idlePlanes.set(tenantRef, { idleVisits, nextVisitAt: at + skipFor });
   }
 
+  /** Whether a plane's `event_outbox` is this dispatcher's to pump. */
+  function pumpsEvents(tenantRef: string | undefined): boolean {
+    const choice = config.pumpEventOutbox ?? true;
+    return typeof choice === 'function' ? choice(tenantRef) : choice;
+  }
+
   /** Drain one plane: `event_outbox`, then `dispatch_outbox` when a spine is configured. */
   async function pumpPlane(target: PumpTarget): Promise<PumpResult> {
-    const events = await pollEventOutbox(target.db);
+    const events = target.events ? await pollEventOutbox(target.db) : { dispatched: 0, seen: 0 };
     const published = await pumpDispatchOutbox(target);
     return {
       dispatched: events.dispatched + published,
@@ -197,13 +213,16 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
     for (const tenantRef of refs) {
       const at = Date.now();
       if (!isDue(tenantRef, at)) continue;
+      const events = pumpsEvents(tenantRef);
+      // Nothing of this plane's is ours to pump: do not even take it.
+      if (!events && !spineDb) continue;
       // One plane's failure must neither stop the others nor escape the timer: an
       // unhandled rejection here would take the worker process down.
       try {
         const result = await withDataPlane(
           planeResolver,
           tenantRef,
-          (handle) => pumpPlane({ db: handle.db, tenantRef: handle.tenantRef }),
+          (handle) => pumpPlane({ db: handle.db, tenantRef: handle.tenantRef, events }),
           { purpose: 'background' },
         );
         dispatched += result.dispatched;
@@ -399,8 +418,10 @@ export function createOutboxDispatcher(config: DispatcherConfig) {
 
     try {
       if (resolver && listTenantRefs) return await pollTenantPlanes(resolver, listTenantRefs);
+      const events = pumpsEvents(undefined);
+      if (!events && !spineDb) return 0;
       try {
-        return (await pumpPlane({ db, tenantRef: 'default' })).dispatched;
+        return (await pumpPlane({ db, tenantRef: 'default', events })).dispatched;
       } catch (err) {
         logError('Outbox poll failed for one plane', {
           tenantRef: 'default',

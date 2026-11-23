@@ -18,6 +18,7 @@ import type {
   DataConfig,
   Environment,
   ExecutionConfig,
+  FlowLanesConfig,
   PlumbusConfig,
   PromptModelOverride,
   QueueConfig,
@@ -99,7 +100,34 @@ function loadWorkersConfig(env: Record<string, string | undefined>): {
     const value = readEnvNumber(env, variable, rule);
     if (value !== undefined) workers[key] = value;
   }
+  const historyLimit = readEnvNumber(
+    env,
+    'PLUMBUS_FLOW_STEP_HISTORY_LIMIT',
+    STEP_HISTORY_LIMIT_RULE,
+  );
+  if (historyLimit !== undefined) workers.flowStepHistoryLimit = historyLimit;
+  const pump = readEnvChoice(env, 'PLUMBUS_EVENT_OUTBOX_PUMP', ['all', 'none'] as const);
+  if (pump) workers.eventOutboxPump = pump;
+  const flowLanes = loadFlowLanesConfig(env);
+  if (flowLanes) workers.flowLanes = flowLanes;
   return Object.keys(workers).length > 0 ? { workers } : {};
+}
+
+/** `workers.flowLanes` from env, present only when one of its variables is set. */
+function loadFlowLanesConfig(env: Record<string, string | undefined>): FlowLanesConfig | undefined {
+  const lanes: FlowLanesConfig = {};
+  const counts = [
+    ['reservedUntenanted', 'PLUMBUS_FLOW_RESERVED_UNTENANTED', RESERVED_UNTENANTED_RULE],
+    ['maxPerTenant', 'PLUMBUS_FLOW_MAX_PER_TENANT', FLOW_LANE_MAX_RULE],
+    ['maxPerFlow', 'PLUMBUS_FLOW_MAX_PER_FLOW', FLOW_LANE_MAX_RULE],
+  ] as const;
+  for (const [key, variable, rule] of counts) {
+    const value = readEnvNumber(env, variable, rule);
+    if (value !== undefined) lanes[key] = value;
+  }
+  const order = readEnvChoice(env, 'PLUMBUS_FLOW_TENANT_ORDER', ['fair', 'fifo'] as const);
+  if (order) lanes.tenantOrder = order;
+  return Object.keys(lanes).length > 0 ? lanes : undefined;
 }
 
 // ── Execution Config ──
@@ -499,6 +527,30 @@ const PROVIDER_DAILY_COST_LIMIT_RULE: EnvNumberRule = {
 
 /** `PLUMBUS_FLOW_CONCURRENCY`: flow executions one worker pool runs at once. */
 const FLOW_CONCURRENCY_RULE: EnvNumberRule = {
+  pattern: /^\d+$/,
+  min: 1,
+  max: MAX_FLOW_CONCURRENCY,
+  expected: `a whole number from 1 to ${MAX_FLOW_CONCURRENCY}`,
+};
+
+/** `PLUMBUS_FLOW_STEP_HISTORY_LIMIT`: 0 keeps every step history entry. */
+const STEP_HISTORY_LIMIT_RULE: EnvNumberRule = {
+  pattern: /^\d+$/,
+  min: 0,
+  max: 1_000_000,
+  expected: 'a whole number from 0 to 1000000',
+};
+
+/** `PLUMBUS_FLOW_RESERVED_UNTENANTED`: runner slots held for untenanted flows. */
+const RESERVED_UNTENANTED_RULE: EnvNumberRule = {
+  pattern: /^\d+$/,
+  min: 0,
+  max: MAX_FLOW_CONCURRENCY,
+  expected: `a whole number from 0 to ${MAX_FLOW_CONCURRENCY}`,
+};
+
+/** `PLUMBUS_FLOW_MAX_PER_TENANT` / `PLUMBUS_FLOW_MAX_PER_FLOW`: executions one lane runs at once. */
+const FLOW_LANE_MAX_RULE: EnvNumberRule = {
   pattern: /^\d+$/,
   min: 1,
   max: MAX_FLOW_CONCURRENCY,

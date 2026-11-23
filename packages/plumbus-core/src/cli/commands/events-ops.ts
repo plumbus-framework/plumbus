@@ -5,6 +5,10 @@ import type { Command } from 'commander';
 import { and, desc, eq, gte, sql } from 'drizzle-orm';
 import { loadAppConfig } from '../../config/index.js';
 import { closeDatabaseConnection, resolveDatabaseConnection } from '../../data/connection.js';
+import {
+  EventDeadLetterResolution,
+  resolveEventDeadLetter,
+} from '../../events/dead-letter-resolution.js';
 import { deadLetterTable, idempotencyTable, outboxTable } from '../../events/outbox.js';
 import { TrustedReplayActor } from '../../types/event.js';
 import { resolveRuntimeQueues } from '../../runtime/queue-factory.js';
@@ -94,8 +98,9 @@ export function registerEventsOpsCommands(eventsCmd: Command): void {
           return;
         }
         for (const row of rows) {
+          const resolution = (row.metadata as { resolution?: unknown } | null)?.resolution;
           info(
-            `${row.id} ${row.eventType} consumer=${row.consumerId ?? 'n/a'} retries=${row.retryCount}`,
+            `${row.id} ${row.eventType} consumer=${row.consumerId ?? 'n/a'} retries=${row.retryCount}${typeof resolution === 'string' ? ` resolved=${resolution}` : ''}`,
           );
         }
       } catch (err) {
@@ -134,8 +139,37 @@ export function registerEventsOpsCommands(eventsCmd: Command): void {
             metadata: dlqMeta?.tenantId != null ? { tenantId: dlqMeta.tenantId } : undefined,
           });
           await queues.close();
+          // Settled: a delivery that fails again writes a new dead letter.
+          await resolveEventDeadLetter(db, id, {
+            actor: 'cli',
+            resolution: EventDeadLetterResolution.Retried,
+          });
         });
         info(`Re-published dead-letter ${id} to events queue`);
+      } catch (err) {
+        logError(err instanceof Error ? err.message : String(err));
+        process.exit(1);
+      }
+    });
+
+  dlq
+    .command('resolve <id>')
+    .description(
+      'Mark a dead-letter row resolved without re-publishing it (retention may delete it)',
+    )
+    .option('--note <text>', 'Why it needs no redelivery')
+    .option('--actor <name>', 'Who resolved it', 'cli')
+    .action(async (id: string, opts: { note?: string; actor?: string }) => {
+      try {
+        const resolved = await withDb((db) =>
+          resolveEventDeadLetter(db, id, {
+            actor: opts.actor ?? 'cli',
+            resolution: EventDeadLetterResolution.Discarded,
+            ...(opts.note !== undefined ? { note: opts.note } : {}),
+          }),
+        );
+        if (!resolved) throw new Error(`No unresolved dead-letter row "${id}"`);
+        info(`Resolved dead-letter ${id}`);
       } catch (err) {
         logError(err instanceof Error ? err.message : String(err));
         process.exit(1);

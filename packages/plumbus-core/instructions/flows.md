@@ -159,6 +159,14 @@ starting a new flow under the caller's identity.
   `app/server.ts` (core 0.9.0-beta.5+). It deletes completed and cancelled executions past the
   window in bounded batches; failed executions and dead letters are kept. Do not write your own
   `DELETE` against framework tables.
+- The event and job tables are pruned only when their class is on (core 0.9.0-beta.15):
+  `frameworkRetention = { keepDays: 30, eventOutbox: true, eventIdempotency: true,
+  eventDeadLetter: true, jobExecutions: true }` (each `true` or `{ keepDays }`). Only terminal rows
+  past their period go: dispatched outbox rows, idempotency rows whose event can no longer be
+  delivered again from that database, resolved event dead letters, finished jobs. Run `plumbus
+  migrate generate` first: a class whose index a database lacks is skipped there with a warning.
+- `workers.flowStepHistoryLimit` (`PLUMBUS_FLOW_STEP_HISTORY_LIMIT`, default 0 = unlimited) bounds
+  `step_history` for flows that loop; cancellation still compensates every completed step.
 
 
 Core 0.7.0 rejects missing, malformed, or actor/tenant-inconsistent stored auth snapshots before a step executes. New snapshots omit session IDs and authentication timestamps. Do not recover legacy rows by injecting worker/system roles; follow [the security release checklist](./upgrading-security-release.md) with a verified initiating identity and a review of prior effects.
@@ -173,6 +181,26 @@ executions at once; each runner slot claims and drains its own execution under i
 Keep it within what `aiProviderConcurrency` allows (an AI call over that limit is refused, not
 queued) and size `DATABASE_POOL_SIZE` for it. Do not build your own parallel runner or queue for
 this. See `PLUMBUS_FLOW_CONCURRENCY` and graceful shutdown in [deployment](./deployment.md).
+
+Those slots are shared by every flow of every tenant. When one tenant or one long flow must not
+take them all (core 0.9.0-beta.15), set `workers.flowLanes` instead of splitting work by hand:
+
+```ts
+workers: {
+  flowConcurrency: 3,
+  flowLanes: {
+    reservedUntenanted: 1, // a slot for untenanted (spine) flows; PLUMBUS_FLOW_RESERVED_UNTENANTED
+    maxPerTenant: 1,       // PLUMBUS_FLOW_MAX_PER_TENANT
+    maxPerFlow: 2,         // PLUMBUS_FLOW_MAX_PER_FLOW
+    lanes: { authoring: { max: 1, domains: ['course-builder'] } }, // flows sharing one limit
+    tenantOrder: 'fair',   // default: the tenant with fewest running goes first; or 'fifo'
+  },
+},
+```
+
+Off unless set. Limits count this worker's executions; a held-back execution stays runnable in
+the database. Watch the `Flow lane full` log line, `plumbus_flow_lanes_full` and
+`pool.flowLanes`. Keep long steps short where you can: a lane bounds who waits, not how long.
 
 ## Cancellation, retries, and replay
 

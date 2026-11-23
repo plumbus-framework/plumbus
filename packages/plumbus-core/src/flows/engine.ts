@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
+import { isDeepStrictEqual } from 'node:util';
 import { and, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { z } from 'zod';
@@ -183,6 +184,13 @@ export interface FlowEngineConfig {
   flowHeartbeatIntervalMs?: number;
   /** Max executions to claim per poll cycle. Default: 50. */
   flowClaimBatchSize?: number;
+  /**
+   * Most `step_history` entries a running execution keeps (core 0.9.0-beta.15): the newest
+   * `stepHistoryLimit`, plus the newest completed entry of every step older than those, which
+   * is what cancellation reads to choose compensations. `0` or omitted keeps every entry, as
+   * before. The worker pool sets it from `workers.flowStepHistoryLimit`.
+   */
+  stepHistoryLimit?: number;
   /** When set, enqueue flow step wake messages (durable queue deployments). */
   onFlowStepEnqueue?: (executionId: string, correlationId?: string) => Promise<void>;
   /** When set, schedule delayed flow wake via Redis sorted set (durable deployments). */
@@ -243,6 +251,24 @@ export interface FlowEngineConfig {
    * before. See {@link AuthorizeFlowAccess}.
    */
   authorizeFlowAccess?: AuthorizeFlowAccess;
+}
+
+/**
+ * What one `claimNext` call may take (worker flow lanes, core 0.9.0-beta.15). Omitted, a claim
+ * takes the oldest runnable execution as before: tenant hints first, then the engine's own
+ * untenanted rows.
+ */
+export interface FlowClaimFilter {
+  /** Leave executions of these flows unclaimed (spine hints: by definition id). */
+  excludeFlows?: readonly string[];
+  /** Leave executions of these tenants unclaimed; an execution with no tenant is never held by it. */
+  excludeTenants?: readonly string[];
+  /** Only executions with no tenant (`'untenanted'`), or only executions with one (`'tenanted'`). */
+  tenancy?: 'untenanted' | 'tenanted';
+  /** Try executions with no tenant before tenant ones (default: tenant hints first). */
+  untenantedFirst?: boolean;
+  /** Leave these executions unclaimed (one the caller just handed back). */
+  excludeExecutions?: readonly string[];
 }
 
 /** What a caller is doing to a flow execution through `ctx.flows`. */
@@ -425,7 +451,33 @@ export function createFlowEngine(config: FlowEngineConfig) {
   const leaseDurationMs = config.flowLeaseDurationMs ?? DEFAULT_LEASE_DURATION_MS;
   const heartbeatIntervalMs = config.flowHeartbeatIntervalMs ?? Math.floor(leaseDurationMs / 3);
   const claimBatchSize = config.flowClaimBatchSize ?? DEFAULT_CLAIM_BATCH_SIZE;
+  const stepHistoryLimit = config.stepHistoryLimit ?? 0;
+  if (!Number.isSafeInteger(stepHistoryLimit) || stepHistoryLimit < 0) {
+    throw new PlumbusError(
+      ErrorCode.Validation,
+      `stepHistoryLimit must be a whole number, 0 or more (received ${String(stepHistoryLimit)})`,
+    );
+  }
   const logger = config.logger;
+
+  /**
+   * The update that stores `history`, of which the first `stored` entries are on the row
+   * already: nothing when the step added none, else the history capped at
+   * `stepHistoryLimit`. (PostgreSQL writes a new value for a changed jsonb column either way;
+   * the cap is what bounds it.)
+   */
+  function historyWrite(
+    history: StepHistoryEntry[],
+    stored: number | undefined,
+  ): Pick<FlowExecutionUpdate, 'stepHistory'> {
+    if (stored !== undefined && history.length === stored) return {};
+    return { stepHistory: capStepHistory(history, stepHistoryLimit) };
+  }
+
+  /** How many history entries a loaded row stores (undefined when the value is not an array). */
+  function storedHistoryLength(row: FlowExecutionRow): number | undefined {
+    return Array.isArray(row.stepHistory) ? row.stepHistory.length : undefined;
+  }
   const onFlowStepEnqueue = config.onFlowStepEnqueue;
   const onFlowDelayedSchedule = config.onFlowDelayedSchedule;
   const spineDispatch = config.spineDispatch;
@@ -939,13 +991,18 @@ export function createFlowEngine(config: FlowEngineConfig) {
    * run the step; the tenant row is then claimed with a fresh token (in database time), which
    * fences out any earlier runner of the same row.
    */
-  async function claimNextFromSpine(batchSize?: number): Promise<FlowExecutionRow[]> {
+  async function claimNextFromSpine(
+    batchSize?: number,
+    filter?: FlowClaimFilter,
+  ): Promise<FlowExecutionRow[]> {
     if (!spineDispatch) return [];
     const hints = await claimSpineDispatch(spineDispatch.db, {
       workerId,
       leaseDurationMs,
       limit: batchSize ?? claimBatchSize,
-      excludeExecutionIds: skippedExecutionIds(),
+      excludeExecutionIds: [...skippedExecutionIds(), ...(filter?.excludeExecutions ?? [])],
+      ...(filter?.excludeTenants ? { excludeTenantRouteIds: filter.excludeTenants } : {}),
+      ...(filter?.excludeFlows ? { excludeDefinitionIds: filter.excludeFlows } : {}),
     });
     const leaseDurationInterval = `${leaseDurationMs} milliseconds`;
     const rows: FlowExecutionRow[] = [];
@@ -1070,19 +1127,61 @@ export function createFlowEngine(config: FlowEngineConfig) {
    * Atomically claim up to `batchSize` runnable flow executions. Rows the engine claimed
    * carry their claim token (`leaseToken`).
    */
-  async function claimNext(batchSize?: number): Promise<FlowExecutionRow[]> {
+  async function claimNext(
+    batchSize?: number,
+    filter?: FlowClaimFilter,
+  ): Promise<FlowExecutionRow[]> {
+    const limit = batchSize ?? claimBatchSize;
     if (spineDispatch) {
-      const fromSpine = await claimNextFromSpine(batchSize);
-      if (!untenantedOnControlPlane) return fromSpine;
-      // Control-plane flows live on the spine's own `flow_executions`; claim what budget is
-      // left there, after the tenant hints.
-      const remaining = (batchSize ?? claimBatchSize) - fromSpine.length;
-      if (remaining <= 0) return fromSpine;
-      const fromControlPlane = await claimNextFromOwnDb(remaining);
-      for (const row of fromControlPlane) executionStores.set(row.id, spineDispatch.db);
-      return [...fromSpine, ...fromControlPlane];
+      // Tenant executions are claimed through their spine hints; untenanted ones (control-plane
+      // flows) live on the spine's own `flow_executions`, beside any tenant row placed there
+      // before spine dispatch.
+      const takeHints = filter?.tenancy !== 'untenanted';
+      const takeOwn = untenantedOnControlPlane;
+      const fromOwn = async (budget: number): Promise<FlowExecutionRow[]> => {
+        if (!takeOwn || budget <= 0) return [];
+        const rows = await claimNextFromOwnDb(budget, filter);
+        for (const row of rows) executionStores.set(row.id, spineDispatch.db);
+        return rows;
+      };
+      if (filter?.untenantedFirst) {
+        const first = await fromOwn(limit);
+        const rest = takeHints ? await claimNextFromSpine(limit - first.length, filter) : [];
+        return [...first, ...rest];
+      }
+      const fromSpine = takeHints ? await claimNextFromSpine(limit, filter) : [];
+      // Then what budget is left on the spine's own table.
+      return [...fromSpine, ...(await fromOwn(limit - fromSpine.length))];
     }
-    return claimNextFromOwnDb(batchSize);
+    if (filter?.untenantedFirst && filter.tenancy === undefined) {
+      // Two passes keep each one on the created_at order its partial index serves.
+      const first = await claimNextFromOwnDb(limit, { ...filter, tenancy: 'untenanted' });
+      if (first.length >= limit) return first;
+      const rest = await claimNextFromOwnDb(limit - first.length, {
+        ...filter,
+        tenancy: 'tenanted',
+      });
+      return [...first, ...rest];
+    }
+    return claimNextFromOwnDb(limit, filter);
+  }
+
+  /** The claim filter's conditions on the engine's own `flow_executions`. */
+  function ownClaimConditions(filter: FlowClaimFilter | undefined) {
+    const conditions = [];
+    if (filter?.excludeFlows && filter.excludeFlows.length > 0) {
+      conditions.push(
+        sql`AND NOT (flow_name = ANY(${sql.param([...filter.excludeFlows])}::text[]))`,
+      );
+    }
+    if (filter?.excludeTenants && filter.excludeTenants.length > 0) {
+      conditions.push(
+        sql`AND (tenant_id IS NULL OR NOT (tenant_id = ANY(${sql.param([...filter.excludeTenants])}::text[])))`,
+      );
+    }
+    if (filter?.tenancy === 'untenanted') conditions.push(sql`AND tenant_id IS NULL`);
+    if (filter?.tenancy === 'tenanted') conditions.push(sql`AND tenant_id IS NOT NULL`);
+    return conditions.length > 0 ? sql.join(conditions, sql` `) : sql``;
   }
 
   /**
@@ -1090,10 +1189,14 @@ export function createFlowEngine(config: FlowEngineConfig) {
    * Uses FOR UPDATE SKIP LOCKED so concurrent workers each get different rows.
    * Also reclaims rows whose lease has expired (crash recovery).
    */
-  async function claimNextFromOwnDb(batchSize?: number): Promise<FlowExecutionRow[]> {
+  async function claimNextFromOwnDb(
+    batchSize?: number,
+    filter?: FlowClaimFilter,
+  ): Promise<FlowExecutionRow[]> {
     const limit = batchSize ?? claimBatchSize;
+    if (limit <= 0) return [];
     const leaseDurationInterval = `${leaseDurationMs} milliseconds`;
-    const skipped = skippedExecutionIds();
+    const skipped = [...skippedExecutionIds(), ...(filter?.excludeExecutions ?? [])];
 
     const result = await db.execute<Record<string, unknown>>(sql`
       UPDATE flow_executions
@@ -1106,7 +1209,8 @@ export function createFlowEngine(config: FlowEngineConfig) {
         SELECT id
         FROM flow_executions
         WHERE ${RUNNABLE_CLAIM_PREDICATE}
-        ${skipped.length > 0 ? sql`AND NOT (id::text = ANY(${skipped}::text[]))` : sql``}
+        ${skipped.length > 0 ? sql`AND NOT (id::text = ANY(${sql.param(skipped)}::text[]))` : sql``}
+        ${ownClaimConditions(filter)}
         ORDER BY created_at
         FOR UPDATE SKIP LOCKED
         LIMIT ${limit}
@@ -1323,6 +1427,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
     if (!row) {
       throw new Error(`Flow execution "${executionId}" not found`);
     }
+    const storedHistory = storedHistoryLength(row);
 
     if (isTerminal(row.status as FlowStatus)) {
       return { id: row.id, flowName: row.flowName, status: row.status };
@@ -1393,7 +1498,15 @@ export function createFlowEngine(config: FlowEngineConfig) {
             ? ([...row.stepHistory] as StepHistoryEntry[])
             : [];
           // The ledger cannot recover within this execution: no retries.
-          return handleStepFailure(executionId, row, flow, history, BUDGET_EXHAUSTED, true);
+          return handleStepFailure(
+            executionId,
+            row,
+            flow,
+            history,
+            storedHistory,
+            BUDGET_EXHAUSTED,
+            true,
+          );
         }
         await guardedUpdate(executionId, { state: charged.state });
       }
@@ -1608,6 +1721,9 @@ export function createFlowEngine(config: FlowEngineConfig) {
       const history = Array.isArray(row.stepHistory) ? (row.stepHistory as StepHistoryEntry[]) : [];
       history.push(historyEntry);
       const nextState = mergeExecutionState(row.state, result.data);
+      // Only the columns the step changed: `state` is left out when the step did not change
+      // it (PostgreSQL then keeps its stored value as it is), the history when it added none.
+      const stateWrite = isDeepStrictEqual(nextState, row.state) ? {} : { state: nextState };
 
       if (audit) {
         await audit.record(`flow.step.${result.status}.${currentStepName}`, {
@@ -1626,6 +1742,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
           row,
           flow,
           history,
+          storedHistory,
           result.error,
           result.permanent,
           getOriginalError(result),
@@ -1637,8 +1754,8 @@ export function createFlowEngine(config: FlowEngineConfig) {
       if (result.waitEvent) {
         await guardedUpdate(executionId, {
           status: FlowStatus.Waiting,
-          state: nextState,
-          stepHistory: history,
+          ...stateWrite,
+          ...historyWrite(history, storedHistory),
           currentStep: currentStepName, // stay on current step until resumed
           waitingForEvent: result.waitEvent,
           waitKind: 'event',
@@ -1663,6 +1780,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
             row,
             flow,
             history,
+            storedHistory,
             err instanceof Error ? err.message : String(err),
             false,
             err,
@@ -1671,8 +1789,8 @@ export function createFlowEngine(config: FlowEngineConfig) {
         const wakeAt = new Date((await databaseTime(storeFor(executionId))).getTime() + delayMs);
         await guardedUpdate(executionId, {
           status: FlowStatus.Waiting,
-          state: nextState,
-          stepHistory: history,
+          ...stateWrite,
+          ...historyWrite(history, storedHistory),
           // `null` (not undefined) when the delay is the last step: the update must clear
           // the current step, or the delay would run again on every wake.
           currentStep: nextStep ?? null,
@@ -1754,6 +1872,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
             row,
             flow,
             history,
+            storedHistory,
             'One or more parallel branches failed',
             false,
             originalError,
@@ -1765,8 +1884,8 @@ export function createFlowEngine(config: FlowEngineConfig) {
 
         const nextStep = getNextStepName(flow.steps, currentStepName);
         await guardedUpdate(executionId, {
-          state: parallelState,
-          stepHistory: history,
+          ...(isDeepStrictEqual(parallelState, row.state) ? {} : { state: parallelState }),
+          ...historyWrite(history, storedHistory),
           currentStep: nextStep,
           retryCount: 0,
         });
@@ -1780,8 +1899,8 @@ export function createFlowEngine(config: FlowEngineConfig) {
       // Conditional step — jump to the chosen branch
       if (result.nextStep) {
         await guardedUpdate(executionId, {
-          state: nextState,
-          stepHistory: history,
+          ...stateWrite,
+          ...historyWrite(history, storedHistory),
           currentStep: result.nextStep,
           retryCount: 0,
         });
@@ -1791,14 +1910,17 @@ export function createFlowEngine(config: FlowEngineConfig) {
       // Normal completion — advance to next step
       const nextStep = getNextStepName(flow.steps, currentStepName);
       if (!nextStep) {
-        await guardedUpdate(executionId, { state: nextState, stepHistory: history });
+        await guardedUpdate(executionId, {
+          ...stateWrite,
+          ...historyWrite(history, storedHistory),
+        });
         await completeFlow(executionId, row.flowName);
         return { id: executionId, flowName: row.flowName, status: FlowStatus.Completed };
       }
 
       await guardedUpdate(executionId, {
-        state: nextState,
-        stepHistory: history,
+        ...stateWrite,
+        ...historyWrite(history, storedHistory),
         currentStep: nextStep,
         retryCount: 0,
       });
@@ -2288,7 +2410,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
       if (history.length > recorded) {
         await store
           .update(flowExecutionsTable)
-          .set({ stepHistory: history, updatedAt: new Date() })
+          .set({ stepHistory: capStepHistory(history, stepHistoryLimit), updatedAt: new Date() })
           .where(
             and(
               eq(flowExecutionsTable.id, executionId),
@@ -2464,6 +2586,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
     row: FlowExecutionRow,
     flow: FlowDefinition,
     history: StepHistoryEntry[],
+    storedHistory: number | undefined,
     error?: string,
     permanent = false,
     originalError?: unknown,
@@ -2483,7 +2606,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
         (await databaseTime(storeFor(executionId))).getTime() + retryDelay(resolved, retryCount),
       );
       await guardedUpdate(executionId, {
-        stepHistory: history,
+        ...historyWrite(history, storedHistory),
         retryCount,
         lastError: error ?? null,
         status: FlowStatus.Waiting,
@@ -2512,7 +2635,7 @@ export function createFlowEngine(config: FlowEngineConfig) {
 
     // Persist the final failed attempt before terminal disposition.
     await guardedUpdate(executionId, {
-      stepHistory: history,
+      ...historyWrite(history, storedHistory),
       retryCount,
       lastError: error ?? null,
     });
@@ -3049,6 +3172,32 @@ function mergeExecutionState(currentState: unknown, stepData: unknown): unknown 
   }
 
   return stepData;
+}
+
+/**
+ * The newest `limit` history entries, plus — from the entries before them — the newest
+ * `completed` entry of every step not completed among them, in their original order. The set
+ * of completed steps (what cancellation compensates) is the full history's.
+ */
+export function capStepHistory(history: StepHistoryEntry[], limit: number): StepHistoryEntry[] {
+  if (limit <= 0 || history.length <= limit) return history;
+  const tailStart = history.length - limit;
+  const completedInTail = new Set(
+    history
+      .slice(tailStart)
+      .filter((entry) => entry.status === StepStatus.Completed)
+      .map((entry) => entry.step),
+  );
+  const kept = new Set<number>();
+  for (let index = tailStart - 1; index >= 0; index -= 1) {
+    const entry = history[index];
+    if (!entry || entry.status !== StepStatus.Completed || completedInTail.has(entry.step)) {
+      continue;
+    }
+    completedInTail.add(entry.step);
+    kept.add(index);
+  }
+  return history.filter((_entry, index) => index >= tailStart || kept.has(index));
 }
 
 /**

@@ -1,5 +1,19 @@
 # @plumbus/core changelog
 
+## Unreleased (0.9.0-beta.15) — flow lanes, event and job retention, bounded flow rows
+
+Opt-in except where marked. One migration (seven indexes on framework tables, `plumbus migrate generate`). Peer ranges unchanged. See [upgrading to core 0.9](../../docs/upgrading-core-0.9.md).
+
+- **Flow lanes** (`workers.flowLanes`, `PLUMBUS_FLOW_RESERVED_UNTENANTED` / `PLUMBUS_FLOW_MAX_PER_TENANT` / `PLUMBUS_FLOW_MAX_PER_FLOW` / `PLUMBUS_FLOW_TENANT_ORDER`): runner slots held for untenanted flows, limits per tenant, per flow and per named lane (flows by name or domain), and a fair claim order (the tenant with the fewest executions running first). Enforced in the claim SQL; held-back executions stay runnable. `Flow lane full` log line, `plumbus_flow_lane_running` / `plumbus_flow_lanes_full`, `WorkerPool.flowLanes`. Engine: `claimNext(batchSize, filter?)` with `FlowClaimFilter`; `claimSpineDispatch` gains `excludeTenantRouteIds` / `excludeDefinitionIds`.
+- **Retention of event and job tables:** `frameworkRetention.eventOutbox` (dispatched rows), `eventIdempotency` (rows whose event can no longer be delivered again from that database: no outbox row, no unresolved dead letter), `eventDeadLetter` (resolved rows), `jobExecutions` (completed, failed, dead-lettered with nothing pending), each `true` or `{ keepDays }`. A class whose index a database lacks is skipped there (`result.missingIndexes`, warning).
+- **Event dead-letter resolution:** `resolveEventDeadLetter(db, id, { actor, resolution, note })`, `EventDeadLetterResolution`; `plumbus events dead-letter resolve <id>`; `plumbus events dead-letter retry` marks the row `retried` (**behaviour change**: it writes `metadata.resolvedAt` / `resolvedBy` / `resolution` on the retried row).
+- **Failed-flow sweep window** (**on by default**): the worker's sweep reads only failed executions updated since its last complete pass (`flow_exec_failed_idx`, `sweepFailedFlowsSince`). `sweepFailedFlows` unchanged.
+- **Flow rows:** `workers.flowStepHistoryLimit` / `PLUMBUS_FLOW_STEP_HISTORY_LIMIT` caps `step_history` (newest entries plus the newest completed entry of each older step, so compensation is unchanged; `capStepHistory`). **On by default:** a step leaves `state` out of its update when unchanged and `step_history` when it added nothing.
+- **Host-relayed `event_outbox`:** `workers.eventOutboxPump: 'none'` / `PLUMBUS_EVENT_OUTBOX_PUMP`, `WorkerPoolConfig.pumpEventOutbox` and the `app/server.ts` export `pumpEventOutbox` (per plane) keep the dispatcher off `event_outbox` while it still publishes `dispatch_outbox`. `WorkerPool.wakeOutbox(tenantRef?)`.
+- **Indexes:** `flow_exec_failed_idx`, `flow_exec_updated_idx` (`updated_at DESC NULLS FIRST, id DESC NULLS FIRST`), `event_outbox_dispatched_idx`, `event_idempotency_processed_idx`, `event_dead_letter_unresolved_idx`, `event_dead_letter_resolved_idx`, `job_exec_finished_idx`; also in `flowExecutionsDdl` / `eventOutboxDdl` / `eventDeliveryDdl` and the new `jobExecutionsDdl`.
+- **Fix:** exclusion lists in the claim queries (the engine's skip list after a missing-definition release) were sent as a tuple and failed with `malformed array literal`; every claim of that worker failed for 60 s.
+- **Exports:** `createTransactionRunner`, `readPendingMigrations` and the types `TransactionRunnerConfig`, `PendingMigration` from the package root, plus the names above.
+
 ## 0.9.0-beta.14 — 2026-11-20 — image input in `ctx.ai`
 
 Additive. No migration. `@plumbus/ai-bedrock` 0.4.0-beta.1 sends images. Peer ranges unchanged.

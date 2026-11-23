@@ -396,6 +396,32 @@ Plumbus uses fenced database transitions for horizontal scale. Execution and ext
 
 **Concurrency in one worker.** By default a worker pool runs one flow execution at a time. `workers.flowConcurrency` (or `PLUMBUS_FLOW_CONCURRENCY`, core 0.9.0-beta.11+) gives the runner that many slots; each claims and drains its own execution under its own lease, so one long flow no longer holds back every other flow on that worker. See [flow runner concurrency](../sdk-reference/configuration.md#flow-runner-concurrency) before raising it.
 
+**Flow lanes (core 0.9.0-beta.15, opt-in).** Those slots are one pool for every flow of every tenant: a tenant with many long executions, or one long flow started many times, can hold all of them while scheduled sweeps and every other tenant wait (under spine dispatch a slot also claims tenant hints before the spine's own untenanted rows). `workers.flowLanes` limits what the slots run at once:
+
+```ts
+// config/app.config.ts
+workers: {
+  flowConcurrency: 3,
+  flowLanes: {
+    reservedUntenanted: 1, // a slot for flows with no tenant (spine sweeps)
+    maxPerTenant: 1,       // no tenant runs more than one execution in this worker
+    lanes: { authoring: { max: 1, domains: ['course-builder'] } }, // these flows share one slot
+  },
+},
+```
+
+| Key | Env | Default | Meaning |
+|-----|-----|---------|---------|
+| `reservedUntenanted` | `PLUMBUS_FLOW_RESERVED_UNTENANTED` | `0` | Slots tenant executions may not fill (they get `flowConcurrency − reservedUntenanted`); untenanted flows may use every slot. A held slot is idle while no untenanted flow is runnable. Less than `flowConcurrency`. |
+| `maxPerTenant` | `PLUMBUS_FLOW_MAX_PER_TENANT` | no limit | Executions of one tenant at once |
+| `maxPerFlow` | `PLUMBUS_FLOW_MAX_PER_FLOW` | no limit | Executions of one flow at once |
+| `lanes` | — | none | Named groups (`flows` by name, `domains` by domain) that together run at most `max` |
+| `tenantOrder` | `PLUMBUS_FLOW_TENANT_ORDER` | `'fair'` | `'fair'`: a free slot goes to the tenant with the fewest executions running here (untenanted flows count as one more tenant and go first among equals), oldest first within that; `'fifo'`: the oldest execution no limit holds back |
+
+Without `flowLanes` nothing changes: a slot claims the oldest runnable execution as before. With it, a slot's claim leaves out the tenants, flows and lanes at their limit in SQL (spine hints by `tenant_route_id` and `definition_id`, the engine's table by `tenant_id` and `flow_name`), claims run one at a time in the pool, and an execution held back simply stays runnable in the database (`ctx.flows.status` reports `created` or `waiting`) until a running one ends. Every limit counts this worker pool's executions; with several worker processes each applies its own. The queue-driven flow step consumer (durable queues without a data-plane resolver) runs outside the slots and outside the lanes.
+
+What an operator sees: the log line `Flow lane full: the executions it covers wait, runnable, until one of its running executions ends` with `lane` (`tenant`, `flow`, `lane`, `untenanted-reserve`), `key`, `running` and `max`, at most once a minute per limit; the gauges `plumbus_flow_lane_running{lane}` (`untenanted`, `tenanted`, `lane:<name>`) and `plumbus_flow_lanes_full{kind}`; and `pool.flowLanes`, a snapshot of the counts per tenant, flow and lane and of every limit reached since when. A claim that comes back past a limit anyway (a host acceptance that wrote another tenant route or definition id on the hint than its row) is handed back and left out of this worker's claims until one of its executions ends.
+
 See [configuration](../sdk-reference/configuration.md#flow-lease-tuning) for the `flowLeaseDurationMs`, `flowHeartbeatIntervalMs`, `flowClaimBatchSize` and `flowConcurrency` knobs.
 
 ## Resume, cancel and status access
@@ -560,6 +586,13 @@ Since core 0.9.0-beta.5 the framework tables carry indexes that match their clai
 |-------|-------|---------|
 | `flow_executions` | `flow_exec_runnable_idx (created_at) WHERE status IN ('created', 'running', 'waiting')` | `claimNext` |
 | `flow_executions` | `flow_exec_finished_idx (updated_at) WHERE status IN ('completed', 'cancelled')` | retention |
+| `flow_executions` | `flow_exec_failed_idx (updated_at) WHERE status = 'failed'` (core 0.9.0-beta.15) | failed-flow sweep window |
+| `flow_executions` | `flow_exec_updated_idx (updated_at DESC NULLS FIRST, id DESC NULLS FIRST)` (core 0.9.0-beta.15) | newest-first lists over every status (`ORDER BY updated_at DESC, id DESC`) |
+| `event_outbox` | `event_outbox_dispatched_idx (dispatched_at) WHERE status = 'dispatched'` (core 0.9.0-beta.15) | retention (`eventOutbox`) |
+| `event_idempotency` | `event_idempotency_processed_idx (processed_at)` (core 0.9.0-beta.15) | retention (`eventIdempotency`) |
+| `event_dead_letter` | `event_dead_letter_unresolved_idx (event_id) WHERE (metadata->>'resolvedAt') IS NULL` (core 0.9.0-beta.15) | retention (`eventIdempotency` guard) |
+| `event_dead_letter` | `event_dead_letter_resolved_idx ((metadata->>'resolvedAt')) WHERE (metadata->>'resolvedAt') IS NOT NULL` (core 0.9.0-beta.15) | retention (`eventDeadLetter`) |
+| `job_executions` | `job_exec_finished_idx (completed_at) WHERE status IN ('completed', 'failed', 'dead_lettered')` (core 0.9.0-beta.15) | retention (`jobExecutions`) |
 | `flow_schedule_ticks` | `flow_schedule_ticks_created_idx (created_at)` | retention |
 | `job_executions` | `job_exec_dispatch_pending_idx (dispatch_after) WHERE dispatch_pending = true AND status = 'queued'` | pending job publication |
 | `core_plumbus.dispatch_outbox` | `dispatch_outbox_unpublished_idx (created_at) WHERE published_at IS NULL AND spine_acked_at IS NULL AND superseded = false` | outbox pump |
@@ -571,7 +604,7 @@ Since core 0.9.0-beta.5 the framework tables carry indexes that match their clai
 | `opaque_dispatch` (spine) | `opaque_dispatch_execution_idx (execution_id, created_at)` | finding an execution's plane |
 | `opaque_dispatch` (spine) | `opaque_dispatch_acked_idx (created_at) WHERE delivery_state = 'acknowledged'` | retention |
 
-The tables in the app's schema reach it like every framework table change: `plumbus migrate generate` emits one `CREATE INDEX IF NOT EXISTS` per index, `plumbus migrate apply` runs them on every database the app migrates (the spine and each tenant plane). `opaque_dispatch` is not in app migrations: apply `migrations/spine/0002_claim_and_retention_indexes.sql` on the spine (hosts that provision `core_plumbus` from the shipped journal also apply `migrations/durable-tenant/0004_claim_and_retention_indexes.sql`). `CREATE INDEX` without `CONCURRENTLY` blocks writes to the table while it builds; on a large table create the same indexes `CONCURRENTLY` by hand first, and the migration's `IF NOT EXISTS` statements then do nothing. The existing single-column indexes stay: the scheduler's overlap check reads `flow_name` / `tenant_id`, and resuming by event reads `status`.
+The tables in the app's schema reach it like every framework table change: `plumbus migrate generate` emits one `CREATE INDEX IF NOT EXISTS` per index, `plumbus migrate apply` runs them on every database the app migrates (the spine and each tenant plane). For the seven core 0.9.0-beta.15 indexes the generated file holds nothing else, so on large tables turn it into a non-transactional migration before applying it: make its first line `-- plumbus:no-transaction` and write each statement `CREATE INDEX CONCURRENTLY IF NOT EXISTS …` (see [non-transactional migrations](../sdk-reference/data-layer.md#non-transactional-migrations-create-index-concurrently)); every database the stream is applied to then builds them without blocking writes. `opaque_dispatch` is not in app migrations: apply `migrations/spine/0002_claim_and_retention_indexes.sql` on the spine (hosts that provision `core_plumbus` from the shipped journal also apply `migrations/durable-tenant/0004_claim_and_retention_indexes.sql`). `CREATE INDEX` without `CONCURRENTLY` blocks writes to the table while it builds; on a large table create the same indexes `CONCURRENTLY` by hand first, and the migration's `IF NOT EXISTS` statements then do nothing. The existing single-column indexes stay: the scheduler's overlap check reads `flow_name` / `tenant_id`, and resuming by event reads `status`.
 
 **Retention (opt-in).** Finished framework rows are never deleted unless the worker pool is given `frameworkRetention`. Export it from `app/server.ts` (`plumbus start`, `plumbus worker`, `plumbus dev`), or pass it to `createWorkerPool`:
 
@@ -585,6 +618,10 @@ export const frameworkRetention = { keepDays: 30 }; // or `true` for every defau
 | `batchSize` | `500` | Rows per `DELETE` |
 | `maxBatchesPerTable` | `20` | Statements per table per run; a larger backlog continues on the next run |
 | `intervalMs` | one hour | How often the pool runs it (first run a minute after start) |
+| `eventOutbox` | off | `true` or `{ keepDays }`: dispatched `event_outbox` rows (core 0.9.0-beta.15) |
+| `eventIdempotency` | off | `true` or `{ keepDays }`: `event_idempotency` rows no redelivery can need |
+| `eventDeadLetter` | off | `true` or `{ keepDays }`: resolved `event_dead_letter` rows |
+| `jobExecutions` | off | `true` or `{ keepDays }`: finished `job_executions` rows |
 
 Each run, with the flow runner, covers the pool's database, the spine and every tenant plane the pool lists (`listTenantRefs` plus planes it resolved), one plane at a time, each `DELETE` locking its batch with `FOR UPDATE SKIP LOCKED`. It deletes:
 
@@ -594,7 +631,18 @@ Each run, with the flow runner, covers the pool's database, the spine and every 
 - `flow_schedule_ticks` behind their schedule's `next_run_at` (a tick at or after it is the slot dedupe the scheduler relies on);
 - on the spine, acknowledged hints a later revision of the same execution replaced. The newest hint of an execution stays until its tenant state is pruned: a request-side engine finds the plane through it.
 
-It never deletes `failed` executions or their durable state (operator retry and replay need them), `flow_dead_letter` rows, unacknowledged outbox rows, hints that are not acknowledged, audit records, or the event and job tables. A deleted execution is no longer found by `ctx.flows.status`; keep `keepDays` above the longest time anything reads an execution after it finished. `pruneFrameworkTables(db, options)` and `pruneSpineDispatchHints(spineDb, options)` run one pass yourself; both skip tables a database does not have.
+It never deletes `failed` executions or their durable state (operator retry and replay need them), `flow_dead_letter` rows, unacknowledged outbox rows, hints that are not acknowledged, or audit records. A deleted execution is no longer found by `ctx.flows.status`; keep `keepDays` above the longest time anything reads an execution after it finished. `pruneFrameworkTables(db, options)` and `pruneSpineDispatchHints(spineDb, options)` run one pass yourself; both skip tables a database does not have.
+
+**Event and job tables (core 0.9.0-beta.15, each off unless set).** Each class takes `keepDays` unless given its own (`eventIdempotency: { keepDays: 45 }`), runs on the same databases in the same bounded batches, and only ever selects terminal rows past its period:
+
+- `eventOutbox`: `event_outbox` rows `dispatched` before the period. Never `pending`, `processing`, `retry` or `dead_lettered` rows. The consumer side checks a queued event against its outbox row, and `plumbus events replay` reads dispatched rows: keep the period above the longest time your queue can hold an undelivered message and the oldest event you would replay.
+- `eventIdempotency`: rows processed before the period whose event can no longer be delivered again from that database — no `event_outbox` row with the event's id (any status) and no unresolved `event_dead_letter` row for it (`plumbus events dead-letter retry` republishes the event to every consumer; the ones that processed it skip it by this row). With `eventOutbox` off, the rows of events whose outbox row is kept are kept too.
+- `eventDeadLetter`: rows resolved before the period (`metadata.resolvedAt`, written by `resolveEventDeadLetter(db, id, { actor, resolution, note })`, `plumbus events dead-letter retry` and `plumbus events dead-letter resolve`). An unresolved dead letter is never deleted.
+- `jobExecutions`: rows `completed`, `failed` or `dead_lettered` before the period with no publication pending. Never `queued` or `running`. `ctx.jobs.enqueue(name, input, { jobId })` dedupes on a caller's `jobId` only while its row is kept.
+
+A class whose index (table above) a database lacks is skipped there, and the run logs `Framework retention skipped tables whose index is missing` with the index names (`result.missingIndexes` from `pruneFrameworkTables`), rather than scan the table.
+
+**Failed-flow sweep (core 0.9.0-beta.15).** The worker's backstop that dead-letters failed executions `failFlow` could not (each flow poll on the pool, once a minute per tenant plane) reads every failed execution once per process, then only those updated since the start of its last pass that left nothing behind, less five minutes (`flow_exec_failed_idx`; `sweepFailedFlowsSince(db, { updatedSince, limit })`). Before, every pass read every failed execution kept. `sweepFailedFlows(db, limit)` still reads them all.
 
 ## Flow State Machine
 
@@ -620,7 +668,7 @@ It never deletes `failed` executions or their durable state (operator retry and 
 
 ## Flow Execution History
 
-Each step produces a `StepHistoryEntry`:
+Each step produces a `StepHistoryEntry` in `flow_executions.step_history`:
 
 ```typescript
 {
@@ -632,7 +680,9 @@ Each step produces a `StepHistoryEntry`:
 }
 ```
 
-The full history is accessible for debugging and audit.
+The history is for debugging and operators: cancellation reads it to choose compensations (every step with a `completed` entry), and the dead-letter snapshot copies it. `ctx.flows.status` does not return it.
+
+**Bounded history (core 0.9.0-beta.15, opt-in).** A flow that loops (a conditional jumping back, a delay re-checking a provider) adds entries on every pass, and every step writes the whole array back. `workers.flowStepHistoryLimit` (`PLUMBUS_FLOW_STEP_HISTORY_LIMIT`, default `0` = keep everything) keeps the newest that many entries, plus the newest `completed` entry of each older step, so cancellation compensates exactly the steps it would with the full history. An execution keeps at most `limit` + (number of its steps) entries. A step also leaves `state` out of its update when it did not change it, and leaves `step_history` alone when it added no entry.
 
 ## Dead Letter
 

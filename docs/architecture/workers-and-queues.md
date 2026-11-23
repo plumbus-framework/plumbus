@@ -168,6 +168,8 @@ Capability handler
 
 All three queues share the same `EventQueue` abstraction (`createInMemoryQueue` or `createRedisQueue`). Redis queues use atomic Lua rewrap on dequeue and a single shared client quit on shutdown. Legacy processing entries without `dequeuedAt` are requeued on recovery. A configurable visibility timeout (`queue.visibilityTimeoutSec`, default 30 seconds) handles poison-message recovery. While a delivery is being handled, the worker renews its lease on a timer of `visibilityTimeoutSec / 3`, clamped to Node's maximum timer delay (~24.8 days); very large "never reclaim" visibility timeouts (for example, when extra pollers in a multi-worker deployment are given decade-long visibility timeouts so only one reclaims stale messages) therefore renew at most once per ~24.8 days instead of overflowing the timer and firing every millisecond.
 
+**Host-relayed `event_outbox` (core 0.9.0-beta.15):** `workers.eventOutboxPump: 'none'` (`PLUMBUS_EVENT_OUTBOX_PUMP`), or an `app/server.ts` export `pumpEventOutbox` deciding per plane, keeps the dispatcher off `event_outbox`; it still publishes `dispatch_outbox` (flow dispatch hints), and visits no plane it has nothing to pump on. `pool.wakeOutbox(tenantRef?)` brings a plane backed off as idle back on the next poll.
+
 **Outbox claims:** the dispatcher sets a row to `processing` before publishing it. A claim older than five minutes (`createOutboxDispatcher({ claimTimeoutMs })`) belongs to a dispatcher that stopped between claim and publish; the next poll returns it to `pending` and publishes it again. Consumer idempotency absorbs the duplicate if the first publish had gone through.
 
 **Tenant planes:** under a `dataPlaneResolver` each poll lists the tenants (`listTenantRefs`) and visits them one at a time — it takes a tenant's plane under a lease, drains that plane's `event_outbox` and `dispatch_outbox`, and gives the plane back before taking the next — so a fleet larger than the resolver's `cacheSize` is pumped without closing a plane before it is used. A tenant that fails to resolve is logged and skipped. The poll interval is `workers.outboxPollIntervalMs` (default 1000 ms); `workers.outboxIdleBackoffMaxMs` backs off planes whose outbox was empty. See [Tenant data planes](../sdk-reference/tenant-data-planes.md#what-polling-every-tenant-costs-and-how-to-tune-it).
@@ -336,6 +338,10 @@ A polling worker claims one execution immediately before running it. The runner 
             │
             └─ a slot that claims work starts the next free slot
 ```
+
+**Flow lanes (core 0.9.0-beta.15, opt-in).** With `workers.flowLanes` a slot's claim leaves out, in SQL, the tenants, flows and named lanes at their limit, and holds `reservedUntenanted` slots for flows with no tenant; claims then run one at a time in the pool, fairest first (the tenant with the fewest executions running here). Held-back executions stay runnable in the database. See [flows › flow lanes](../core-concepts/flows.md#multi-worker-safety--leasing).
+
+**Dead-letter sweep.** The poll tick's sweep (and the once-a-minute one per tenant plane) reads every failed execution once per process, then only the failed executions updated since its last complete pass, less five minutes (`flow_exec_failed_idx`, core 0.9.0-beta.15). Before, it read every failed execution kept on every tick.
 
 See [flow lifecycle](execution-lifecycle.md), [flow runner concurrency](../sdk-reference/configuration.md#flow-runner-concurrency) and [tenant data planes](../sdk-reference/tenant-data-planes.md). The worker integration regression uses two real polling pools and checks that queued work remains pending beyond multiple lease periods, a peer executes it once, and both hints retain attempt 1; a second case runs a slow flow and two quick ones on one pool with `flowConcurrency: 2` and checks the quick ones complete while the slow one runs, each claimed once.
 

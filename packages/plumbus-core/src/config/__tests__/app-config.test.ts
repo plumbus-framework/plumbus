@@ -35,6 +35,39 @@ describe('configuration resolution', () => {
     expect(() => loadConfig({ env: { QUEUE_POLL_INTERVAL_MS: '-1' } })).toThrow();
     expect(() => loadConfig({ env: { QUEUE_BACKEND: 'reddis' } })).toThrow();
   });
+  it('accepts flow lanes, the step history limit and the event outbox pump, and refuses bad ones', () => {
+    const config = loadConfig({
+      env: { PLUMBUS_FLOW_MAX_PER_TENANT: '2' },
+      workers: {
+        flowConcurrency: 3,
+        flowLanes: {
+          reservedUntenanted: 1,
+          lanes: { authoring: { max: 1, domains: ['course-builder'] } },
+        },
+        flowStepHistoryLimit: 200,
+        eventOutboxPump: 'none',
+      },
+    });
+    expect(config.workers).toEqual({
+      flowConcurrency: 3,
+      flowLanes: {
+        maxPerTenant: 2,
+        reservedUntenanted: 1,
+        lanes: { authoring: { max: 1, domains: ['course-builder'] } },
+      },
+      flowStepHistoryLimit: 200,
+      eventOutboxPump: 'none',
+    });
+    for (const workers of [
+      { flowLanes: { maxPerTenant: 0 } },
+      { flowLanes: { lanes: { heavy: { max: 1, flow: ['x'] } } } },
+      { flowLanes: { tenantOrder: 'random' } },
+      { flowStepHistoryLimit: -1 },
+      { eventOutboxPump: 'off' },
+    ]) {
+      expect(() => loadConfig({ env: {}, workers } as never)).toThrow('Invalid configuration');
+    }
+  });
   it('loads TS config with file < env < explicit precedence', async () => {
     const root = await fixture(
       `export const config = { environment: 'staging', queue: { host: 'file-host', prefix: 'file-prefix', visibilityTimeoutSec: 60 }, database: { database: 'file-db' } } as const;`,
