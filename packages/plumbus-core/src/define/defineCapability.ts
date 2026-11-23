@@ -13,6 +13,7 @@ import type { ExecutionContext } from '../types/context.js';
 import type { CapabilityKind } from '../types/enums.js';
 import { deepFreeze } from '../types/deep-freeze.js';
 import { isMcpExposed } from '../mcp/exposure.js';
+import { isStreamedBodySchema } from '../api/streamed-body.js';
 import type { AccessPolicy } from '../types/security.js';
 import { isActionRiskTier, isProhibitedRiskTier } from '../approvals/action-risk.js';
 import type { ActionRiskTier } from '../approvals/action-risk.js';
@@ -320,6 +321,8 @@ export function defineCapability<TInput extends z.ZodTypeAny, TOutput extends z.
     );
   }
 
+  validateStreamedOutput(config);
+
   // A prohibited capability is never made available: no MCP tool, no API route.
   if (
     isProhibitedRiskTier(config.riskTier) &&
@@ -333,6 +336,33 @@ export function defineCapability<TInput extends z.ZodTypeAny, TOutput extends z.
   }
 
   return deepFreeze({ ...config });
+}
+
+/**
+ * A capability answering with bytes (`output: streamedBodyOutput`) is served over HTTP only:
+ * an MCP tool result and a job or event handler have no byte answer, and a declared-idempotent
+ * call stores its answer to replay it, which a stream cannot be.
+ */
+function validateStreamedOutput(config: DefineCapabilityInput<z.ZodTypeAny, z.ZodTypeAny>): void {
+  if (!isStreamedBodySchema(config.output)) return;
+  if (config.kind === 'job' || config.kind === 'eventHandler') {
+    throwDefineValidationError(
+      `Capability "${config.name}": a ${config.kind} cannot answer with a streamed body`,
+      { field: 'output' },
+    );
+  }
+  if (config.exposeAs?.includes('mcp')) {
+    throwDefineValidationError(
+      `Capability "${config.name}": a capability answering with a streamed body cannot be exposed via MCP`,
+      { field: 'exposeAs' },
+    );
+  }
+  if (config.api?.idempotency?.required === true) {
+    throwDefineValidationError(
+      `Capability "${config.name}": a streamed answer cannot be stored for replay; remove api.idempotency.required`,
+      { field: 'api' },
+    );
+  }
 }
 
 function validateCapabilityDependencies(

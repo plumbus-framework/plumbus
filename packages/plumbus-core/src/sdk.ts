@@ -196,6 +196,9 @@ export type {
   RequestIdOptions,
   RouteGeneratorConfig,
   RouteRequestIds,
+  StreamedBody,
+  StreamedBodyOptions,
+  StreamedBodySource,
 } from './api/index.js';
 // ── API (HTTP route generation) ──
 export {
@@ -232,6 +235,12 @@ export {
   resolveRequestId,
   resolveRequestLocale,
   sweepExpiredIdempotencyRecords,
+  isStreamedBody,
+  isStreamedBodySchema,
+  sendStreamedBody,
+  StreamedBodyLengthError,
+  streamedBody,
+  streamedBodyOutput,
   withRequestId,
 } from './api/index.js';
 export type {
@@ -256,7 +265,23 @@ export {
 } from './approvals/index.js';
 export type { AuditServiceConfig } from './audit/index.js';
 // ── Audit ──
-export { auditRecords, createAuditService, createDatabaseAuditWriter } from './audit/index.js';
+export {
+  AUDIT_OUTBOX_TABLE,
+  auditOutboxDdl,
+  auditOutboxTable,
+  auditRecords,
+  createAuditOutbox,
+  createAuditService,
+  createDatabaseAuditWriter,
+  relayAuditOutbox,
+  runWithAuditOutbox,
+} from './audit/index.js';
+export type {
+  AuditOutbox,
+  AuditOutboxFlushResult,
+  RelayAuditOutboxOptions,
+  RelayAuditOutboxResult,
+} from './audit/index.js';
 export type {
   AuthAdapter,
   AuthenticationRequest,
@@ -412,6 +437,7 @@ export type {
   RedisClient,
   RedisQueueConfig,
   ResolveEventDeadLetterOptions,
+  EventDeadLetterFilter,
   WorkerConfig,
 } from './events/index.js';
 // ── Events ──
@@ -430,6 +456,7 @@ export {
   idempotencyTable,
   outboxTable,
   resolveEventDeadLetter,
+  resolveEventDeadLetters,
 } from './events/index.js';
 export type {
   AuthorizationResult,

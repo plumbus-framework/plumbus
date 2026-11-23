@@ -1724,3 +1724,71 @@ describe('registerApiRoutes idempotency outcomes', () => {
     }
   });
 });
+
+describe('registerApiRoutes — a streamed answer', () => {
+  async function streamedCap() {
+    const { streamedBodyOutput, streamedBody } = await import('@plumbus/core');
+    const { Readable } = await import('node:stream');
+    return defineCapability({
+      name: 'downloadRefundReceipt',
+      kind: 'query',
+      domain: 'billing',
+      input: z.object({ refundId: z.string() }),
+      output: streamedBodyOutput,
+      effects: { data: [], events: [], external: [], ai: false },
+      access: { roles: ['admin'] },
+      exposeAs: ['api'],
+      api: {
+        operationId: 'downloadRefundReceipt',
+        method: 'GET',
+        path: '/refunds/{refundId}/receipt',
+      },
+      handler: async (_ctx, input) =>
+        streamedBody(Readable.from([Buffer.from(`receipt ${input.refundId}`)]), {
+          contentType: 'application/pdf',
+          fileName: `receipt-${input.refundId}.pdf`,
+        }),
+    });
+  }
+
+  it('sends the bytes with their headers instead of an envelope', async () => {
+    const app = Fastify();
+    const audit = mockAudit();
+    registerApiRoutes(app, buildRouteConfig(audit), [await streamedCap()]);
+    await app.ready();
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/refunds/r9/receipt',
+      headers: { authorization: 'Bearer test' },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.headers['content-type']).toBe('application/pdf');
+    expect(res.headers['content-disposition']).toContain('receipt-r9.pdf');
+    expect(res.body).toBe('receipt r9');
+    await app.close();
+  });
+
+  it('refuses at registration an operation that requires idempotency', async () => {
+    const app = Fastify();
+    const cap = await streamedCap();
+    expect(() =>
+      registerApiRoutes(app, buildRouteConfig(), [cap], {
+        manifest: {
+          apiVersion: 'plumbus.dev/v1',
+          name: 'test-api',
+          basePath: '/v1',
+          expose: [
+            {
+              capability: 'billing.downloadRefundReceipt',
+              operationId: 'downloadRefundReceipt',
+              method: 'POST',
+              path: '/refunds/{refundId}/receipt',
+              idempotency: { required: true, header: 'Idempotency-Key' },
+            },
+          ],
+        },
+      }),
+    ).toThrow(/streamed body/);
+    await app.close();
+  });
+});

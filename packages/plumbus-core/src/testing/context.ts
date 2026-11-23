@@ -399,6 +399,19 @@ export function createInMemoryRepository<
         });
       }
     }
+    if (options?.notIn) {
+      for (const [field, vals] of Object.entries(options.notIn)) {
+        // An empty exclusion list excludes nothing. Otherwise mirror SQL `<> ALL(...)`: values
+        // compared by string form (as `in`), and a NULL/absent column makes the predicate NULL,
+        // so those rows are EXCLUDED (as with `notEq`).
+        if (!vals.length) continue;
+        const excluded = new Set(vals.map((v) => String(v)));
+        results = results.filter((item) => {
+          const v = (item as any)[field];
+          return v != null && !excluded.has(String(v));
+        });
+      }
+    }
     if (options?.notEq) {
       for (const [field, val] of Object.entries(options.notEq)) {
         // Mirror SQL `<>`: under three-valued logic a NULL/absent column makes the
@@ -485,6 +498,7 @@ export function createInMemoryRepository<
       dateFilters: options.dateFilters,
       search: options.search,
       in: options.in,
+      notIn: options.notIn,
       notEq: options.notEq,
       contains: options.contains,
       orderBy: options.orderBy ?? [{ column: 'id', dir: 'asc' }],
@@ -524,6 +538,7 @@ export function createInMemoryRepository<
       dateFilters: options.dateFilters,
       search: options.search,
       in: options.in,
+      notIn: options.notIn,
       notEq: options.notEq,
       contains: options.contains,
     }).sort((a, b) => order(keyOf(a), keyOf(b)));
@@ -555,7 +570,14 @@ export function createInMemoryRepository<
       store.set(id, record);
       return record;
     },
-    async createMany(records) {
+    async createMany(records, options) {
+      if (
+        options?.audit !== undefined &&
+        options.audit !== 'per-row' &&
+        options.audit !== 'summary'
+      ) {
+        throw new Error(`createMany audit must be 'per-row' or 'summary'`);
+      }
       const out: T[] = [];
       for (const data of records) {
         const id = (data as any).id ?? `test-${++idCounter}`;
@@ -649,6 +671,7 @@ export function createInMemoryRepository<
         dateFilters: options?.dateFilters,
         search: options?.search,
         in: options?.in,
+        notIn: options?.notIn,
         notEq: options?.notEq,
         contains: options?.contains,
       });
@@ -815,11 +838,11 @@ function withFieldValidation<T extends Record<string, unknown>>(
       check(data as Record<string, unknown>);
       return repo.create(data);
     },
-    async createMany(records) {
+    async createMany(records, options) {
       for (const data of records) {
         check(data as Record<string, unknown>);
       }
-      return repo.createMany(records);
+      return repo.createMany(records, options);
     },
     async update(id: string, updates: Record<string, any>, options?: UpdateOptions): Promise<any> {
       check(updates as Record<string, unknown>);

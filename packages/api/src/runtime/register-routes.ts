@@ -10,6 +10,7 @@ import {
   type RouteGeneratorConfig,
   safeParseBounded,
 } from '@plumbus/core';
+import * as plumbusCore from '@plumbus/core';
 import { createExecutionContext } from '@plumbus/core/runtime';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { ApiManifestError } from '../errors.js';
@@ -23,6 +24,7 @@ import {
 import { resolveExposure } from '../manifest/resolve.js';
 import { requiredApiScopes } from '../manifest/scopes.js';
 import type { ApiManifest, ApiManifestEntry } from '../manifest/types.js';
+import { isStreamedOutput } from '../openapi/generate.js';
 import { coerceQueryParams } from './coerce-query.js';
 import {
   type ApiErrorEnvelope,
@@ -271,6 +273,15 @@ export function registerApiRoutes(
     const resolved = resolveExposure(cap, findManifestEntry(manifest, cap));
     return { cap, resolved, fullPath: joinApiPath(manifest.basePath, resolved.path) };
   });
+
+  // A streamed answer cannot be stored and replayed, so an idempotent route cannot serve one.
+  for (const { cap, resolved } of routes) {
+    if (resolved.idempotency?.required === true && isStreamedOutput(cap)) {
+      throw new ApiManifestError(
+        `Operation "${resolved.operationId}" answers with a streamed body and cannot require idempotency`,
+      );
+    }
+  }
 
   checkActionsOverGet(
     app,
@@ -587,6 +598,17 @@ export function registerApiRoutes(
         const result = await executeCapability(cap, ctx, parsed.data);
         if (result.success) {
           await ctx.audit.record(`api.${resolved.operationId}`, { requestId, live: true });
+          // A streamed answer (`output: streamedBodyOutput`) is sent as its bytes, no envelope.
+          if (
+            sendIfStreamed(reply, result.data, (error) => {
+              app.log.error(
+                { operationId: resolved.operationId, requestId, error: errorMessage(error) },
+                'streamed answer failed while sending',
+              );
+            })
+          ) {
+            return reply;
+          }
           return reply.status(200).send(buildSuccessEnvelope(result.data, requestId, apiVersion));
         }
 
@@ -619,6 +641,34 @@ const WELL_FORMED_REQUEST_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/;
  * rule as core's `isWellFormedRequestId`, restated so this package keeps its existing core peer
  * floor; Fastify's own default ids (`req-1`) are too short to pass and get a UUID.
  */
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+type StreamedSender = (reply: FastifyReply, body: unknown, onError?: (e: unknown) => void) => void;
+
+/**
+ * Send `data` as a streamed answer when it is one. A streamed body can only come from a core that
+ * has `sendStreamedBody`, so both are looked up on the namespace: with an older core (within this
+ * package's peer range) nothing is ever streamed and the import still resolves.
+ */
+function sendIfStreamed(
+  reply: FastifyReply,
+  data: unknown,
+  onError: (error: unknown) => void,
+): boolean {
+  const core = plumbusCore as {
+    isStreamedBody?: (value: unknown) => boolean;
+    sendStreamedBody?: StreamedSender;
+  };
+  if (typeof core.isStreamedBody !== 'function' || typeof core.sendStreamedBody !== 'function') {
+    return false;
+  }
+  if (!core.isStreamedBody(data)) return false;
+  core.sendStreamedBody(reply, data, onError);
+  return true;
+}
+
 function partnerRequestIdOf(request: FastifyRequest): string {
   const assigned = (request as { id?: unknown }).id;
   return typeof assigned === 'string' && WELL_FORMED_REQUEST_ID.test(assigned)

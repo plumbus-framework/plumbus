@@ -68,6 +68,8 @@ export interface RegisterCapabilityConsumersOptions {
   /** Called when an event handler or job capability returns a non-success result (fire-and-forget). */
   onTelemetrySpan?: import('../observability/index.js').TelemetrySpanHook;
   onCapabilityError?: (info: CapabilityErrorInfo) => void | Promise<void>;
+  /** Reporter of the audit services built for event handler runs (see `createServer`). */
+  onAuditWriteFailure?: (failure: import('../audit/service.js').AuditWriteFailure) => void;
 }
 
 function reportCapabilityError(
@@ -209,6 +211,7 @@ function buildConsumerContext(
       onTelemetrySpan: opts.onTelemetrySpan,
       getCausationId: () => eventMeta?.causationId,
       encryptionKey,
+      onAuditWriteFailure: opts.onAuditWriteFailure,
     },
     {
       flows,

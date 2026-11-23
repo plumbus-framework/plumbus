@@ -203,6 +203,7 @@ workers: {
   },
   flowStepHistoryLimit: 0, // PLUMBUS_FLOW_STEP_HISTORY_LIMIT; 0 = keep every step_history entry
   eventOutboxPump: "all", // PLUMBUS_EVENT_OUTBOX_PUMP: all | none (host relays event_outbox itself)
+  auditOutboxRelayIntervalMs: 0, // PLUMBUS_AUDIT_OUTBOX_RELAY_INTERVAL_MS; 0 = off (core 0.9.0-beta.16)
   outboxPollIntervalMs: 1000, // PLUMBUS_OUTBOX_POLL_INTERVAL_MS
   outboxIdleBackoffMaxMs: 0, // PLUMBUS_OUTBOX_IDLE_BACKOFF_MAX_MS; 0 = every tenant plane every poll
   flowPollIntervalMs: 1000, // PLUMBUS_FLOW_POLL_INTERVAL_MS (≥ 30000 with durable queues)
@@ -216,6 +217,8 @@ workers: {
 ```
 
 `eventOutboxPump: 'none'` keeps the worker's dispatcher off every plane's `event_outbox` (it still publishes flow dispatch hints from `dispatch_outbox`); `unrouted` and `ignoredEventTypes` only decide what the event worker does with an event the dispatcher already claimed and marked `dispatched`, so they do not stop the framework taking the rows of a host that relays its own outbox. For a choice per plane export `pumpEventOutbox` from `app/server.ts` (`(tenantRef: string | undefined) => boolean`, `undefined` for the pool's own database) or pass it to `createWorkerPool`; it wins over `eventOutboxPump`. `pool.wakeOutbox(tenantRef?)` makes the dispatcher visit a plane on its next poll even while `outboxIdleBackoffMaxMs` backs it off.
+
+`auditOutboxRelayIntervalMs` (core 0.9.0-beta.16, off by default) makes the worker pool deliver audit records left in `audit_outbox` (see [tenant data planes › audit records of tenant-plane work](./tenant-data-planes.md#audit-records-of-tenant-plane-work-audit-outbox)) to the `audit_records` table of its own database, every that many milliseconds, on the pool's database and every plane `listTenantRefs` lists. Turn it on wherever `createAuditOutbox` is used; 60000 is a reasonable value (the committer's own flush delivers almost every record at once).
 
 `maxAttempts` counts total calls. A capability's `trigger.retry` overrides the pool policy. Legacy event `maxRetries`/`defaultMaxRetries` also count total calls; legacy flow `retry.attempts` counts retries after the initial call. Do not combine aliases. All workers sharing a queue must have compatible consumer registries; these options do not route between specialized pools.
 
@@ -551,6 +554,10 @@ interface ServerConfig {
   classifyProcessError?: (error: unknown) => string | undefined; // names a known-harmless error
   resolveAiOverrides?: (db) => Promise<{ defaultModel?; defaultProvider?; promptOverrides? }>;
   onAICostRecorded?: (record, costContext, db) => void | Promise<void>;
+  // Told when an audit record of work already done could not be written (final: false while
+  // it is retried, true when lost); default an error-level log line. Also `export const
+  // onAuditWriteFailure` in app/server.ts (server and worker) and `createWorkerPool({ onAuditWriteFailure })`.
+  onAuditWriteFailure?: (failure: AuditWriteFailure) => void; // core 0.9.0-beta.16
   aiProviderConcurrency?: AIProviderConcurrencyConfig;
   resolveAIProviderHeaders?: (context) => Record<string, string> | Promise<Record<string, string>>;
   onAIProviderSpan?: (span: AIProviderSpan) => void | Promise<void>;

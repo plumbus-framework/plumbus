@@ -124,6 +124,60 @@ defineCapability({
 - Triggered by the event worker when a matching event arrives
 - Must declare `serviceAccounts` in access policy
 
+## Answering with bytes (streamed answers)
+
+(core 0.9.0-beta.16+; generated client: `@plumbus/ui` 0.10.0-beta.6+; partner routes: `@plumbus/api` 0.4.0-beta.6+.) A capability whose answer is a file (an export archive, a PDF, a CSV) declares
+`output: streamedBodyOutput` and returns `streamedBody(source, options)`. The route sends the
+source as the HTTP body while the client reads it, so the answer is never held in memory and
+can be larger than any JSON body (a V8 string stops near 512 MiB).
+
+```ts
+import { defineCapability, streamedBody, streamedBodyOutput } from '@plumbus/core';
+import { z } from '@plumbus/core/zod';
+
+export const downloadInvoicePdf = defineCapability({
+  name: 'downloadInvoicePdf',
+  kind: 'query',
+  domain: 'billing',
+  input: z.object({ invoiceId: z.string().uuid() }),
+  output: streamedBodyOutput,
+  access: { roles: ['accountant'], tenantScoped: true },
+  effects: { data: ['Invoice'], events: [], external: ['object-storage'], ai: false },
+  exposeAs: ['api'],
+  api: { operationId: 'downloadInvoicePdf', method: 'GET', path: '/invoices/{invoiceId}/pdf' },
+  handler: async (ctx, input) => {
+    const invoice = await ctx.data.Invoice.findById(input.invoiceId);
+    if (!invoice) throw ctx.errors.notFound('Invoice not found');
+    const object = await openStoredObject(invoice.pdfKey); // a Readable or async iterable of bytes
+    return streamedBody(object.body, {
+      contentType: 'application/pdf',
+      contentLength: object.size,          // optional; a source of another size breaks the transfer
+      fileName: `invoice-${invoice.number}.pdf`,
+    });
+  },
+});
+```
+
+- Everything before the handler is unchanged: authentication, the access policy, `authorize`,
+  the executor's success audit row. A refusal is the usual JSON error.
+- Headers: `content-type`, `content-length` (when given), `content-disposition` (when
+  `fileName` is given; ASCII fallback plus `filename*`), `x-content-type-options: nosniff`,
+  `cache-control: no-store`.
+- The source is read after the handler returns. A query's data-plane lease is held until the
+  response ends, so a source may page through `ctx.data` of a **query** while it is sent. An
+  action's transaction has already committed: its source must not use the transaction's
+  `ctx.data`; read from storage, a file, or its own connection.
+- A source that fails, or yields a size other than `contentLength`, ends the response abruptly
+  (never a complete-looking file) and logs `Capability "<name>" streamed answer failed while
+  sending`. A client that goes away destroys the source (an async generator's `finally` runs).
+- Not allowed (refused by `defineCapability`): `kind: 'job'` or `'eventHandler'`,
+  `exposeAs: ['mcp']`, `api.idempotency.required` (a stream cannot be stored and replayed).
+  `@plumbus/api` refuses a manifest entry that makes such an operation idempotent.
+- Clients: the generated client (`plumbus ui generate`, `@plumbus/ui`) types the output as the
+  fetch `Response` and returns it unread (`await (await downloadInvoicePdf(input)).blob()`, or
+  read `response.body`). Partner routes (`@plumbus/api`) send the same bytes, and the OpenAPI
+  document describes them as `application/octet-stream`.
+
 ## Access Policies
 
 Every capability **must** declare an access policy. The framework evaluates it before handler execution:

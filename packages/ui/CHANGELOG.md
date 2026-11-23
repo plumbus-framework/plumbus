@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.0-beta.6 — 2026-11-23 — streamed answers in the generated client
+
+- A capability declared with `output: streamedBodyOutput` (core 0.9.0-beta.16) gets a client function that returns the fetch `Response` unread (`<Name>Output = Response`): read it with `blob()`, `arrayBuffer()` or `body`, or hand it to a file save, without the bytes passing through JSON. A refused call still throws the usual error. Such a GET is never shared under `dedupeQueries`. Detected from the output schema's metadata (`isStreamedOutput`), so nothing changes for a core without streamed answers.
+
 ## 0.10.0-beta.5 — 2026-11-20 — split client and deduplicated queries (stable 0.9.1 merged)
 
 Opt-in generator modes from main; output is unchanged unless they are turned on. Needs `@plumbus/core` 0.9.0-beta.13 for the `plumbus ui generate` flags.

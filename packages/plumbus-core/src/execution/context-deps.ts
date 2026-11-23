@@ -1,5 +1,5 @@
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { createAuditService } from '../audit/service.js';
+import { type AuditWriteFailure, createAuditService } from '../audit/service.js';
 import type { EntityRegistry } from '../data/registry.js';
 import { createEventEmitter } from '../events/emitter.js';
 import type { EventRegistry } from '../events/registry.js';
@@ -24,6 +24,11 @@ export interface WireContextDependenciesOptions {
   getCausationId?: () => string | undefined;
   encryptionKey?: Buffer;
   durableDispatch?: DurableDispatchRunnerConfig;
+  /**
+   * Told about every audit record of work already done that could not be written (the default
+   * service's `onWriteFailure`; default an error-level log line). Ignored when `audit` is given.
+   */
+  onAuditWriteFailure?: (failure: AuditWriteFailure) => void;
 }
 
 /**
@@ -34,7 +39,13 @@ export function wireContextDependencies(
   options: WireContextDependenciesOptions,
   extras: Partial<ContextDependencies> = {},
 ): ContextDependencies {
-  const audit = options.audit ?? createAuditService({ db: options.db, auth: options.auth });
+  const audit =
+    options.audit ??
+    createAuditService({
+      db: options.db,
+      auth: options.auth,
+      ...(options.onAuditWriteFailure ? { onWriteFailure: options.onAuditWriteFailure } : {}),
+    });
   const data = options.entities.createDataService({
     db: options.db,
     auth: options.auth,

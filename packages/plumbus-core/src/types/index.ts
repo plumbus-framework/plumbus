@@ -92,6 +92,7 @@ export type {
   RequestMeta,
   SecurityService,
   SetWriteAudit,
+  CreateManyOptions,
   SetWriteOptions,
   SetWriteResult,
   TimeService,

@@ -8,7 +8,10 @@ import { closeDatabaseConnection, resolveDatabaseConnection } from '../../data/c
 import {
   EventDeadLetterResolution,
   resolveEventDeadLetter,
+  resolveEventDeadLetters,
 } from '../../events/dead-letter-resolution.js';
+import { loadServerExtensions } from '../../runtime/load-extensions.js';
+import { withDataPlane } from '../../tenancy/data-plane-resolver.js';
 import { deadLetterTable, idempotencyTable, outboxTable } from '../../events/outbox.js';
 import { TrustedReplayActor } from '../../types/event.js';
 import { resolveRuntimeQueues } from '../../runtime/queue-factory.js';
@@ -23,6 +26,64 @@ async function withDb<T>(
     return await fn(connection.db);
   } finally {
     await closeDatabaseConnection(connection);
+  }
+}
+
+/** Which databases a dead-letter command works on. */
+export interface DeadLetterTargetOptions {
+  /** One tenant plane, reached through `app/server.ts`'s `dataPlaneResolver`. */
+  tenant?: string;
+  /** Every plane `app/server.ts`'s `listTenantRefs` lists. */
+  allTenants?: boolean;
+}
+
+type CommandDb = Awaited<ReturnType<typeof resolveDatabaseConnection>>['db'];
+
+/**
+ * Run `fn` on the pool's database, or on the tenant planes the options name (through the
+ * `dataPlaneResolver` / `listTenantRefs` exported from `app/server.ts`), one plane at a time.
+ * `fn` gets the database and a label (`pool` or `tenant-plane:<ref>`).
+ */
+export async function withDeadLetterTargets<T>(
+  opts: DeadLetterTargetOptions,
+  fn: (db: CommandDb, label: string) => Promise<T>,
+  loadExtensions: (
+    cwd: string,
+  ) => Promise<Awaited<ReturnType<typeof loadServerExtensions>>> = loadServerExtensions,
+): Promise<Array<{ label: string; result: T }>> {
+  if (opts.tenant !== undefined && opts.allTenants) {
+    throw new Error('Use either --tenant <ref> or --all-tenants, not both');
+  }
+  if (opts.tenant === undefined && !opts.allTenants) {
+    return [{ label: 'pool', result: await withDb((db) => fn(db, 'pool')) }];
+  }
+  const ext = await loadExtensions(process.cwd());
+  const resolver = ext.dataPlaneResolver;
+  if (!resolver) {
+    throw new Error('app/server.ts exports no dataPlaneResolver; tenant planes cannot be reached');
+  }
+  try {
+    let refs: string[];
+    if (opts.tenant !== undefined) {
+      refs = [opts.tenant];
+    } else {
+      if (!ext.listTenantRefs) {
+        throw new Error('app/server.ts exports no listTenantRefs; use --tenant <ref> per plane');
+      }
+      refs = [...(await ext.listTenantRefs())];
+    }
+    const results: Array<{ label: string; result: T }> = [];
+    for (const ref of refs) {
+      const label = `tenant-plane:${ref}`;
+      const result = await withDataPlane(resolver, ref, (handle) => fn(handle.db, label), {
+        purpose: 'background',
+      });
+      results.push({ label, result });
+    }
+    return results;
+  } finally {
+    const closable = resolver as { close?: () => Promise<void> };
+    await closable.close?.().catch(() => undefined);
   }
 }
 
@@ -51,6 +112,59 @@ export async function getEventsStatus(): Promise<Record<string, unknown>> {
       queueBackend: queues.backend,
       queueDepths,
     };
+  });
+}
+
+export interface ResolveAllOptions extends DeadLetterTargetOptions {
+  eventType?: string;
+  consumer?: string;
+  before?: string;
+  every?: boolean;
+  note?: string;
+  actor?: string;
+}
+
+/**
+ * `plumbus events dead-letter resolve-all`: settle every unresolved dead letter matching the
+ * filters on each target database, a thousand rows a statement until none is left. A call
+ * without a filter must say `--every`.
+ */
+export async function resolveAllDeadLetters(
+  opts: ResolveAllOptions,
+  targets: typeof withDeadLetterTargets = withDeadLetterTargets,
+): Promise<Array<{ label: string; result: number }>> {
+  const hasFilter =
+    opts.eventType !== undefined || opts.consumer !== undefined || opts.before !== undefined;
+  if (!hasFilter && !opts.every) {
+    throw new Error('Give --event-type, --consumer or --before, or --every to settle every row');
+  }
+  let failedBefore: Date | undefined;
+  if (opts.before !== undefined) {
+    failedBefore = new Date(opts.before);
+    if (Number.isNaN(failedBefore.getTime()))
+      throw new Error(`--before is not a date: ${opts.before}`);
+  }
+  const batch = 1000;
+  return targets(opts, async (db) => {
+    let total = 0;
+    for (;;) {
+      const marked = await resolveEventDeadLetters(
+        db,
+        {
+          ...(opts.eventType !== undefined ? { eventType: opts.eventType } : {}),
+          ...(opts.consumer !== undefined ? { consumerId: opts.consumer } : {}),
+          ...(failedBefore ? { failedBefore } : {}),
+          limit: batch,
+        },
+        {
+          actor: opts.actor ?? 'cli',
+          resolution: EventDeadLetterResolution.Discarded,
+          ...(opts.note !== undefined ? { note: opts.note } : {}),
+        },
+      );
+      total += marked;
+      if (marked < batch) return total;
+    }
   });
 }
 
@@ -87,21 +201,32 @@ export function registerEventsOpsCommands(eventsCmd: Command): void {
     .description('List event dead-letter rows')
     .option('--limit <n>', 'Max rows', '20')
     .option('--json', 'Output JSON')
-    .action(async (opts: { limit?: string; json?: boolean }) => {
+    .option('--tenant <ref>', 'Read one tenant plane (app/server.ts dataPlaneResolver)')
+    .option('--all-tenants', 'Read every plane app/server.ts listTenantRefs lists')
+    .action(async (opts: { limit?: string; json?: boolean } & DeadLetterTargetOptions) => {
       const limit = parseInt(opts.limit ?? '20', 10);
       try {
-        const rows = await withDb(async (db) =>
+        const perTarget = await withDeadLetterTargets(opts, (db) =>
           db.select().from(deadLetterTable).orderBy(desc(deadLetterTable.failedAt)).limit(limit),
         );
         if (opts.json) {
+          const rows =
+            perTarget.length === 1 && perTarget[0]?.label === 'pool'
+              ? perTarget[0].result
+              : perTarget.flatMap(({ label, result }) =>
+                  result.map((row) => ({ plane: label, ...row })),
+                );
           console.log(JSON.stringify(rows, null, 2));
           return;
         }
-        for (const row of rows) {
-          const resolution = (row.metadata as { resolution?: unknown } | null)?.resolution;
-          info(
-            `${row.id} ${row.eventType} consumer=${row.consumerId ?? 'n/a'} retries=${row.retryCount}${typeof resolution === 'string' ? ` resolved=${resolution}` : ''}`,
-          );
+        for (const { label, result } of perTarget) {
+          if (perTarget.length > 1 || label !== 'pool') info(`${label}: ${result.length} row(s)`);
+          for (const row of result) {
+            const resolution = (row.metadata as { resolution?: unknown } | null)?.resolution;
+            info(
+              `${row.id} ${row.eventType} consumer=${row.consumerId ?? 'n/a'} retries=${row.retryCount}${typeof resolution === 'string' ? ` resolved=${resolution}` : ''}`,
+            );
+          }
         }
       } catch (err) {
         logError(err instanceof Error ? err.message : String(err));
@@ -159,17 +284,41 @@ export function registerEventsOpsCommands(eventsCmd: Command): void {
     )
     .option('--note <text>', 'Why it needs no redelivery')
     .option('--actor <name>', 'Who resolved it', 'cli')
-    .action(async (id: string, opts: { note?: string; actor?: string }) => {
+    .option('--tenant <ref>', 'The row is on this tenant plane (app/server.ts dataPlaneResolver)')
+    .action(async (id: string, opts: { note?: string; actor?: string; tenant?: string }) => {
       try {
-        const resolved = await withDb((db) =>
+        const [target] = await withDeadLetterTargets({ tenant: opts.tenant }, (db) =>
           resolveEventDeadLetter(db, id, {
             actor: opts.actor ?? 'cli',
             resolution: EventDeadLetterResolution.Discarded,
             ...(opts.note !== undefined ? { note: opts.note } : {}),
           }),
         );
-        if (!resolved) throw new Error(`No unresolved dead-letter row "${id}"`);
-        info(`Resolved dead-letter ${id}`);
+        if (!target?.result) throw new Error(`No unresolved dead-letter row "${id}"`);
+        info(`Resolved dead-letter ${id}${target.label === 'pool' ? '' : ` on ${target.label}`}`);
+      } catch (err) {
+        logError(err instanceof Error ? err.message : String(err));
+        process.exit(1);
+      }
+    });
+
+  dlq
+    .command('resolve-all')
+    .description(
+      'Mark every unresolved dead-letter row matching the filters resolved (discarded), in batches',
+    )
+    .option('--event-type <type>', 'Only rows of this event type')
+    .option('--consumer <id>', 'Only rows of this consumer')
+    .option('--before <iso-date>', 'Only rows that failed before this instant')
+    .option('--every', 'No filter: every unresolved row (required when no filter is given)')
+    .option('--note <text>', 'Why they need no redelivery')
+    .option('--actor <name>', 'Who resolved them', 'cli')
+    .option('--tenant <ref>', 'One tenant plane (app/server.ts dataPlaneResolver)')
+    .option('--all-tenants', 'Every plane app/server.ts listTenantRefs lists')
+    .action(async (opts: ResolveAllOptions) => {
+      try {
+        const totals = await resolveAllDeadLetters(opts);
+        for (const { label, result } of totals) info(`${label}: resolved ${result}`);
       } catch (err) {
         logError(err instanceof Error ? err.message : String(err));
         process.exit(1);

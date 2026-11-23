@@ -108,6 +108,12 @@ function loadWorkersConfig(env: Record<string, string | undefined>): {
   if (historyLimit !== undefined) workers.flowStepHistoryLimit = historyLimit;
   const pump = readEnvChoice(env, 'PLUMBUS_EVENT_OUTBOX_PUMP', ['all', 'none'] as const);
   if (pump) workers.eventOutboxPump = pump;
+  const auditRelay = readEnvNumber(
+    env,
+    'PLUMBUS_AUDIT_OUTBOX_RELAY_INTERVAL_MS',
+    AUDIT_RELAY_INTERVAL_MS_RULE,
+  );
+  if (auditRelay !== undefined) workers.auditOutboxRelayIntervalMs = auditRelay;
   const flowLanes = loadFlowLanesConfig(env);
   if (flowLanes) workers.flowLanes = flowLanes;
   return Object.keys(workers).length > 0 ? { workers } : {};
@@ -539,6 +545,14 @@ const STEP_HISTORY_LIMIT_RULE: EnvNumberRule = {
   min: 0,
   max: 1_000_000,
   expected: 'a whole number from 0 to 1000000',
+};
+
+/** `PLUMBUS_AUDIT_OUTBOX_RELAY_INTERVAL_MS`: 0 turns the audit outbox relay off. */
+const AUDIT_RELAY_INTERVAL_MS_RULE: EnvNumberRule = {
+  pattern: /^\d+$/,
+  min: 0,
+  max: 86_400_000,
+  expected: 'a whole number of milliseconds from 0 (off) to 86400000',
 };
 
 /** `PLUMBUS_FLOW_RESERVED_UNTENANTED`: runner slots held for untenanted flows. */

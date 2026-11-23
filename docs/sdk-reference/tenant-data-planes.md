@@ -361,6 +361,44 @@ has no job queue: `ctx.jobs.enqueue()` throws `Job queue not configured on this 
 context` and the step fails. Flow steps on the pool database (no resolver,
 `workerDataPlane: 'control-plane'`, untenanted control-plane work) keep the flow job wiring.
 
+## Audit records of tenant-plane work (audit outbox)
+
+(core 0.9.0-beta.16+.) A host that runs requests on the spine (`requestDataPlane: 'control-plane'`) and writes on a tenant plane from its own handler (`handle.db.transaction(…)`) has an audit problem: `ctx.audit` writes to the spine. Recording there while the tenant transaction is open holds a tenant connection across a spine round trip (with both pools full, the two wait on each other), and a write the tenant transaction then rolls back leaves a "success" record. Recording after the commit loses the record if the process stops in between.
+
+`createAuditOutbox(ctx.audit)` keeps each success record in the tenant transaction itself, in the framework table `audit_outbox`, and hands it to the spine after the commit:
+
+```ts
+import { runWithAuditOutbox } from '@plumbus/core';
+
+const lease = await acquireDataPlane(resolver, ctx.auth.tenantId, { purpose: 'request' });
+try {
+  await runWithAuditOutbox(ctx.audit, lease.handle.db, async (tx, audit) => {
+    const invoices = createRepository({ entity: Invoice, table, db: tx, auth: ctx.auth, audit });
+    await invoices.createMany(lines, { audit: 'per-row' });
+  });
+} finally {
+  lease.release();
+}
+```
+
+Or, around a transaction the host opens itself:
+
+```ts
+const outbox = createAuditOutbox(ctx.audit); // undefined unless ctx.audit is the default service
+await handle.db.transaction(async (tx) => {
+  const audit = outbox ? outbox.bind(tx) : ctx.audit;
+  // … repositories and code that record, all with `audit` …
+});
+await outbox?.flush(handle.db); // after the commit; never throws
+```
+
+- **In the transaction:** each success record is one insert into `audit_outbox` on the transaction's connection (a batch for `recordMany` / `createMany` / `deleteMany`). It commits with the work or rolls back with it. No spine connection is taken. `failure` and `denied` records are written to the spine at once, as they must stand whatever happens to the work.
+- **After the commit:** `flush(db)` takes exactly this unit's rows (only those that exist: after a rollback there are none), writes them to the spine's `audit_records` with their own ids, then deletes them. A record the spine does not take stays, is reported through `onWriteFailure` (the host's `onAuditWriteFailure`), and is delivered by the relay.
+- **The relay:** set `workers.auditOutboxRelayIntervalMs` (`PLUMBUS_AUDIT_OUTBOX_RELAY_INTERVAL_MS`, e.g. `60000`). The worker pool then visits its own database and every listed plane, takes due rows (`FOR UPDATE SKIP LOCKED`, at most 500 a statement; a row becomes due 30 s after its commit, so the committer's flush goes first), writes them to the `audit_records` of **its own database** and deletes them. A failed batch stays, with its error, and is retried with a growing delay (up to 10 minutes); nothing is dropped. `relayAuditOutbox(db, { writer })` runs one relay call from code.
+- **Exactly once:** a record keeps its id from the outbox to the ledger, and the ledger insert ignores an id it already holds, so a record handed over twice (flush and relay, or a flush whose delete failed) is stored once.
+- **Where it applies:** `ctx.audit` must be the default database service (no custom `writer`); otherwise `createAuditOutbox` returns `undefined` and `runWithAuditOutbox` passes `ctx.audit` through. The relay writes to the worker pool's database, so use it where `ctx.audit` writes there too (the spine). A request that already runs on the tenant plane (`requestDataPlane: 'resolved'`) does not need it: its audit rows commit with its transaction.
+- **Migration:** `audit_outbox` is a framework table: `plumbus migrate generate` adds it to every stream it generates (the tenant stream included). `auditOutboxDdl()` is the same table as hand-written SQL. A transaction that records into the outbox on a database without the table fails with `audit_outbox is missing on this database: run plumbus migrate generate …`.
+
 ## What this does not apply
 
 Shipped durable-core / human-task SQL under `packages/plumbus-core/migrations/` is for dedicated harness databases only. Do not apply those files to an application tenant database. Tenant schema comes from the host app's generated `drizzle/` folder, which already includes the framework tables the generator emits.

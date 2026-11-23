@@ -20,7 +20,12 @@ export type { EventConsumer, EventConsumerHandler } from './consumer-registry.js
 export { deadLetterTable, idempotencyTable, outboxTable } from './outbox.js';
 
 // ── Dead-letter resolution ──
-export { EventDeadLetterResolution, resolveEventDeadLetter } from './dead-letter-resolution.js';
+export {
+  EventDeadLetterResolution,
+  resolveEventDeadLetter,
+  resolveEventDeadLetters,
+} from './dead-letter-resolution.js';
+export type { EventDeadLetterFilter } from './dead-letter-resolution.js';
 export type { ResolveEventDeadLetterOptions } from './dead-letter-resolution.js';
 
 // ── Idempotency ──
