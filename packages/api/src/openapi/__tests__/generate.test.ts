@@ -404,3 +404,37 @@ it('refuses to advertise query API keys that the runtime does not read', () => {
     }),
   ).toThrow('Query-string API keys');
 });
+
+describe('generateOpenApi — a streamed answer', () => {
+  it('documents the bytes, not a JSON envelope', async () => {
+    const { streamedBodyOutput, streamedBody } = await import('@plumbus/core');
+    const { Readable } = await import('node:stream');
+    const cap = defineCapability({
+      name: 'downloadRefundReceipt',
+      kind: 'query',
+      domain: 'billing',
+      description: 'Download a refund receipt',
+      input: z.object({ refundId: z.string() }),
+      output: streamedBodyOutput,
+      effects: { data: ['Refund'], events: [], external: [], ai: false },
+      exposeAs: ['api'],
+      api: {
+        operationId: 'downloadRefundReceipt',
+        method: 'GET',
+        path: '/refunds/{refundId}/receipt',
+      },
+      handler: async () => streamedBody(Readable.from([]), { contentType: 'application/pdf' }),
+    });
+    const doc = generateOpenApi([cap], { ...manifest, expose: [] });
+    const [path] = Object.keys(doc.paths);
+    expect(path).toMatch(/\/refunds\/\{refundId\}\/receipt$/);
+    const op = (doc.paths[path as string] as Record<string, any>).get;
+    expect(op.responses['200'].content).toEqual({
+      'application/octet-stream': { schema: { type: 'string', format: 'binary' } },
+    });
+    // A JSON capability keeps its envelope.
+    const json = generateOpenApi([apiCap()], manifest);
+    const jsonOp = (Object.values(json.paths)[0] as Record<string, any>).get;
+    expect(Object.keys(jsonOp.responses['200'].content)).toEqual(['application/json']);
+  });
+});

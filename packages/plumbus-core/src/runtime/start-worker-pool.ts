@@ -72,7 +72,13 @@ export async function startWorkerPool(options: StartWorkerPoolOptions): Promise<
     const mcp = await import('@plumbus/mcp');
     onMcpJobComplete = async (jobId, result, payload, error, tenantId) => {
       const auth = { ...systemAuth, tenantId: tenantId ?? undefined };
-      const audit = createAuditService({ db, auth });
+      const audit = createAuditService({
+        db,
+        auth,
+        ...(extensions?.onAuditWriteFailure
+          ? { onWriteFailure: extensions.onAuditWriteFailure }
+          : {}),
+      });
       // Tenantless completion is scoped by trusted job ID and an explicit task-tenant check.
       const data = entities.createDataService({
         db,
@@ -166,6 +172,7 @@ export async function startWorkerPool(options: StartWorkerPoolOptions): Promise<
         }),
     eventRegistry: events,
     onEventDeadLetter: extensions?.onEventDeadLetter,
+    onAuditWriteFailure: extensions?.onAuditWriteFailure,
     onFlowError: extensions?.onFlowError,
     authorizeFlowAccess: extensions?.authorizeFlowAccess,
     onFlowDefinitionUnavailable: extensions?.onFlowDefinitionUnavailable,

@@ -16,6 +16,7 @@ import {
   max,
   min,
   ne,
+  notInArray,
   or,
   sql,
   sum,
@@ -29,6 +30,7 @@ import type { AuditService } from '../types/audit.js';
 import type {
   AggregateOptions,
   AggregateRow,
+  CreateManyOptions,
   AggregateValue,
   ConditionalUpdateResult,
   FrameworkRepository,
@@ -202,6 +204,11 @@ export function createRepository<
         names.push(key);
       }
     }
+    if (options?.notIn) {
+      for (const key of Object.keys(options.notIn)) {
+        names.push(key);
+      }
+    }
     if (options?.notEq) {
       for (const key of Object.keys(options.notEq)) {
         names.push(key);
@@ -293,6 +300,19 @@ export function createRepository<
     return sql`${column} = ANY(${sql.param(encoded)}::${sql.raw(sqlType)}[])`;
   }
 
+  /**
+   * `col <> ALL($1::type[])`: the column holds none of `values`, sent as one array parameter
+   * like `anyOf`. Other column types: `col NOT IN (…)`.
+   */
+  function noneOf(column: any, values: ReadonlyArray<string | number>): SQL {
+    const sqlType = typeof column.getSQLType === 'function' ? String(column.getSQLType()) : '';
+    if (!ARRAY_PARAM_TYPE.test(sqlType)) return notInArray(column, values as any[]);
+    const encoded = values.map((value) =>
+      typeof column.mapToDriverValue === 'function' ? column.mapToDriverValue(value) : value,
+    );
+    return sql`${column} <> ALL(${sql.param(encoded)}::${sql.raw(sqlType)}[])`;
+  }
+
   /** `col @> $1::jsonb` for a json field; any other field is refused. */
   function containsCondition(fieldName: string, value: unknown): SQL {
     const descriptor = entity.fields[fieldName];
@@ -345,6 +365,15 @@ export function createRepository<
     if (options?.contains) {
       for (const [k, value] of Object.entries(options.contains)) {
         conditions.push(containsCondition(k, value));
+      }
+    }
+    if (options?.notIn) {
+      for (const [k, vals] of Object.entries(options.notIn)) {
+        const c = (table as any)[k];
+        if (!c) continue;
+        // An empty exclusion list excludes nothing. A NULL column is excluded, as by `notEq`
+        // (`col <> ALL(...)` is NULL, not TRUE, for a NULL column).
+        if (vals.length) conditions.push(noneOf(c, vals));
       }
     }
     if (options?.notEq) {
@@ -419,23 +448,25 @@ export function createRepository<
       record
         ? Object.fromEntries(Object.entries(record).map(([k, v]) => [k, maskValue(k, v)]))
         : undefined;
-    const inLists = setOptions.in
-      ? Object.fromEntries(
-          Object.entries(setOptions.in).map(([k, vals]) => {
-            const shown = maskedSet.has(k) ? vals.map(() => AUDIT_MASK_TOKEN) : vals;
-            return [
-              k,
-              shown.length > SUMMARY_IN_LIST_MAX
-                ? {
-                    values: shown.slice(0, SUMMARY_IN_LIST_MAX),
-                    total: shown.length,
-                    truncated: true,
-                  }
-                : shown,
-            ];
-          }),
-        )
-      : undefined;
+    const listsOf = (lists: Record<string, Array<string | number>> | undefined) =>
+      lists
+        ? Object.fromEntries(
+            Object.entries(lists).map(([k, vals]) => {
+              const shown = maskedSet.has(k) ? vals.map(() => AUDIT_MASK_TOKEN) : vals;
+              return [
+                k,
+                shown.length > SUMMARY_IN_LIST_MAX
+                  ? {
+                      values: shown.slice(0, SUMMARY_IN_LIST_MAX),
+                      total: shown.length,
+                      truncated: true,
+                    }
+                  : shown,
+              ];
+            }),
+          )
+        : undefined;
+    const inLists = listsOf(setOptions.in);
     const search = setOptions.search
       ? {
           columns: setOptions.search.columns,
@@ -448,6 +479,7 @@ export function createRepository<
       Object.entries({
         where: query ? maskData(query as Record<string, unknown>) : undefined,
         in: inLists,
+        notIn: listsOf(setOptions.notIn),
         notEq: maskEach(setOptions.notEq),
         dateFilters: maskEach(setOptions.dateFilters as Record<string, unknown> | undefined),
         contains: maskEach(setOptions.contains),
@@ -518,6 +550,7 @@ export function createRepository<
           dateFilters: options.dateFilters,
           search: options.search,
           in: options.in,
+          notIn: options.notIn,
           notEq: options.notEq,
           contains: options.contains,
         }
@@ -627,7 +660,15 @@ export function createRepository<
       return created;
     },
 
-    async createMany(records: TCreate[]): Promise<T[]> {
+    async createMany(records: TCreate[], createOptions?: CreateManyOptions): Promise<T[]> {
+      const auditMode = createOptions?.audit ?? 'summary';
+      if (auditMode !== 'summary' && auditMode !== 'per-row') {
+        throw new DataValidationError(`createMany audit must be 'per-row' or 'summary'`, {
+          entity: entity.name,
+          operation: 'createMany',
+          field: 'audit',
+        });
+      }
       if (records.length === 0) return [];
       await assertTenantContext('createMany');
 
@@ -641,11 +682,22 @@ export function createRepository<
 
       const rows = await db.insert(table).values(prepared).returning();
 
-      // One summary audit row per batch instead of N per-row audits.
-      await auditMutation('createMany', {
-        count: prepared.length,
-        sample: maskData(prepared[0] ?? {}),
-      });
+      if (audit && auditMode === 'per-row') {
+        // Exactly the row `create(data)` records for each record, inserted together.
+        await recordAuditBatch(
+          audit,
+          prepared.map((record) => ({
+            eventType: `${entity.name}.create`,
+            metadata: { ...maskData(record), _maskedFields: maskedFields },
+          })),
+        );
+      } else {
+        // One summary audit row per batch instead of N per-row audits.
+        await auditMutation('createMany', {
+          count: prepared.length,
+          sample: maskData(prepared[0] ?? {}),
+        });
+      }
 
       return rows.map((row) => {
         const decrypted = decryptRow(row as T | undefined);

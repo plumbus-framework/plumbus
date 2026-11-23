@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0-beta.6 — 2026-11-23 — streamed answers
+
+- A capability declared with `output: streamedBodyOutput` (core 0.9.0-beta.16) is served as its bytes on its partner route, with its own headers and no envelope; the `api.<operationId>` audit row is written as before. `generateOpenApi` describes its `200` as `application/octet-stream` (`type: string, format: binary`). `registerApiRoutes` refuses (`ApiManifestError`) a manifest entry that makes such an operation require idempotency. Detected structurally (`isStreamedOutput`), so a core in the current peer range without streamed answers is unaffected.
+
 ## 0.4.0-beta.5 — 2026-11-09 — security release, opt-in request id tied to the server's
 
 ### Security (breaking where noted)

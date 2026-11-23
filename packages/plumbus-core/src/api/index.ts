@@ -3,7 +3,8 @@
 // Maps a capability to its HTTP method: the declared `api.method` where there is one,
 // otherwise the kind's default (query→GET, action/job→POST).
 //
-// Key exports: registerAllRoutes, registerCapabilityRoute, isApiExposed
+// Key exports: registerAllRoutes, registerCapabilityRoute, isApiExposed, streamedBody
+// (a capability answering with bytes: `output: streamedBodyOutput`)
 
 export { capabilityHttpMethod, isApiExposed } from './exposure.js';
 export {
@@ -20,6 +21,17 @@ export {
   resolveRequestId,
   withRequestId,
 } from './request-id.js';
+export {
+  contentDisposition,
+  isStreamedBody,
+  isStreamedBodySchema,
+  sendStreamedBody,
+  STREAMED_BODY_BRAND,
+  StreamedBodyLengthError,
+  streamedBody,
+  streamedBodyOutput,
+} from './streamed-body.js';
+export type { StreamedBody, StreamedBodyOptions, StreamedBodySource } from './streamed-body.js';
 export {
   LOCALE_COOKIE_NAME,
   registerAllRoutes,

@@ -124,10 +124,11 @@ interface Repository<
   // Create a new record
   create(data: TCreate): Promise<T>;
 
-  // Bulk-create N records in a single DB round-trip plus one summary audit row.
+  // Bulk-create N records in one INSERT. Audit: one summary row per call by default, or
+  // `{ audit: 'per-row' }` for the row create() writes per record (inserted together).
   // Empty arrays short-circuit to []. Use for hot paths that would otherwise
   // call create() in a loop (typically > ~10 records).
-  createMany(records: TCreate[]): Promise<T[]>;
+  createMany(records: TCreate[], options?: { audit?: 'summary' | 'per-row' }): Promise<T[]>;
 
   // Update by ID. `{ returning: false }` reads nothing back (RETURNING id only) and
   // resolves to undefined — for wide rows whose updated copy the caller does not use.
@@ -203,7 +204,7 @@ for (;;) {
 await ctx.data.Hold.updateMany({ batchId }, { releasedAt: now }, { limit: 1000 });
 ```
 
-`SetWriteOptions` = the filters (`dateFilters`, `search`, `in`, `notEq`, `contains`) plus:
+`SetWriteOptions` = the filters (`dateFilters`, `search`, `in`, `notIn`, `notEq`, `contains`) plus:
 
 | Option | Meaning |
 |---|---|
@@ -328,14 +329,19 @@ interface QueryOptions {
   search?: { columns: string[]; term: string };
   /** field → allowed values (SQL IN). An empty array matches no row. */
   in?: Record<string, Array<string | number>>;
-  /** field → value the row must NOT equal (SQL <>) */
+  /**
+   * field → values the row must hold none of (col <> ALL($1::type[]), one array parameter).
+   * An empty list excludes nothing. A NULL column does not match (as with notEq / SQL NOT IN).
+   */
+  notIn?: Record<string, Array<string | number>>;
+  /** field → value the row must NOT equal (SQL <>). A NULL column does not match. */
   notEq?: Record<string, string | number>;
   /** json field → value the column must contain (jsonb @>); see `contains` above */
   contains?: Record<string, unknown>;
 }
 
 /** The WHERE filters alone, as `count`, `exists`, `aggregate`, `findPage` and the set-based writes take them. */
-type QueryFilters = Pick<QueryOptions, 'dateFilters' | 'search' | 'in' | 'notEq' | 'contains'>;
+type QueryFilters = Pick<QueryOptions, 'dateFilters' | 'search' | 'in' | 'notIn' | 'notEq' | 'contains'>;
 ```
 
 **`in` lists of any length.** For `uuid`, `text`, `varchar`, integer, `numeric`, `real`/`double precision` and `boolean` columns an `in` list is sent as **one array parameter** (`col = ANY($1::uuid[])`) instead of one bind parameter per value. A list of 70,000 ids no longer fails on PostgreSQL's 65,535-parameter limit, every list length shares one statement text (one prepared statement), and the column's index serves it as before. Other column types (timestamps, json, host-named enums) keep one parameter per value.

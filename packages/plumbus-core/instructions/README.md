@@ -29,6 +29,7 @@ For conceptual reference, see `docs/` in the Plumbus monorepo. These files are *
 | [peer-dependencies.md](./peer-dependencies.md) | **Before editing add-on `peerDependencies`** — copy literals exactly. |
 | [upgrading-0.5-capabilities.md](./upgrading-0.5-capabilities.md) | Canonical capability names, invoke policy, flow auth snapshot. |
 | [upgrading-bounded-reads-lazy-transactions.md](./upgrading-bounded-reads-lazy-transactions.md) | **Core 0.9 beta after beta.12:** read ceiling, exact `limit`, empty `in`, `findPage`/`exists`; capability transactions opened at the first write; bounded wait for a connection. |
+| [upgrading-streams-and-audit-outbox.md](./upgrading-streams-and-audit-outbox.md) | **Core 0.9 beta after beta.15:** streamed capability answers (`streamedBody`), audit outbox for writes on a tenant plane, `createMany` per-row audit, `notIn`, `onAuditWriteFailure`, dead letters on tenant planes from the CLI. |
 | [upgrading-set-writes-and-audit.md](./upgrading-set-writes-and-audit.md) | **Core 0.9 beta after beta.14:** `deleteMany`/`updateMany`, `contains`, `in` as one array parameter; idempotency records per tenant plane; success audit rows in the transaction or retried; connection ceiling across planes; shared admission lock. |
 
 Optional AI provider: after `pnpm add @plumbus/ai-bedrock`, read `node_modules/@plumbus/ai-bedrock/instructions/README.md` (framework + pricing pull).

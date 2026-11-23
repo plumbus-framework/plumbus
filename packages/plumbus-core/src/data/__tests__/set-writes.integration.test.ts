@@ -37,8 +37,13 @@ const softEntity = defineEntity({
   tenantScoped: true,
   fields: { id: field.id(), state: field.string({ required: true }), deletedAt: field.timestamp() },
 });
+const labelEntity = defineEntity({
+  name: 'LabelItem',
+  fields: { id: field.id(), label: field.string() },
+});
 const table = generateDrizzleSchema(entity);
 const softTable = generateDrizzleSchema(softEntity);
+const labelTable = generateDrizzleSchema(labelEntity);
 type Item = {
   id: string;
   day: Date;
@@ -89,7 +94,7 @@ beforeAll(async () => {
   pg = await startPostgres();
   for (const statement of await generateMigration(
     generateDrizzleJson({}),
-    generateDrizzleJson({ table, softTable }),
+    generateDrizzleJson({ table, softTable, labelTable }),
   )) {
     await pg.sql.unsafe(statement);
   }
@@ -399,5 +404,139 @@ describe('in-memory repository follows', () => {
     });
     await expect(mem.deleteMany?.(undefined, { limit: 0 })).rejects.toThrow(/limit/);
     expect(await mem.count()).toBe(1);
+  });
+});
+
+describe('createMany with one audit row per record', () => {
+  const rows = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      day: new Date('2026-02-01T00:00:00Z'),
+      state: 'open',
+      owner: `owner-${i}`,
+      secret: `s-${i}`,
+    }));
+
+  it('writes exactly the rows a loop of create() writes, in one INSERT and one audit INSERT', async () => {
+    const loop = repo();
+    for (const row of rows(3)) await loop.create(row);
+    const single = await auditRows('SweepItem.create');
+    await pg.sql.unsafe('TRUNCATE sweep_item, audit_records');
+    queries.length = 0;
+
+    const created = await repo().createMany(rows(3), { audit: 'per-row' });
+    expect(created).toHaveLength(3);
+    const batched = await auditRows('SweepItem.create');
+    expect(batched).toHaveLength(3);
+    // Same shape as single creates: masked owner, encrypted secret, tenant, no plain text.
+    const shape = (r: { metadata: Record<string, any> }) =>
+      Object.keys(r.metadata).sort().join(',');
+    expect(batched.map(shape)).toEqual(single.map(shape));
+    expect(batched.every((r) => r.metadata.owner === '***')).toBe(true);
+    expect(JSON.stringify(batched)).not.toContain('owner-1');
+    expect(JSON.stringify(batched)).not.toContain('"s-1"');
+    expect(await auditRows('SweepItem.createMany')).toEqual([]);
+    const inserts = queries.filter((q) => /^insert/i.test(q.query));
+    expect(inserts.filter((q) => q.query.includes('"sweep_item"'))).toHaveLength(1);
+    expect(inserts.filter((q) => q.query.includes('"audit_records"'))).toHaveLength(1);
+  });
+
+  it('keeps one summary row by default, and refuses an unknown mode', async () => {
+    await repo().createMany(rows(4));
+    expect(await auditRows('SweepItem.create')).toEqual([]);
+    const summary = await auditRows('SweepItem.createMany');
+    expect(summary).toHaveLength(1);
+    expect(summary[0]?.metadata.count).toBe(4);
+    await expect(repo().createMany(rows(1), { audit: 'none' as never })).rejects.toBeInstanceOf(
+      DataValidationError,
+    );
+  });
+
+  it('writes no audit row without an audit service, and none for an empty list', async () => {
+    await repo(false).createMany(rows(2), { audit: 'per-row' });
+    expect(await repo().createMany([], { audit: 'per-row' })).toEqual([]);
+    expect(await auditRows('SweepItem.create')).toEqual([]);
+  });
+
+  it('the in-memory repository accepts the option', async () => {
+    const mem = createInMemoryRepository<Item>();
+    expect(await mem.createMany(rows(2) as never, { audit: 'per-row' })).toHaveLength(2);
+  });
+});
+
+describe('notIn', () => {
+  it('excludes the listed values as one array parameter, on reads and set-based writes', async () => {
+    await seed(30);
+    const r = repo();
+    const all = await r.findManyFields(undefined, ['id', 'owner'], { unbounded: true });
+    const held = all.slice(0, 10).map((row) => row.owner);
+    queries.length = 0;
+    const kept = await r.count(undefined, { notIn: { owner: held } });
+    expect(kept).toBe(20);
+    const countQuery = queries.find((q) => /^select count/i.test(q.query));
+    expect(countQuery?.query).toMatch(/"sweep_item"\."owner" <> ALL\(\$\d+::text\[\]\)/);
+    expect(countQuery?.params.some((p) => Array.isArray(p) && p.length === 10)).toBe(true);
+
+    const removed = await r.deleteMany(undefined, { notIn: { owner: held }, limit: 1000 });
+    expect(removed.count).toBe(20);
+    expect(
+      (await r.findManyFields(undefined, ['owner'], { unbounded: true }))
+        .map((x) => x.owner)
+        .sort(),
+    ).toEqual([...held].sort());
+  });
+
+  it('excludes nothing with an empty list, and keeps NULL rows out like notEq', async () => {
+    await seed(5);
+    await pg.sql.unsafe(`UPDATE sweep_item SET state = 'closed' WHERE owner = 'owner-1'`);
+    const r = repo();
+    expect(await r.count(undefined, { notIn: { state: [] } })).toBe(5);
+    expect(await r.count(undefined, { notIn: { state: ['closed'] } })).toBe(4);
+    await pg.sql.unsafe(`TRUNCATE label_item;
+      INSERT INTO label_item (id, label) VALUES (gen_random_uuid(), 'a'), (gen_random_uuid(), 'b'),
+        (gen_random_uuid(), NULL)`);
+    const labels = createRepository<{ id: string; label?: string | null }>({
+      entity: labelEntity,
+      table: labelTable,
+      db: db(),
+      auth,
+    });
+    // A NULL label matches neither `notIn` nor `notEq`, as in SQL.
+    expect(await labels.count(undefined, { notIn: { label: ['a'] } })).toBe(1);
+    expect(await labels.count(undefined, { notEq: { label: 'a' } })).toBe(1);
+    expect(await labels.count()).toBe(3);
+  });
+
+  it('handles a list past 65,535 values', async () => {
+    await seed(3);
+    const many = Array.from({ length: 70_000 }, (_, i) => `owner-x${i}`);
+    expect(await repo().count(undefined, { notIn: { owner: many } })).toBe(3);
+  });
+
+  it('is masked in a summary audit row, and refused on an encrypted field', async () => {
+    await seed(4);
+    await repo().deleteMany(undefined, {
+      notIn: { owner: ['owner-1'], state: ['gone'] },
+      limit: 10,
+      audit: 'summary',
+    });
+    const [row] = await auditRows('SweepItem.deleteMany');
+    expect(row?.metadata.filter.notIn).toEqual({ owner: ['***'], state: ['gone'] });
+    await expect(repo().count(undefined, { notIn: { secret: ['a'] } })).rejects.toBeInstanceOf(
+      DataValidationError,
+    );
+  });
+
+  it('the in-memory repository filters the same way', async () => {
+    const mem = createInMemoryRepository<Item>();
+    await mem.createMany([
+      { state: 'open', owner: 'a' },
+      { state: 'closed', owner: 'b' },
+      { state: 'open', owner: 'c', secret: null },
+    ] as never);
+    expect(
+      (await mem.findMany(undefined, { notIn: { owner: ['a'] } })).map((r) => r.owner),
+    ).toEqual(['b', 'c']);
+    expect(await mem.count(undefined, { notIn: { owner: [] } })).toBe(3);
+    expect(await mem.count(undefined, { notIn: { secret: ['x'] } })).toBe(0);
   });
 });

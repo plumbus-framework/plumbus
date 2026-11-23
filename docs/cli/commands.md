@@ -300,7 +300,8 @@ Operational commands for the event outbox and dead-letter queue.
 plumbus events status [options]
 plumbus events dead-letter list [options]
 plumbus events dead-letter retry <id>
-plumbus events dead-letter resolve <id> [--note <text>] [--actor <name>]
+plumbus events dead-letter resolve <id> [--note <text>] [--actor <name>] [--tenant <ref>]
+plumbus events dead-letter resolve-all [filters] [--tenant <ref> | --all-tenants]
 plumbus events replay <eventId> [options]
 ```
 
@@ -316,8 +317,12 @@ Reports `outboxPending`, `deadLetterCount`, `oldestPendingAt`, `queueBackend`, a
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `--limit <n>` | `string` | `20` | Max rows |
-| `--json` | `boolean` | `false` | Output JSON |
+| `--limit <n>` | `string` | `20` | Max rows (per plane) |
+| `--json` | `boolean` | `false` | Output JSON (with `plane` on each row when tenant planes are read) |
+| `--tenant <ref>` | `string` | — | Read one tenant plane instead of the pool's database |
+| `--all-tenants` | `boolean` | `false` | Read every plane `listTenantRefs` lists |
+
+Tenant planes are reached through the `dataPlaneResolver` (and, for `--all-tenants`, `listTenantRefs`) that `app/server.ts` exports, one plane at a time; the command says so and stops when they are missing.
 
 #### `plumbus events dead-letter retry <id>`
 
@@ -325,7 +330,22 @@ Re-publish a dead-letter row to the events queue for reprocessing, then mark the
 
 #### `plumbus events dead-letter resolve <id>` (core 0.9.0-beta.15)
 
-Mark a dead-letter row resolved without re-publishing it (`metadata.resolution = 'discarded'`, with `--note` and `--actor`, default `cli`). Fails when no unresolved row has that id. Framework retention deletes resolved rows once `frameworkRetention.eventDeadLetter` is on and their period has passed; `list` shows `resolved=<resolution>` on them.
+Mark a dead-letter row resolved without re-publishing it (`metadata.resolution = 'discarded'`, with `--note` and `--actor`, default `cli`). Fails when no unresolved row has that id. `--tenant <ref>` resolves a row on that tenant plane (core 0.9.0-beta.16). Framework retention deletes resolved rows once `frameworkRetention.eventDeadLetter` is on and their period has passed; `list` shows `resolved=<resolution>` on them.
+
+#### `plumbus events dead-letter resolve-all` (core 0.9.0-beta.16)
+
+Settle a pile of dead letters nobody will redeliver: every unresolved row matching the filters is marked `discarded`, oldest first, a thousand rows a statement until none is left, on the pool's database, one tenant plane (`--tenant <ref>`) or every listed plane (`--all-tenants`). Prints how many rows each database had.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--event-type <type>` | `string` | — | Only rows of this event type |
+| `--consumer <id>` | `string` | — | Only rows of this consumer |
+| `--before <iso-date>` | `string` | — | Only rows that failed before this instant |
+| `--every` | `boolean` | `false` | Required when no filter is given: every unresolved row |
+| `--note <text>` / `--actor <name>` | `string` | — / `cli` | Kept on each row |
+| `--tenant <ref>` / `--all-tenants` | | | As for `list` |
+
+The same from code: `resolveEventDeadLetters(db, { eventType?, consumerId?, failedBefore?, limit? }, { actor, resolution?, note? })` (returns the number marked; call again while it equals `limit`, default 1000).
 
 #### `plumbus events replay <eventId>`
 

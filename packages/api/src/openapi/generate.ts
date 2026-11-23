@@ -163,6 +163,20 @@ function resolveOperationSecurity(
  * assembly into 3.1 / JSON Schema 2020-12 (see `openapi-3-1.ts`); omitting the
  * option leaves the 3.0.3 output exactly as it has always been.
  */
+/**
+ * Whether a capability answers with bytes (`output: streamedBodyOutput` in `@plumbus/core`),
+ * read from the schema's metadata so this package needs no newer core than its peer range.
+ */
+export function isStreamedOutput(cap: Pick<CapabilityContract, 'output'>): boolean {
+  const schema = cap.output as unknown as { meta?: () => Record<string, unknown> | undefined };
+  if (typeof schema?.meta !== 'function') return false;
+  try {
+    return schema.meta()?.plumbusBody === 'stream';
+  } catch {
+    return false;
+  }
+}
+
 export function generateOpenApi(
   caps: CapabilityContract[],
   manifest: ApiManifest,
@@ -199,24 +213,33 @@ export function generateOpenApi(
       tags: resolved.docs?.tags ?? [cap.domain],
       deprecated: resolved.stability === 'deprecated',
       responses: {
-        '200': {
-          description: 'Successful response',
-          content: {
-            'application/json': {
-              schema: {
-                allOf: [
-                  { $ref: '#/components/schemas/ApiSuccessEnvelope' },
-                  {
-                    type: 'object',
-                    properties: {
-                      data: zodToOpenApiSchema(cap.output),
-                    },
+        '200': isStreamedOutput(cap)
+          ? {
+              // A streamed answer (`output: streamedBodyOutput`): the body is the bytes the
+              // handler streams, with the content type it names, not a JSON envelope.
+              description: 'Successful response: the bytes of the answer',
+              content: {
+                'application/octet-stream': { schema: { type: 'string', format: 'binary' } },
+              },
+            }
+          : {
+              description: 'Successful response',
+              content: {
+                'application/json': {
+                  schema: {
+                    allOf: [
+                      { $ref: '#/components/schemas/ApiSuccessEnvelope' },
+                      {
+                        type: 'object',
+                        properties: {
+                          data: zodToOpenApiSchema(cap.output),
+                        },
+                      },
+                    ],
                   },
-                ],
+                },
               },
             },
-          },
-        },
         '400': errorResponseRef(),
         '401': errorResponseRef(),
         '403': errorResponseRef(),

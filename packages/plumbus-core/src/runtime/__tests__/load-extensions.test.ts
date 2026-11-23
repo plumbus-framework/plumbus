@@ -40,6 +40,17 @@ describe('loadServerExtensions', () => {
     expect(absent.requestIds).toBeUndefined();
   });
 
+  it('loads onAuditWriteFailure only when it is a function', async () => {
+    const on = await loadServerExtensions(
+      await writeServerModule('export function onAuditWriteFailure() {}\n'),
+    );
+    expect(typeof on.onAuditWriteFailure).toBe('function');
+    const off = await loadServerExtensions(
+      await writeServerModule('export const onAuditWriteFailure = "alert";\n'),
+    );
+    expect(off.onAuditWriteFailure).toBeUndefined();
+  });
+
   it('leaves credentials unset when app/server.js does not export it', async () => {
     const cwd = await writeServerModule('export function onRoutesRegistered() {}\n');
     const extensions = await loadServerExtensions(cwd);

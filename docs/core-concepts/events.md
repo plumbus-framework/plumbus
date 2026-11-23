@@ -248,7 +248,8 @@ A dead letter stays until it is settled. `resolveEventDeadLetter(db, id, { actor
 plumbus events status                        # backlog + DLQ count
 plumbus events dead-letter list [--limit 20]
 plumbus events dead-letter retry <id>        # re-publish to events queue; marks the row resolved
-plumbus events dead-letter resolve <id> [--note <text>] [--actor <name>]  # settle without re-publishing
+plumbus events dead-letter resolve <id> [--note <text>] [--actor <name>] [--tenant <ref>]  # settle without re-publishing
+plumbus events dead-letter resolve-all --event-type <type> [--before <date>] [--tenant <ref> | --all-tenants]  # settle a pile
 plumbus events replay <eventId>              # re-dispatch from outbox (trusted replay actor)
 plumbus events replay <eventId> --from 2026-01-01T00:00:00Z  # bulk replay
 ```

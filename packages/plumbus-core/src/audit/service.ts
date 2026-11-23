@@ -374,6 +374,38 @@ export function holdAuditSuccess(service: AuditService): AuditSuccessHold | unde
 }
 
 /**
+ * @internal What the audit outbox needs from a default (database-backed, no custom writer)
+ * service: how it builds its records, the writer it writes them with, and how it reports a
+ * record it could not write. `undefined` for any other service.
+ */
+export function defaultAuditServiceInternals(service: AuditService):
+  | {
+      buildEvent(eventType: string, metadata?: Record<string, unknown>): AuditEvent;
+      writer: AuditWriter;
+      /** Write `events` now (three quick attempts); throws when the store refuses or is down. */
+      write(events: AuditEvent[]): Promise<void>;
+      reportFailure(failure: AuditWriteFailure): void;
+    }
+  | undefined {
+  if (!databaseAuditServices.has(service)) return undefined;
+  const state = frameworkAuditServices.get(service);
+  if (!state) return undefined;
+  return {
+    buildEvent: (eventType, metadata) =>
+      buildAuditEvent(state.auth, state.component, eventType, metadata),
+    writer: state.writer,
+    write: (events) => writeAuditEvents(state.writer, events),
+    reportFailure: (failure) => {
+      try {
+        state.onWriteFailure(failure);
+      } catch {
+        // A failing reporter must not reach the caller.
+      }
+    },
+  };
+}
+
+/**
  * An audit service bound to one open transaction, and the hooks the transaction runner
  * calls once that transaction has ended.
  */
@@ -419,12 +451,22 @@ export function bindAuditServiceToTransaction(
   /** failure/denied records the transaction could not take (e.g. it was already aborted). */
   const pending: AuditEvent[] = [];
 
+  const outerState = frameworkAuditServices.get(outer);
   async function flush(events: AuditEvent[]): Promise<void> {
     for (const event of events) {
       try {
         await writeAuditEvent(outerWriter, event);
       } catch (error) {
-        // The transaction's own outcome already stands; a lost record is reported, not thrown.
+        // The transaction's own outcome already stands; a lost record is reported, not thrown:
+        // through the service's `onWriteFailure` (the host's `onAuditWriteFailure`), else a log line.
+        if (outerState) {
+          try {
+            outerState.onWriteFailure({ events: [event], error, final: true, attempts: 3 });
+          } catch {
+            // A failing reporter must not reach the caller.
+          }
+          continue;
+        }
         console.error('[plumbus] audit record could not be written after the transaction', {
           action: event.action,
           outcome: event.outcome,

@@ -6,6 +6,56 @@ The 0.8 numbers now belong to the stable **stabilization family** published from
 
 Core 0.9.0-beta.0 contains everything in the 0.8.0-beta.N line plus every stable change merged from `main`: the core 0.8.0 stabilization (PLB-01 to PLB-10), core 0.8.1, auth 0.3.1 and the Vitest 5.0.4 toolchain. See [Included in v0.9.0-beta.0](#included-in-v090-beta0).
 
+## v0.9.0-beta.17 (2026-11-23): streamed answers, audit outbox for tenant-plane work, per-row bulk insert audit, `notIn`, audit failure hook, dead letters on tenant planes
+
+Prepared for repository release `v0.9.0-beta.17` under npm dist-tag `plumbus-next`. Three packages change: `@plumbus/core` **0.9.0-beta.15 → 0.9.0-beta.16**, `@plumbus/api` **0.4.0-beta.5 → 0.4.0-beta.6**, `@plumbus/ui` **0.10.0-beta.5 → 0.10.0-beta.6**. Every other package stays. Peer ranges unchanged: the `@plumbus/api` and `@plumbus/ui` changes detect a streamed answer structurally and do nothing with a core that has none. Consumer agents: [`instructions/upgrading-streams-and-audit-outbox.md`](../packages/plumbus-core/instructions/upgrading-streams-and-audit-outbox.md).
+
+**Upgrade:** install `@plumbus/core@0.9.0-beta.16` (and `@plumbus/api@0.4.0-beta.6`, `@plumbus/ui@0.10.0-beta.6` where used; dist-tag `plumbus-next`), then run `plumbus migrate generate` for every migration stream (spine and tenant streams alike) and apply it: it adds the framework table `audit_outbox` (empty until something uses it).
+
+**Behaviour changes**
+- `plumbus migrate generate` emits `audit_outbox` (additive; 23 framework tables).
+- A `failure`/`denied` record that a transaction's audit binding could not write after the transaction ended is reported through the audit service's `onWriteFailure` (`final: true`; default log line `[plumbus] audit record lost …`) instead of its own `console.error` line.
+- A custom `Repository` implementation now receives `notIn` among the filters and a second argument to `createMany`; it must apply `notIn` or refuse it.
+
+### Streamed capability answers
+
+A capability that answers with a file declares `output: streamedBodyOutput` and returns `streamedBody(source, { contentType, contentLength?, fileName? })`; the route sends the bytes while the client reads them, so the answer is never held in memory and can exceed any JSON body. Authentication, access, `authorize` and the audit row run as for any capability. Adopt:
+
+```ts
+output: streamedBodyOutput,
+handler: async (ctx, input) => {
+  const file = await openArchive(input.id);                 // Readable or async iterable of bytes
+  return streamedBody(file.body, { contentType: 'application/zip', contentLength: file.size, fileName: file.name });
+},
+```
+
+Remove `api.idempotency.required` and MCP exposure from such a capability (both are refused). The generated client (`plumbus ui generate`) returns the `Response` for it: `const blob = await (await downloadArchive(input)).blob()`. Details: [capabilities › answering with bytes](./core-concepts/capabilities.md#answering-with-bytes-streamed-answers).
+
+### Audit outbox for work on a tenant plane
+
+For a host whose requests audit on the spine while its handlers write on a tenant plane in their own transaction: `runWithAuditOutbox(ctx.audit, handle.db, (tx, audit) => …)` (or `createAuditOutbox(ctx.audit)` → `bind(tx)` inside, `flush(handle.db)` after the commit) keeps each success record in `audit_outbox` in that transaction and delivers it to the spine after the commit. No spine connection is held during the tenant transaction, a rolled-back write leaves no record, and a record the spine does not take survives a crash and is delivered by the worker relay. Turn the relay on with `PLUMBUS_AUDIT_OUTBOX_RELAY_INTERVAL_MS=60000` (or `workers.auditOutboxRelayIntervalMs`). Details: [tenant data planes › audit records of tenant-plane work](./sdk-reference/tenant-data-planes.md#audit-records-of-tenant-plane-work-audit-outbox).
+
+### Repository: `createMany` per-row audit, `notIn`
+
+- `createMany(records, { audit: 'per-row' })` writes one `<Entity>.create` audit row per record (as `create()`), inserted together. Default: one summary row, as before.
+- `notIn: { field: values }` excludes rows holding any of the values (`<> ALL`, one array parameter), on every read and set-based write. An empty list excludes nothing; NULL columns do not match (as `notEq`).
+
+### `onAuditWriteFailure`
+
+Export `onAuditWriteFailure(failure)` from `app/server.ts` (or pass it to `createServer` / `createWorkerPool`) to count or alert on audit records of finished work that could not be written: `final: false` while retried in the background or kept for the outbox relay, `final: true` when lost. It replaces the default error log line for the services the framework builds.
+
+```ts
+// app/server.ts
+export function onAuditWriteFailure(failure: AuditWriteFailure): void {
+  metrics.increment('audit_write_failures', { final: String(failure.final) });
+  if (failure.final) alerts.raise('audit-record-lost', { records: failure.events.length });
+}
+```
+
+### Dead letters on tenant planes
+
+`plumbus events dead-letter list --tenant <ref>` / `--all-tenants`, `resolve <id> --tenant <ref>`, and the new `resolve-all` (`--event-type`, `--consumer`, `--before`, or `--every`) reach tenant planes through `app/server.ts`'s `dataPlaneResolver` and `listTenantRefs`. To settle a pile nobody will redeliver so retention can remove it: `plumbus events dead-letter resolve-all --event-type <type> --all-tenants --note "…"`. From code: `resolveEventDeadLetters(db, filter, { actor, note })`.
+
 ## v0.9.0-beta.16 (2026-11-23): flow lanes, event and job retention, bounded flow rows, set-based writes, idempotency records on the tenant's plane, success audit rows, connection ceiling
 
 Prepared for repository release `v0.9.0-beta.16` under npm dist-tag `plumbus-next`. One package

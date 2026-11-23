@@ -276,6 +276,24 @@ describe('Server Bootstrap', () => {
       }
     });
 
+    it('gives the request audit service the host onAuditWriteFailure hook', async () => {
+      const { createAuditService } = await import('../../audit/service.js');
+      const onAuditWriteFailure = vi.fn();
+      createServer(makeServerConfig({ onAuditWriteFailure }));
+      const routeConfig = (registerAllRoutes as any).mock.calls.at(-1)?.[2];
+      (createAuditService as any).mockClear();
+      routeConfig?.createDependencies({
+        userId: 'user-1',
+        tenantId: 'tenant-1',
+        roles: ['admin'],
+        scopes: [],
+        provider: 'test',
+      });
+      expect(createAuditService).toHaveBeenCalledWith(
+        expect.objectContaining({ onWriteFailure: onAuditWriteFailure }),
+      );
+    });
+
     it('leaves artifacts unwired when the default directory is absent', () => {
       const server = createServer(makeServerConfig());
       expect(server.artifacts).toBeUndefined();

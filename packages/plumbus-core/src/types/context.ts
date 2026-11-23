@@ -85,7 +85,13 @@ export interface QueryOptions {
    * every length shares one prepared statement.
    */
   in?: Record<string, Array<string | number>>;
-  /** field → value the row must NOT equal (SQL <>). */
+  /**
+   * field → values the row must hold none of (`col <> ALL($1::type[])`, one array parameter
+   * like `in`). An empty list excludes nothing. As with `notEq` and SQL `NOT IN`, a row whose
+   * column is NULL does not match (leave such columns out, or add the NULL rows another way).
+   */
+  notIn?: Record<string, Array<string | number>>;
+  /** field → value the row must NOT equal (SQL <>). A row whose column is NULL does not match. */
   notEq?: Record<string, string | number>;
   /**
    * JSON containment on `field.json()` columns: field → a JSON value the column must contain
@@ -101,7 +107,7 @@ export interface QueryOptions {
 /** The WHERE filters of a call, without order, limit or paging keys. */
 export type QueryFilters = Pick<
   QueryOptions,
-  'dateFilters' | 'search' | 'in' | 'notEq' | 'contains'
+  'dateFilters' | 'search' | 'in' | 'notIn' | 'notEq' | 'contains'
 >;
 
 // ── Set-based writes (deleteMany / updateMany) ──
@@ -138,6 +144,16 @@ export interface SetWriteOptions extends QueryFilters {
   /** Direction for a string `orderBy` and array specs without `dir` (default 'asc'). */
   orderDir?: 'asc' | 'desc';
   /** Audit mode (default `'per-row'`); see {@link SetWriteAudit}. */
+  audit?: SetWriteAudit;
+}
+
+/** Options of `createMany`. */
+export interface CreateManyOptions {
+  /**
+   * `'summary'` (default): one `<Entity>.createMany` row per call (count and a masked sample).
+   * `'per-row'`: one `<Entity>.create` row per record, the same as `create()` writes, inserted
+   * together. Masked fields are masked in both.
+   */
   audit?: SetWriteAudit;
 }
 
@@ -272,12 +288,14 @@ export interface Repository<
   findById(id: string): Promise<T | null>;
   create(data: TCreate): Promise<T>;
   /**
-   * Bulk-create N records in a single database round-trip plus one summary
-   * audit row per batch. Empty arrays short-circuit to `[]` without touching
-   * the database. Use for hot paths that would otherwise call `create()` in a
-   * loop (typically > ~10 records).
+   * Bulk-create N records in a single INSERT. Empty arrays short-circuit to `[]` without
+   * touching the database. Use for hot paths that would otherwise call `create()` in a loop
+   * (typically > ~10 records). Audit: one summary row per call by default
+   * (`<Entity>.createMany` with the count and a masked sample), or `{ audit: 'per-row' }` for
+   * exactly the row `create()` records for each record, inserted together. Keep a call to a
+   * few thousand records: one INSERT carries every column of every record as parameters.
    */
-  createMany(records: TCreate[]): Promise<T[]>;
+  createMany(records: TCreate[], options?: CreateManyOptions): Promise<T[]>;
   /**
    * Update one row by id. By default the whole updated row is read back and returned.
    * `{ returning: false }` reads nothing back (`RETURNING id` only, so a missing row is still

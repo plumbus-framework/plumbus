@@ -265,6 +265,7 @@ export type ServerExtensions = Pick<
   | 'onProcessError'
   | 'classifyProcessError'
   | 'onAICostRecorded'
+  | 'onAuditWriteFailure'
   | 'aiProviderConcurrency'
   | 'resolveAIProviderHeaders'
   | 'onAIProviderSpan'

@@ -59,6 +59,21 @@ function toCamelCase(str: string): string {
   return pc.charAt(0).toLowerCase() + pc.slice(1);
 }
 
+/**
+ * Whether a capability answers with bytes (`output: streamedBodyOutput` in `@plumbus/core`).
+ * Read from the schema's metadata rather than imported, so this generator keeps working with a
+ * core that predates streamed answers (none of whose capabilities can carry the mark).
+ */
+export function isStreamedOutput(cap: Pick<CapabilityContract, 'output'>): boolean {
+  const schema = cap.output as unknown as { meta?: () => Record<string, unknown> | undefined };
+  if (typeof schema?.meta !== 'function') return false;
+  try {
+    return schema.meta()?.plumbusBody === 'stream';
+  } catch {
+    return false;
+  }
+}
+
 /** Client export name for a capability (matches `generateTypedClient`). */
 export function capabilityClientFnName(cap: Pick<CapabilityContract, 'name'>): string {
   return toCamelCase(cap.name);
@@ -373,7 +388,11 @@ function unwrapWrappers(schema: unknown): unknown {
 export function generateCapabilityTypes(cap: CapabilityContract): string {
   const pascal = toPascalCase(cap.name);
   const inputType = zodSchemaToTypeString(cap.input, '', 'input');
-  const outputType = zodSchemaToTypeString(cap.output, '', 'output');
+  // A streamed answer reaches the caller as the fetch Response: read it with `blob()`,
+  // `body` (a ReadableStream) or save it, without the bytes passing through JSON.
+  const outputType = isStreamedOutput(cap)
+    ? 'Response'
+    : zodSchemaToTypeString(cap.output, '', 'output');
   return `export type ${pascal}Input = ${inputType};
 export type ${pascal}Output = ${outputType};`;
 }
@@ -405,6 +424,7 @@ export function generateTypedClient(
   const url = qs ? \`${base}${urlPath}?\${qs}\` : "${base}${urlPath}";`
       : '';
 
+  const streamed = isStreamedOutput(cap);
   const fetchUrl = method === 'GET' ? 'url' : `"${base}${urlPath}"`;
   const fetchBody = method === 'GET' ? '' : `\n    body: JSON.stringify(input),`;
   // Every state-changing call carries an Idempotency-Key (one per invocation) unless the
@@ -428,9 +448,10 @@ export function generateTypedClient(
       requestId: plumbusRequestIdOf(body, response),
     });
   }
-  return unwrapEnvelope<${pascal}Output>(await response.json());`;
+  ${streamed ? 'return response;' : `return unwrapEnvelope<${pascal}Output>(await response.json());`}`;
 
-  if (method === 'GET' && config?.dedupeQueries) {
+  // A Response can be read once, so a streamed answer is never shared between callers.
+  if (method === 'GET' && config?.dedupeQueries && !streamed) {
     return `${jsdoc}export async function ${fnName}(
   input: ${pascal}Input,
   options?: { headers?: Record<string, string>; signal?: AbortSignal; keepalive?: boolean },

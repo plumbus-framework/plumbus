@@ -670,3 +670,42 @@ describe('generateHooksModule', () => {
     expect(code).not.toContain('useCloseTenant');
   });
 });
+
+// ── Streamed answers (`output: streamedBodyOutput`) ──
+
+describe('a capability answering with a streamed body', () => {
+  async function streamedCap(kind: 'query' | 'action'): Promise<CapabilityContract> {
+    const { streamedBodyOutput } = await import('@plumbus/core');
+    return makeCap({
+      name: 'downloadInvoicePdf',
+      kind,
+      output: streamedBodyOutput as never,
+    });
+  }
+
+  it('types its output as the fetch Response', async () => {
+    const code = generateCapabilityTypes(await streamedCap('query'));
+    expect(code).toContain('export type DownloadInvoicePdfOutput = Response;');
+  });
+
+  it('hands the caller the Response instead of parsing JSON', async () => {
+    for (const kind of ['query', 'action'] as const) {
+      const code = generateTypedClient(await streamedCap(kind));
+      expect(code).toContain('return response;');
+      expect(code).not.toContain('unwrapEnvelope<DownloadInvoicePdfOutput>(await response.json())');
+      // A refused call is still read as the JSON error body.
+      expect(code).toContain('if (!response.ok)');
+    }
+  });
+
+  it('never shares a streamed GET between callers, even with query dedupe on', async () => {
+    const code = generateTypedClient(await streamedCap('query'), { dedupeQueries: true });
+    expect(code).not.toContain('sharedQuery(');
+    expect(code).toContain('return response;');
+  });
+
+  it('leaves a JSON capability as it was', () => {
+    const code = generateTypedClient(makeCap());
+    expect(code).toContain('return unwrapEnvelope<GetInvoiceOutput>(await response.json());');
+  });
+});

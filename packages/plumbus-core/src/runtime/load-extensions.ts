@@ -36,6 +36,10 @@ export async function loadServerExtensions(
       }
       extensions.decisions = mod.decisions ?? mod.default?.decisions;
       extensions.onAICostRecorded = mod.onAICostRecorded ?? mod.default?.onAICostRecorded;
+      const onAuditWriteFailure = mod.onAuditWriteFailure ?? mod.default?.onAuditWriteFailure;
+      if (typeof onAuditWriteFailure === 'function') {
+        extensions.onAuditWriteFailure = onAuditWriteFailure;
+      }
       extensions.aiProviderConcurrency =
         mod.aiProviderConcurrency ?? mod.default?.aiProviderConcurrency;
       extensions.resolveAIProviderHeaders =

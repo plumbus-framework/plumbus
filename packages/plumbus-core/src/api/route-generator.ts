@@ -41,6 +41,7 @@ import {
   parseIdempotencyTtl,
 } from './idempotency.js';
 import { executeIdempotently } from './idempotent-execution.js';
+import { isStreamedBody, sendStreamedBody } from './streamed-body.js';
 import {
   REQUEST_ID_HEADER,
   type RequestIdOptions,
@@ -195,7 +196,7 @@ export function registerCapabilityRoute(
     request: FastifyRequest,
     reply: FastifyReply,
     carrier?: string,
-  ): Promise<void> => {
+  ): Promise<FastifyReply | undefined> => {
     // `requestIds.expose`: one id for this request, in the answer, the log line and the audit row.
     // Off (the default): the answer is as before; see request-id.ts.
     const ids = requestIdsFor(request, config.requestIds);
@@ -527,6 +528,18 @@ export function registerCapabilityRoute(
 
     const result = await executeCapability(capability, ctx, input);
 
+    if (result.success && isStreamedBody(result.data)) {
+      // A streamed answer (`output: streamedBodyOutput`): the bytes are the body. The
+      // capability already succeeded and was audited; a source that fails while it is read
+      // ends the response abruptly, and the failure is logged here.
+      // Returned so Fastify waits for the stream instead of ending an async handler's reply.
+      return sendStreamedBody(reply, result.data, (error) => {
+        ctx.logger.error(`Capability "${canonicalName}" streamed answer failed while sending`, {
+          capability: canonicalName,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }
     if (result.success) {
       reply.status(200).send({ data: result.data });
     } else {
@@ -566,7 +579,10 @@ export function registerCapabilityRoute(
    * declared `PATCH` that silently registered as `POST` is the same defect as a declared `POST`
    * served as `GET`: the contract says one thing and the wire does another.
    */
-  const handler = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+  const handler = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<FastifyReply | undefined> => {
     const span = startTelemetrySpan(
       request.headers.traceparent,
       'request',
@@ -574,7 +590,7 @@ export function registerCapabilityRoute(
       config.onTelemetrySpan,
     );
     try {
-      await executeHandler(request, reply, span.traceparent);
+      return await executeHandler(request, reply, span.traceparent);
     } catch (error) {
       span.finish('error');
       throw error;
