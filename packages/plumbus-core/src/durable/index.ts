@@ -35,6 +35,7 @@ export {
   eventDeliveryDdl,
   eventOutboxDdl,
   flowExecutionsDdl,
+  jobExecutionsDdl,
   DURABLE_TEST_DB_PATTERN,
   qualifyTable,
   spineDispatchDdl,

@@ -341,6 +341,12 @@ After a standalone build, copy static files alongside the server:
 | `QUEUE_PREFIX` | No | `plumbus:{environment}` | Shared namespace; API and workers must agree |
 | `PLUMBUS_ENABLE_SCHEDULER` | No | `true` | Disable with `false` during controlled scheduler cutover |
 | `PLUMBUS_FLOW_CONCURRENCY` | No | `1` | Flow executions one worker pool runs at once (`workers.flowConcurrency`, 1–256; core 0.9.0-beta.11+). Each slot can hold database connections and make AI calls, so size `DATABASE_POOL_SIZE` and `aiProviderConcurrency` with it |
+| `PLUMBUS_FLOW_RESERVED_UNTENANTED` | No | `0` | Runner slots tenant flows may not fill (`workers.flowLanes.reservedUntenanted`; less than `PLUMBUS_FLOW_CONCURRENCY`; core 0.9.0-beta.15). Setting any `PLUMBUS_FLOW_*` lane variable turns flow lanes on |
+| `PLUMBUS_FLOW_MAX_PER_TENANT` | No | no limit | Executions of one tenant one worker runs at once (`workers.flowLanes.maxPerTenant`) |
+| `PLUMBUS_FLOW_MAX_PER_FLOW` | No | no limit | Executions of one flow one worker runs at once (`workers.flowLanes.maxPerFlow`) |
+| `PLUMBUS_FLOW_TENANT_ORDER` | No | `fair` | `fair` or `fifo` claim order between tenants once lanes are on |
+| `PLUMBUS_FLOW_STEP_HISTORY_LIMIT` | No | `0` | Most `step_history` entries an execution keeps (0 = all; core 0.9.0-beta.15) |
+| `PLUMBUS_EVENT_OUTBOX_PUMP` | No | `all` | `none` keeps the worker's dispatcher off `event_outbox` for a host that relays it itself; flow hints are still pumped (core 0.9.0-beta.15) |
 | `PLUMBUS_OUTBOX_POLL_INTERVAL_MS` | No | `1000` | How often the outbox dispatcher polls (`workers.outboxPollIntervalMs`; core 0.9.0-beta.13+). Under a data-plane resolver every listed tenant plane is visited once per poll |
 | `PLUMBUS_OUTBOX_IDLE_BACKOFF_MAX_MS` | No | `0` | Longest a tenant plane with an empty outbox is skipped (`workers.outboxIdleBackoffMaxMs`): doubling back-off from the poll interval, reset when the plane has work. Also the longest an event on an idle plane waits. `0` = every plane every poll |
 | `PLUMBUS_FLOW_POLL_INTERVAL_MS` | No | `1000` | Flow runner poll interval (`workers.flowPollIntervalMs`; at least 30000 with durable queues) |

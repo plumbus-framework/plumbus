@@ -300,6 +300,7 @@ Operational commands for the event outbox and dead-letter queue.
 plumbus events status [options]
 plumbus events dead-letter list [options]
 plumbus events dead-letter retry <id>
+plumbus events dead-letter resolve <id> [--note <text>] [--actor <name>]
 plumbus events replay <eventId> [options]
 ```
 
@@ -320,7 +321,11 @@ Reports `outboxPending`, `deadLetterCount`, `oldestPendingAt`, `queueBackend`, a
 
 #### `plumbus events dead-letter retry <id>`
 
-Re-publish a dead-letter row to the events queue for reprocessing.
+Re-publish a dead-letter row to the events queue for reprocessing, then mark the row resolved (`metadata.resolution = 'retried'`; core 0.9.0-beta.15). A delivery that fails again writes a new dead letter.
+
+#### `plumbus events dead-letter resolve <id>` (core 0.9.0-beta.15)
+
+Mark a dead-letter row resolved without re-publishing it (`metadata.resolution = 'discarded'`, with `--note` and `--actor`, default `cli`). Fails when no unresolved row has that id. Framework retention deletes resolved rows once `frameworkRetention.eventDeadLetter` is on and their period has passed; `list` shows `resolved=<resolution>` on them.
 
 #### `plumbus events replay <eventId>`
 

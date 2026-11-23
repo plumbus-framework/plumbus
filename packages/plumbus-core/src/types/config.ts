@@ -192,6 +192,48 @@ export interface DataConfig {
 }
 
 // ── Workers Config ──
+/** Claim order between tenants once flow lanes are on. */
+export type FlowTenantOrder = 'fair' | 'fifo';
+
+/** One named flow lane: flows (by name or domain) that together run at most `max` at once. */
+export interface FlowLaneDefinition {
+  /** Executions of the lane's flows one worker pool runs at once (1 to 256). */
+  max: number;
+  /** Flow names in the lane. */
+  flows?: string[];
+  /** Flow domains in the lane: every registered flow of the domain. */
+  domains?: string[];
+}
+
+/**
+ * Limits on what a worker pool's `flowConcurrency` runner slots run at once (core
+ * 0.9.0-beta.15). Off unless set: without it the pool claims the oldest runnable execution of
+ * any flow and any tenant, as before. Every limit counts executions this pool runs, like
+ * `flowConcurrency` itself; with several worker processes each applies its own.
+ */
+export interface FlowLanesConfig {
+  /**
+   * Runner slots held for flows with no tenant (scheduled sweeps on the spine, platform
+   * procedures): tenant executions may fill at most `flowConcurrency - reservedUntenanted`
+   * slots (`PLUMBUS_FLOW_RESERVED_UNTENANTED`). Untenanted flows may use every slot. A held slot
+   * stays idle while no untenanted flow is runnable. Default `0`; less than `flowConcurrency`.
+   */
+  reservedUntenanted?: number;
+  /** Executions of one tenant this pool runs at once (`PLUMBUS_FLOW_MAX_PER_TENANT`). Default: no limit. */
+  maxPerTenant?: number;
+  /** Executions of one flow this pool runs at once (`PLUMBUS_FLOW_MAX_PER_FLOW`). Default: no limit. */
+  maxPerFlow?: number;
+  /** Named lanes: a group of flows that together run at most `max` executions at once. */
+  lanes?: Record<string, FlowLaneDefinition>;
+  /**
+   * `'fair'` (the default once lanes are on): a free slot goes to the tenant with the fewest
+   * executions running in this pool, untenanted flows counting as one more tenant and going
+   * first among equals, oldest first within each; `'fifo'`: the oldest runnable execution
+   * that no limit holds back (`PLUMBUS_FLOW_TENANT_ORDER`).
+   */
+  tenantOrder?: FlowTenantOrder;
+}
+
 export interface WorkersConfig {
   eventDelivery?: EventDeliveryOptions;
   /** Start the flow scheduler (`PLUMBUS_ENABLE_SCHEDULER=false` turns it off). Default: `true`. */
@@ -202,6 +244,23 @@ export interface WorkersConfig {
    * the others keep claiming. Default: `1` (one execution at a time, as before this setting).
    */
   flowConcurrency?: number;
+  /** Limits per tenant, per flow and per named lane on those slots, and slots held for untenanted flows. */
+  flowLanes?: FlowLanesConfig;
+  /**
+   * Most `step_history` entries a flow execution keeps (`PLUMBUS_FLOW_STEP_HISTORY_LIMIT`, core
+   * 0.9.0-beta.15): the newest this many, plus the newest completed entry of each older step
+   * (what cancellation compensates by). A flow that loops through its steps keeps a bounded
+   * row. Default `0`: every entry, as before.
+   */
+  flowStepHistoryLimit?: number;
+  /**
+   * Whether the worker's outbox dispatcher publishes `event_outbox` rows
+   * (`PLUMBUS_EVENT_OUTBOX_PUMP`, core 0.9.0-beta.15): `'all'` (default) or `'none'` for a host
+   * that relays its own `event_outbox` and must not have the framework claim its rows. Flow
+   * dispatch hints (`dispatch_outbox`) are pumped either way. For a choice per plane, export
+   * `pumpEventOutbox` from `app/server.ts`.
+   */
+  eventOutboxPump?: 'all' | 'none';
   /**
    * How often the outbox dispatcher polls, in milliseconds (`PLUMBUS_OUTBOX_POLL_INTERVAL_MS`).
    * Under a data-plane resolver each poll visits every listed tenant plane in turn. Default:

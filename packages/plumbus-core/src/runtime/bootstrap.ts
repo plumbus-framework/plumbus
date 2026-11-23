@@ -311,6 +311,12 @@ export type ServerExtensions = Pick<
    */
   frameworkRetention?: WorkerPoolConfig['frameworkRetention'];
   /**
+   * Whether the worker's outbox dispatcher publishes `event_outbox` rows, per plane
+   * (`export const pumpEventOutbox = (tenantRef) => …` or a boolean). Wins over
+   * `workers.eventOutboxPump`.
+   */
+  pumpEventOutbox?: WorkerPoolConfig['pumpEventOutbox'];
+  /**
    * Closes host-owned resources on shutdown (`export const onShutdown` / `export async function
    * onShutdown`): a tenant router, extra pools, SDK clients. `plumbus start` and `plumbus worker`
    * call it after HTTP is drained and the workers stopped, before queues and the main database

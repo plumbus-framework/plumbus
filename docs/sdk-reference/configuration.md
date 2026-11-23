@@ -12,6 +12,9 @@ interface PlumbusConfig {
   workers?: {
     enableScheduler?: boolean;
     flowConcurrency?: number;
+    flowLanes?: FlowLanesConfig; // core 0.9.0-beta.15
+    flowStepHistoryLimit?: number; // core 0.9.0-beta.15
+    eventOutboxPump?: "all" | "none"; // core 0.9.0-beta.15
     outboxPollIntervalMs?: number;
     outboxIdleBackoffMaxMs?: number;
     flowPollIntervalMs?: number;
@@ -190,6 +193,16 @@ Timing environment variables are `QUEUE_VISIBILITY_TIMEOUT_SEC`, `QUEUE_POLL_INT
 workers: {
   enableScheduler: true, // PLUMBUS_ENABLE_SCHEDULER=false disables it during cutover
   flowConcurrency: 1, // PLUMBUS_FLOW_CONCURRENCY; flow executions one worker pool runs at once
+  // Off unless set (core 0.9.0-beta.15): limits on those slots. See flows › Flow lanes.
+  flowLanes: {
+    reservedUntenanted: 0, // PLUMBUS_FLOW_RESERVED_UNTENANTED; slots tenant flows may not fill
+    maxPerTenant: undefined, // PLUMBUS_FLOW_MAX_PER_TENANT
+    maxPerFlow: undefined, // PLUMBUS_FLOW_MAX_PER_FLOW
+    lanes: {}, // { authoring: { max: 1, domains: ['course-builder'], flows: ['runCourseJudge'] } }
+    tenantOrder: "fair", // PLUMBUS_FLOW_TENANT_ORDER: fair | fifo
+  },
+  flowStepHistoryLimit: 0, // PLUMBUS_FLOW_STEP_HISTORY_LIMIT; 0 = keep every step_history entry
+  eventOutboxPump: "all", // PLUMBUS_EVENT_OUTBOX_PUMP: all | none (host relays event_outbox itself)
   outboxPollIntervalMs: 1000, // PLUMBUS_OUTBOX_POLL_INTERVAL_MS
   outboxIdleBackoffMaxMs: 0, // PLUMBUS_OUTBOX_IDLE_BACKOFF_MAX_MS; 0 = every tenant plane every poll
   flowPollIntervalMs: 1000, // PLUMBUS_FLOW_POLL_INTERVAL_MS (≥ 30000 with durable queues)
@@ -201,6 +214,8 @@ workers: {
   },
 }
 ```
+
+`eventOutboxPump: 'none'` keeps the worker's dispatcher off every plane's `event_outbox` (it still publishes flow dispatch hints from `dispatch_outbox`); `unrouted` and `ignoredEventTypes` only decide what the event worker does with an event the dispatcher already claimed and marked `dispatched`, so they do not stop the framework taking the rows of a host that relays its own outbox. For a choice per plane export `pumpEventOutbox` from `app/server.ts` (`(tenantRef: string | undefined) => boolean`, `undefined` for the pool's own database) or pass it to `createWorkerPool`; it wins over `eventOutboxPump`. `pool.wakeOutbox(tenantRef?)` makes the dispatcher visit a plane on its next poll even while `outboxIdleBackoffMaxMs` backs it off.
 
 `maxAttempts` counts total calls. A capability's `trigger.retry` overrides the pool policy. Legacy event `maxRetries`/`defaultMaxRetries` also count total calls; legacy flow `retry.attempts` counts retries after the initial call. Do not combine aliases. All workers sharing a queue must have compatible consumer registries; these options do not route between specialized pools.
 

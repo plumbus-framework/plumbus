@@ -89,21 +89,50 @@ export async function deadLetterFlow(db: PostgresJsDatabase, executionId: string
     .onConflictDoNothing({ target: flowDeadLetterTable.executionId });
 }
 
+/** `status = 'failed'` as a literal: `flow_exec_failed_idx` is partial on it (see engine.ts). */
+const FAILED = sql.raw(`${flowExecutionsTable.status.name} = '${FlowStatus.Failed}'`);
+
+export interface SweepFailedFlowsOptions {
+  /** Executions moved per call at most (default 100). */
+  limit?: number;
+  /**
+   * Look only at failed executions updated at or after this time: the start of the last pass
+   * that found everything moved, less a margin for clocks and slow commits. Omitted, every
+   * failed execution is looked at (the first pass of a process).
+   */
+  updatedSince?: Date;
+}
+
+export interface SweepFailedFlowsResult {
+  /** Failed executions found without a dead letter. */
+  found: number;
+  /** Of those, moved to `flow_dead_letter`. */
+  moved: number;
+}
+
 /**
- * Scans for failed flow executions and moves them to dead-letter.
- * Returns the number of executions moved.
+ * Scan for failed flow executions without a dead letter and move them there. A backstop:
+ * `failFlow` writes the dead letter itself. With `updatedSince` the scan reads only failed
+ * rows updated since then (`flow_exec_failed_idx`), so a database that keeps thousands of
+ * failed executions is not walked on every pass.
  */
-export async function sweepFailedFlows(db: PostgresJsDatabase, limit = 100): Promise<number> {
+export async function sweepFailedFlowsSince(
+  db: PostgresJsDatabase,
+  options: SweepFailedFlowsOptions = {},
+): Promise<SweepFailedFlowsResult> {
   const failedRows = await db
     .select({ id: flowExecutionsTable.id })
     .from(flowExecutionsTable)
     .where(
       and(
-        eq(flowExecutionsTable.status, FlowStatus.Failed),
+        FAILED,
+        options.updatedSince
+          ? sql`${flowExecutionsTable.updatedAt} >= ${options.updatedSince.toISOString()}::timestamptz`
+          : undefined,
         sql`NOT EXISTS (SELECT 1 FROM ${flowDeadLetterTable} WHERE ${flowDeadLetterTable.executionId} = ${flowExecutionsTable.id}::text)`,
       ),
     )
-    .limit(limit);
+    .limit(options.limit ?? 100);
 
   let moved = 0;
   for (const row of failedRows) {
@@ -115,7 +144,15 @@ export async function sweepFailedFlows(db: PostgresJsDatabase, limit = 100): Pro
     }
   }
 
-  return moved;
+  return { found: failedRows.length, moved };
+}
+
+/**
+ * Scans for failed flow executions and moves them to dead-letter.
+ * Returns the number of executions moved.
+ */
+export async function sweepFailedFlows(db: PostgresJsDatabase, limit = 100): Promise<number> {
+  return (await sweepFailedFlowsSince(db, { limit })).moved;
 }
 
 /**

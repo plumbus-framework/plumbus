@@ -71,6 +71,16 @@ export const flowExecutionsTable = pgTable(
     index('flow_exec_finished_idx')
       .on(table.updatedAt)
       .where(sql`status IN ('completed', 'cancelled')`),
+    // The failed-flow sweep's window: failed rows updated since its last complete pass.
+    index('flow_exec_failed_idx').on(table.updatedAt).where(sql`status = 'failed'`),
+    // Lists newest first over every status (an operator's flow list): `ORDER BY updated_at
+    // DESC, id DESC` with a keyset or LIMIT reads the index instead of sorting the table.
+    // NULLS FIRST is what `DESC` means in such a query; drizzle would otherwise write NULLS
+    // LAST, an order the query cannot read the index in.
+    index('flow_exec_updated_idx').on(
+      table.updatedAt.desc().nullsFirst(),
+      table.id.desc().nullsFirst(),
+    ),
   ],
 );
 
