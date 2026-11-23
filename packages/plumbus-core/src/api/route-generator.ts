@@ -396,11 +396,14 @@ export function registerCapabilityRoute(
         }
         const ttlMs =
           idempotency.ttl !== undefined ? parseIdempotencyTtl(idempotency.ttl) : undefined;
-        // The key lives where the capability's transaction runs: the request's database.
+        // By default the key lives where the capability's transaction runs: the request's
+        // database. A store with `resolveDatabase` may put it elsewhere (a tenant's plane);
+        // it reads the caller from `auth`.
         const storeOptions: IdempotencyStoreOptions = {
           ...(ttlMs !== undefined ? { ttlMs } : {}),
           database: requestDb,
           plane: requestDb === config.db ? 'spine' : 'tenant',
+          auth: ctx.auth,
         };
 
         // A cached result is still a disclosure. Refresh session/dependency authority, then

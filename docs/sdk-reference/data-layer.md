@@ -129,11 +129,17 @@ interface Repository<
   // call create() in a loop (typically > ~10 records).
   createMany(records: TCreate[]): Promise<T[]>;
 
-  // Update by ID
-  update(id: string, updates: TUpdate): Promise<T>;
+  // Update by ID. `{ returning: false }` reads nothing back (RETURNING id only) and
+  // resolves to undefined — for wide rows whose updated copy the caller does not use.
+  update(id: string, updates: TUpdate, options?: { returning?: false }): Promise<T | unknown>;
 
   // Delete by ID (soft or hard based on config)
   delete(id: string): Promise<void>;
+
+  // Set-based writes: at most `limit` rows matching the filters, one statement,
+  // audited per row (default) or with one summary row. See below.
+  deleteMany?(query: Partial<T> | undefined, options: SetWriteOptions): Promise<SetWriteResult>;
+  updateMany?(query: Partial<T> | undefined, values: TUpdate, options: SetWriteOptions): Promise<SetWriteResult>;
 
   // Query multiple records
   findMany(query?: Partial<T>, options?: QueryOptions): Promise<T[]>;
@@ -144,7 +150,7 @@ interface Repository<
   ): Promise<Pick<T, K>[]>;
 
   // Count rows matching query (tenant scoping applies like findMany)
-  count(query?: Partial<T>, options?: Pick<QueryOptions, 'dateFilters' | 'search' | 'in' | 'notEq'>): Promise<number>;
+  count(query?: Partial<T>, options?: QueryFilters): Promise<number>;
 
   // SUM / AVG / MIN / MAX / COUNT / COUNT(DISTINCT), optionally grouped — see below
   aggregate(query?: Partial<T>, options?: AggregateOptions): Promise<AggregateRow[]>;
@@ -160,6 +166,74 @@ interface Repository<
 ```
 
 After running `plumbus generate`, the `TCreate` and `TUpdate` type parameters are populated with generated input types (e.g., `UserCreateInput`, `UserUpdateInput`), giving you compile-time validation on the data passed to `create()` / `createMany()` / `update()`.
+
+`createRepository` returns a `FrameworkRepository<T>`: the same interface with every optional method (`findManyFields`, `exists`, `findPage`, `updateWhere`, `deleteMany`, `updateMany`) present, so a host that builds its own data surface over the framework repository (a bound repository, a package facade) calls them without a presence check or `!`. `ctx.data` keeps the `Repository` type, where they stay optional for custom implementations.
+
+### `update(id, updates, { returning: false })`
+
+`update` reads the whole updated row back by default (`RETURNING *`). For a row with wide columns (a document, a JSON snapshot) whose updated copy the caller does not use, pass `{ returning: false }`: the statement returns only `id` (so a missing row still throws `DataInternalError`), the audit row is the same, and the call resolves to `undefined` (typed `unknown`). One generic signature, so custom `Repository` implementations written before the option still compile and may ignore it.
+
+```ts
+await ctx.data.Document.update(documentId, { reviewState: 'submitted' }, { returning: false });
+```
+
+### `deleteMany(query, options)` / `updateMany(query, values, options)` — set-based writes
+
+A retention purge, an account deletion or a release of many rows used to be "load the rows, then one `delete(id)` / `update(id, …)` and one audit insert per row". The set-based writes change at most `options.limit` rows matching the same filters as `findMany` in **one statement**:
+
+```sql
+DELETE FROM t WHERE id IN (SELECT id FROM t WHERE <filters> ORDER BY <orderBy, default id> LIMIT $n)
+                AND <filters> RETURNING id
+```
+
+The filters are repeated on the outer statement, so a row another transaction changed after the subquery picked it is checked again before it is deleted or updated. Tenant scope and soft delete apply as for `delete` (a soft-deleting repository sets `deletedAt` and skips rows already deleted). They return `{ count, ids }`.
+
+```ts
+// Nightly purge in bounded batches: one statement and one audit insert per 500 rows.
+for (;;) {
+  const { count } = await ctx.data.UsageCounter.deleteMany(undefined, {
+    dateFilters: { day: { lte: cutoff } },
+    notEq: { held: true },
+    limit: 500,
+  });
+  if (count < 500) break;
+}
+
+// Release every hold of a batch.
+await ctx.data.Hold.updateMany({ batchId }, { releasedAt: now }, { limit: 1000 });
+```
+
+`SetWriteOptions` = the filters (`dateFilters`, `search`, `in`, `notEq`, `contains`) plus:
+
+| Option | Meaning |
+|---|---|
+| `limit` | **Required**, a whole number ≥ 1: no set-based write is unbounded by accident. Call again while `count === limit`. For `updateMany`, use a filter the updated rows no longer match (`notEq: { state: 'released' }`), or the next call finds the same rows. |
+| `orderBy` / `orderDir` | Which rows a call takes when more than `limit` match (default `id` ascending). |
+| `audit` | `'per-row'` (default) or `'summary'` — below. |
+
+`updateMany` sets `updatedAt` as `update` does, encrypts `encrypted: true` fields, and refuses `id`, `tenantId`, fields the entity does not have and an empty change (`DataValidationError`).
+
+**Audit.** A set-based write is never less visible than the loop it replaces unless the caller says so:
+
+- `audit: 'per-row'` (default) writes exactly the rows the loop would: one `<Entity>.delete` with `{ id }` or `<Entity>.update` with `{ id, …values }` per affected row, masked fields masked — inserted together (`AuditService.recordMany`: one multi-row `INSERT` per 1000 rows), in the same transaction as the write when there is one.
+- `audit: 'summary'` writes one `<Entity>.deleteMany` / `<Entity>.updateMany` row per statement: `{ count, limit, filter, values? }`, where `filter` is the equality query and filters with masked fields' values replaced by `***` (an `in` list of more than 1000 values is recorded as its first 1000 and `total`). The ids are not recorded.
+- No row changed: no audit row. An update that changes only `auditSilent` fields: none, as for `update`. A repository built without an audit service writes none, as for its single-row writes.
+
+Inside a capability transaction both are writes: they open a lazily opened transaction and commit or roll back with it.
+
+### `contains` — JSON containment
+
+`contains: { field: value }` matches rows whose `field.json()` column contains `value` (`col @> $1::jsonb`): `{ assetIds: [assetId] }` for an array holding the id, `{ meta: { kind: 'draft' } }` for an object with that key and value. Several fields must all match. It is accepted wherever the other filters are (`findMany`, `findManyFields`, `count`, `exists`, `findPage`, `aggregate`, `deleteMany`, `updateMany`); a field that is not json is refused with `DataValidationError`. Declare a GIN index so it does not scan the table:
+
+```ts
+defineEntity({
+  name: 'ProcessingRequest',
+  fields: { id: field.id(), assetIds: field.json() /* … */ },
+  indexes: [{ columns: ['assetIds'], using: 'gin' }], // GIN (asset_ids jsonb_path_ops)
+});
+```
+
+`using: 'gin'` takes exactly one json field and cannot be `unique`; the index is named `<table>_<column>_idx_gin` and uses the `jsonb_path_ops` operator class, which serves `@>` only (and is smaller than the default `jsonb_ops`). On a large existing table, build it `CONCURRENTLY` in a [non-transactional migration](#non-transactional-migrations-create-index-concurrently).
 
 ### `updateWhere(id, predicate, updates)`
 
@@ -256,8 +330,15 @@ interface QueryOptions {
   in?: Record<string, Array<string | number>>;
   /** field → value the row must NOT equal (SQL <>) */
   notEq?: Record<string, string | number>;
+  /** json field → value the column must contain (jsonb @>); see `contains` above */
+  contains?: Record<string, unknown>;
 }
+
+/** The WHERE filters alone, as `count`, `exists`, `aggregate`, `findPage` and the set-based writes take them. */
+type QueryFilters = Pick<QueryOptions, 'dateFilters' | 'search' | 'in' | 'notEq' | 'contains'>;
 ```
+
+**`in` lists of any length.** For `uuid`, `text`, `varchar`, integer, `numeric`, `real`/`double precision` and `boolean` columns an `in` list is sent as **one array parameter** (`col = ANY($1::uuid[])`) instead of one bind parameter per value. A list of 70,000 ids no longer fails on PostgreSQL's 65,535-parameter limit, every list length shares one statement text (one prepared statement), and the column's index serves it as before. Other column types (timestamps, json, host-named enums) keep one parameter per value.
 
 ```typescript
 const matches = await ctx.data.User.findMany(

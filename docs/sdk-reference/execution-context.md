@@ -423,7 +423,7 @@ framework's extraction instruction.
 
 ## ctx.audit
 
-Audit writers retry transient failures up to three times with one stable event ID. The database writer uses that ID to make retries idempotent. Permanent audit failures propagate instead of returning an apparently successful capability response; missing audit-service wiring also fails when used. This does not undo external effects or already-committed transactions. Post-commit deferred callbacks remain isolated and log failures; for regulatory durability, write required audit events through a transaction/outbox or an app-owned durable `AuditWriter` before committing the protected effect. Custom writers must deduplicate by `AuditEvent.id`.
+Audit writers retry transient failures up to three times with one stable event ID. The database writer uses that ID to make retries idempotent. A `record` call whose row cannot be written throws; the capability executor turns that into a failed call for `denied`/`failure` rows and for queries, while the success row of work already done is retried and reported instead (below). Missing audit-service wiring fails when used. Post-commit deferred callbacks remain isolated and log failures; for regulatory durability, write required audit events through a transaction/outbox or an app-owned durable `AuditWriter` before committing the protected effect. Custom writers must deduplicate by `AuditEvent.id`.
 
 A NUL byte (U+0000) anywhere in a metadata string is named (`<NUL>`) before persistence: Postgres's
 `jsonb` parser refuses the `\u0000` escape outright, so an unsanitized record would be lost and the
@@ -432,6 +432,22 @@ capability it was recording would answer `500` with no audit row. Framework-gene
 **Inside a transaction** (core 0.9.0-beta.5+): when `ctx.audit` is the framework's default database service, a transactional `action` / `eventHandler` handler gets an audit service bound to its transaction — `ctx.audit.record`, repository mutation audits and event-emission audits write on the transaction's connection and commit with the data they describe. (Before, each of them checked out a second pool connection while the transaction held one; with as many concurrent transactions as pool connections, every call waited forever.) If the transaction rolls back, `failure` and `denied` records it wrote are written again, with the same ids, after the rollback; `success` records roll back with the work they described. Writes after the transaction ended (post-commit callbacks) go to the outer database. An audit service or writer supplied by the app is not re-bound and keeps writing outside the transaction.
 
 **Successful queries:** `execution.auditSuccessfulQueries: false` (`PLUMBUS_AUDIT_SUCCESSFUL_QUERIES=false`) skips the success row of `query` capabilities unless the capability sets `audit: { enabled: true, event: '...' }`. Failed and denied calls are always recorded.
+
+**The capability's own success row (core 0.9.0-beta.15+).** Where it is written depends on whether the work is already done:
+
+| Capability | Success row | When it cannot be written |
+|---|---|---|
+| `action` / `eventHandler` with a framework transaction and the default audit service | In the transaction, before commit, on its connection (held, like other success records, until the transaction opens; written after the call when nothing opened it) | The transaction rolls back and the call fails: nothing committed, so no committed call is turned into an error |
+| Without a framework transaction (`transactional: false`, AI or external effects, `job`, the outbox kill switch), a custom audit service, a nested call written after its parent committed | After the work, through `recordAfterEffects` | The call still succeeds. The row is retried in the background with the **same id** (1 s, 5 s, 30 s, 2 min, 10 min; `createAuditService({ retryDelaysMs })`), and every failure is reported — by default an error-level log line `[plumbus] audit record could not be written; retrying in the background`, and `[plumbus] audit record lost …` carrying the whole record after the last retry (`createAuditService({ onWriteFailure })` to count or alert instead). A row is lost only if the process dies before a retry lands; the report is the signal |
+| `query` | Before the answer, as before | The call fails (`Audit persistence failed`): the row records a disclosure, and nothing was committed |
+
+`denied` and `failure` rows are written at once, always, and still fail the call when they cannot be written.
+
+**`audit.deferSuccess: true`** (opt-in, capabilities without a framework transaction, not queries): every `success` row the handler writes — `ctx.audit.record`, repository writes, events, and the capability's own row — is held in the process until the handler ends, then written in one batch with the after-effects rules above. Use it for a handler that runs its own transaction (a tenant database the framework does not manage): an audit insert made during it would otherwise take a second pool connection while the handler holds one. Held rows are written whether the handler succeeds or fails; `denied`/`failure` rows are written at once. Holds nest (a capability it calls in-process is held too). A held row is lost if the process dies before the handler ends.
+
+**`audit.success: false`** (opt-in, any kind): no success row for this capability's calls; `denied` and `failure` rows, and the rows its data writes record, are written as always. The action counterpart of `auditSuccessfulQueries: false`, for high-volume actions whose effect is already in the trail through their data rows.
+
+**Set-based writes** record per row by default (`recordMany`, one multi-row `INSERT` per 1000 rows) — see [data layer](./data-layer.md#deletemanyquery-options--updatemanyquery-values-options--set-based-writes).
 
 Record audit trail entries:
 

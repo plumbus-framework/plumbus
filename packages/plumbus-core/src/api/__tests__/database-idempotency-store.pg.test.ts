@@ -433,3 +433,129 @@ describe('database idempotency store over HTTP', () => {
     expect(await countRecords(db)).toBe(12);
   }, 30_000);
 });
+
+describe('database idempotency store: resolveDatabase (records on another plane)', () => {
+  /**
+   * The host keeps request repositories on the control plane (the request's database) but
+   * wants each tenant's keys and stored answers on that tenant's own database.
+   */
+  async function planes() {
+    const spine = await database('idem_spine', BUSINESS_DDL + requestIdempotencyDdl());
+    const tenant = await database(
+      'idem_tenant',
+      `CREATE SCHEMA IF NOT EXISTS core_plumbus;\n${requestIdempotencyDdl('core_plumbus')}`,
+    );
+    const lease = { held: 0, taken: 0 };
+    const seen: Array<{ tenantId?: string; plane: string; spine: boolean; userId?: string }> = [];
+    const store = createDatabaseIdempotencyStore({
+      resolveDatabase: ({ principal, auth, plane, database: requestDb }) => {
+        seen.push({
+          tenantId: principal.tenantId,
+          plane,
+          spine: requestDb === spine,
+          userId: auth?.userId,
+        });
+        if (!principal.tenantId) return undefined;
+        lease.held += 1;
+        lease.taken += 1;
+        let released = false;
+        return {
+          database: tenant,
+          plane: 'tenant',
+          release: () => {
+            if (released) throw new Error('released twice');
+            released = true;
+            lease.held -= 1;
+          },
+        };
+      },
+    });
+    return { spine, tenant, lease, seen, store };
+  }
+
+  function tenantPost(instance: PlumbusServer, key: string, body: unknown, user = 'u1') {
+    return instance.app.inject({
+      method: 'POST',
+      url: '/api/shop/place-order',
+      headers: { authorization: `Bearer ${user}@tenant-a`, 'idempotency-key': key },
+      payload: body as Record<string, unknown>,
+    });
+  }
+
+  it("keeps a tenant's key and answer on the tenant's database, completes after commit, and replays", async () => {
+    const { spine, tenant, lease, seen, store } = await planes();
+    const state = probe();
+    const app = server(spine, placeOrder(state), { idempotencyStore: store });
+
+    const first = await tenantPost(app, 'k-t1', { orderRef: 'A' });
+    expect(first.statusCode).toBe(200);
+    // The business write committed on the request's database (the spine)…
+    expect(await rows(spine, sql`SELECT id FROM orders`)).toEqual([{ id: 'A-1' }]);
+    // …and the key and its stored answer are on the tenant's database only.
+    expect(await rows(spine, sql`SELECT key_hash FROM request_idempotency`)).toEqual([]);
+    const [record] = await rows<{ state: string; tenant_scope: string; response: unknown }>(
+      tenant,
+      sql`SELECT state, tenant_scope, response FROM core_plumbus.request_idempotency`,
+    );
+    expect(record).toMatchObject({
+      state: 'completed',
+      tenant_scope: 'tenant-a',
+      response: { v: { orderId: 'A-1' } },
+    });
+
+    const replay = await tenantPost(app, 'k-t1', { orderRef: 'A' });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json()).toEqual(first.json());
+    expect(state.runs).toEqual(['A-1']);
+    const conflict = await tenantPost(app, 'k-t1', { orderRef: 'B' });
+    expect(conflict.statusCode).toBe(422);
+
+    // One resolution per request, every one released (the claim, the replay, the conflict).
+    expect(lease).toEqual({ held: 0, taken: 3 });
+    expect(seen[0]).toEqual({ tenantId: 'tenant-a', plane: 'spine', spine: true, userId: 'u1' });
+  }, 30_000);
+
+  it('releases the key on the tenant database when the capability fails, and gives the lease back', async () => {
+    const { spine, tenant, lease, store } = await planes();
+    const failing = {
+      ...placeOrder(probe()),
+      async handler() {
+        throw new Error('boom');
+      },
+    } as unknown as CapabilityContract;
+    const app = server(spine, failing, { idempotencyStore: store });
+    const response = await tenantPost(app, 'k-fail', { orderRef: 'A' });
+    expect(response.statusCode).toBe(500);
+    expect(await rows(tenant, sql`SELECT key_hash FROM core_plumbus.request_idempotency`)).toEqual(
+      [],
+    );
+    expect(lease).toEqual({ held: 0, taken: 1 });
+  }, 30_000);
+
+  it('an untenanted request (resolveDatabase returns undefined) keeps its key on the request database', async () => {
+    const { spine, tenant, store } = await planes();
+    const state = probe();
+    const app = server(spine, placeOrder(state), { idempotencyStore: store });
+    expect((await post(app, 'k-spine', { orderRef: 'S' })).statusCode).toBe(200);
+    expect(await rows(spine, sql`SELECT state FROM request_idempotency`)).toEqual([
+      { state: 'completed' },
+    ]);
+    expect(await rows(tenant, sql`SELECT key_hash FROM core_plumbus.request_idempotency`)).toEqual(
+      [],
+    );
+  }, 30_000);
+
+  it('a resolveDatabase that throws refuses the request without running the capability', async () => {
+    const spine = await database('idem_refuse', BUSINESS_DDL + requestIdempotencyDdl());
+    const state = probe();
+    const store = createDatabaseIdempotencyStore({
+      resolveDatabase: () => {
+        throw new Error('no plane for this tenant');
+      },
+    });
+    const app = server(spine, placeOrder(state), { idempotencyStore: store });
+    const response = await post(app, 'k-x', { orderRef: 'A' });
+    expect(response.statusCode).toBeGreaterThanOrEqual(500);
+    expect(state.runs).toEqual([]);
+  }, 30_000);
+});

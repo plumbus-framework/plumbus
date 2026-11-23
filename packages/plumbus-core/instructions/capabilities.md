@@ -50,6 +50,10 @@ export const getUser = defineCapability({
 
 Every capability call writes an audit row by default, queries included. An app may set `execution.auditSuccessfulQueries: false` (`PLUMBUS_AUDIT_SUCCESSFUL_QUERIES=false`) to skip the row of a **successful** `query`; a query whose reads must stay on the audit trail sets `audit: { enabled: true, event: "..." }`. Failed and denied calls are always recorded.
 
+- A transactional action's success row is written inside its transaction (commits with its data). An action without a framework transaction never fails because its success row could not be written: the row is retried and an error is logged (`[plumbus] audit record …`). Queries still fail when their row cannot be written.
+- `audit: { event, success: false }` drops only the success row of a high-volume action whose data rows already record it; denied and failed calls are still recorded.
+- `audit: { event, deferSuccess: true }` on an action with `transactional: false` (or AI/external effects) that runs its own database transaction: success rows wait until the handler ends, so the handler never waits for an audit insert on a second connection.
+
 ## Handler Pattern
 
 The handler receives two arguments:

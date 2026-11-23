@@ -34,6 +34,7 @@ export const FRAMEWORK_TABLE_NAMES = [
   'human_task',
   'approval_request',
   'approval_decision',
+  'request_idempotency',
 ] as const;
 
 export type FrameworkTableName = (typeof FRAMEWORK_TABLE_NAMES)[number];

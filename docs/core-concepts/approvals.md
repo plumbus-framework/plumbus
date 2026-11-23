@@ -94,9 +94,13 @@ The store methods behind this are part of `ApprovalStore` (exported from `@plumb
   1–1000 per page; pass the previous page's `next` as `after`). For callers that truly need
   everything: exports, operator lists.
 - `expireRequests({ approvalRequestIds, now })` — the one-statement expiry above.
+- `getRequests(ids)` (core 0.9.0-beta.15+) — the requests with these ids in one read; the SQL
+  store sends the ids as one array parameter (`= ANY($1::text[])`), so a list of any length fits
+  one statement. Unknown ids are left out, duplicates count once, order is not guaranteed. Use it
+  instead of a `getRequest` loop.
 
 `listRequests()` is kept and still returns every row in one read; it is deprecated because on
-the SQL store that is a full table load. The three new methods are optional on the interface:
+the SQL store that is a full table load. The new methods are optional on the interface:
 a host-written store without them keeps working, and the service then falls back to
 `listRequests()` and filters in memory (the old cost). Application code that called
 `store.listRequests()` and filtered in JavaScript should call `findRequests` with the same

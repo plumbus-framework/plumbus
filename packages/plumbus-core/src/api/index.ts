@@ -54,8 +54,11 @@ export {
 } from './database-idempotency-store.js';
 export type {
   DatabaseIdempotencyStoreOptions,
+  IdempotencyDatabaseRequest,
+  IdempotencyDatabaseTarget,
   IdempotencySweepOptions,
 } from './database-idempotency-store.js';
+export { createRequestIdempotencyTable } from './idempotency-schema.js';
 export { executeIdempotently } from './idempotent-execution.js';
 export type {
   ExecuteIdempotentlyParams,

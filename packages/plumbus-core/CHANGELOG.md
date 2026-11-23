@@ -14,6 +14,41 @@ Opt-in except where marked. One migration (seven indexes on framework tables, `p
 - **Fix:** exclusion lists in the claim queries (the engine's skip list after a missing-definition release) were sent as a tuple and failed with `malformed array literal`; every claim of that worker failed for 60 s.
 - **Exports:** `createTransactionRunner`, `readPendingMigrations` and the types `TransactionRunnerConfig`, `PendingMigration` from the package root, plus the names above.
 
+## Unreleased (0.9.0-beta.15) — set-based writes, idempotency records per tenant plane, success audit rows, connection ceiling
+
+Behaviour changes are called out. Consumer agents: `instructions/upgrading-set-writes-and-audit.md` and [upgrading to core 0.9](../../docs/upgrading-core-0.9.md). Peer ranges unchanged.
+
+### Repository: set-based writes and narrower reads
+
+- New `deleteMany(query, options)` / `updateMany(query, values, options)` on the Drizzle and in-memory repositories (optional on `Repository`): at most `options.limit` (required) rows matching the `findMany` filters, one statement (`… WHERE id IN (SELECT id … ORDER BY … LIMIT n) AND <filters>`), `{ count, ids }`. Audit `'per-row'` (default; the rows a loop of single writes leaves, batched) or `'summary'` (one row: count, limit, masked filter). Soft delete, tenant scope, encryption and `auditSilent` apply as for single writes. Routed as writes in lazily opened transactions.
+- New `contains` filter for json fields (`@>`), and `indexes: [{ columns: [jsonField], using: 'gin' }]` (GIN `jsonb_path_ops`, named `<table>_<column>_idx_gin`).
+- **Behaviour change (SQL only):** `in` lists on uuid/text/varchar/integer/numeric/real/double/boolean columns are sent as one array parameter (`= ANY($1::type[])`); lists past 65,535 values work.
+- `update(id, values, { returning: false })` reads back only `id`.
+- `createRepository` returns `FrameworkRepository<T>` (optional methods present). New types `QueryFilters`, `SetWriteOptions`, `SetWriteResult`, `SetWriteAudit`, `UpdateOptions`, `UpdateResult`, `FrameworkRepository`, `AuditBatchEntry`; `AuditService.recordMany?`, `AuditWriter.writeMany?`, `recordAuditBatch`, `AUDIT_WRITE_BATCH_SIZE`.
+
+### Idempotency records
+
+- `createDatabaseIdempotencyStore({ resolveDatabase })`: the host picks the database (and schema) of each request's key, with a `release` for a lease. A key kept off the request's database is completed right after the capability returns. `IdempotencyStore.completeInTransaction` may resolve `false`; new optional `IdempotencyStore.release`; `IdempotencyStoreOptions.auth` (set by `/api` routes).
+- `request_idempotency` joins the generated framework tables (`core_plumbus`, `FRAMEWORK_TABLE_NAMES`): run `plumbus migrate generate`. New export `createRequestIdempotencyTable`.
+
+### Success audit rows
+
+- **Behaviour change:** a transactional action/event handler's `capability.<name>` success row is written in its transaction (before commit, on its connection) when the audit service is the default one; a failed insert rolls the work back instead of failing a committed call.
+- **Behaviour change:** success rows written after the work (no framework transaction, custom audit service, nested rows after the parent's commit, held rows of a transaction that never opened) never fail the call: retried in the background with the same id and reported (`[plumbus] audit record …` error log, or `createAuditService({ onWriteFailure, retryDelaysMs })`). Queries and `denied`/`failure` rows unchanged.
+- Opt-in `audit.deferSuccess` (hold success rows of a capability without a framework transaction until the handler ends) and `audit.success: false` (drop only the success row).
+- New `recordAfterEffects`, `holdAuditSuccess`, `AUDIT_RETRY_DELAYS_MS`, `AuditWriteFailure`, `AuditSuccessHold`.
+
+### Data planes
+
+- `createPooledDataPlaneResolver({ maxTotalConnections, connectionWaitMs })`: one ceiling on server connections across all planes (`request.connectionBudget` → `openDataPlaneConnection({ connectionBudget })`), idle unleased planes closed to make room, `DataPlaneConnectionBudgetError` (503) after the wait, `stats().connections`.
+- `openDataPlaneConnection({ sessionSettings })`: startup-packet run-time parameters (`jit: 'off'`).
+- `dropDataPlane`: `ALLOW_CONNECTIONS false`, then `DROP DATABASE … WITH (FORCE)`; restores `ALLOW_CONNECTIONS` when the drop fails; new step `refuse-connections`.
+
+### Other
+
+- `withRequestAdmissionLock(db, key, work, { mode: 'shared' | 'exclusive', lockTimeoutMs })`; `RequestAdmissionLockTimeoutError`, `RequestAdmissionLockOptions`.
+- `ApprovalStore.getRequests(ids)` (optional) on the SQL and memory stores.
+
 ## 0.9.0-beta.14 — 2026-11-20 — image input in `ctx.ai`
 
 Additive. No migration. `@plumbus/ai-bedrock` 0.4.0-beta.1 sends images. Peer ranges unchanged.

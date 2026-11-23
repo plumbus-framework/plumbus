@@ -27,10 +27,15 @@
 //
 // Key exports: openDataPlaneConnection, DataPlaneConnectionError.
 
+import { Socket } from 'node:net';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type postgres from 'postgres';
 import { PlumbusError } from '../errors/plumbus-error.js';
 import { ErrorCode } from '../types/enums.js';
+import {
+  type DataPlaneConnectionBudget,
+  DataPlaneConnectionBudgetError,
+} from './connection-budget.js';
 import type { DataPlaneConnection } from './types.js';
 
 /** Connections a data-plane pool holds when the caller names no ceiling. */
@@ -144,6 +149,23 @@ export interface OpenDataPlaneConnectionOptions {
    * leaves the server's setting. Must be an integer between 1 and 2147483647.
    */
   idleInTransactionTimeoutMs?: number;
+  /**
+   * Server settings for every session of this pool, sent in the connection's startup packet:
+   * `{ jit: 'off', work_mem: '16MB' }`. Names are PostgreSQL run-time parameters (letters,
+   * digits, `_` and `.`); values are strings, finite numbers or booleans (`on` / `off`). A name
+   * that `applicationName`, `statementTimeoutMs` or `idleInTransactionTimeoutMs` also sets is
+   * refused. The server rejects a parameter it does not know, or one that cannot be set at
+   * session start, when the first connection opens.
+   */
+  sessionSettings?: Record<string, string | number | boolean>;
+  /**
+   * The resolver's shared connection ceiling (`request.connectionBudget` of the resolver's
+   * `connect` step when it has `maxTotalConnections`). Every connection of this pool then takes
+   * a slot before its socket opens and gives it back when the socket closes; with no free slot
+   * the query that needed the connection fails with `DataPlaneConnectionBudgetError`. Only the
+   * first host of a multi-host URL is used under a budget.
+   */
+  connectionBudget?: DataPlaneConnectionBudget;
   /**
    * Round-trip a probe before returning, so an unusable placement fails here
    * rather than inside the first query. Default true.
@@ -328,6 +350,105 @@ function normalizeTarget(target: DataPlaneConnectionTarget): NormalizedTarget {
   };
 }
 
+/** A run-time parameter name: a structured identifier, as PostgreSQL spells them. */
+const SETTING_NAME = /^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$/;
+
+/** Parameters the dedicated options set; naming them in `sessionSettings` too is refused. */
+const DEDICATED_SETTINGS: Record<string, string> = {
+  application_name: 'applicationName',
+  statement_timeout: 'statementTimeoutMs',
+  idle_in_transaction_session_timeout: 'idleInTransactionTimeoutMs',
+};
+
+/** Parameters the startup packet carries for the connection itself, never as settings. */
+const RESERVED_SETTINGS = new Set(['user', 'database', 'options', 'replication']);
+
+function normalizeSessionSettings(
+  settings: Record<string, string | number | boolean> | undefined,
+  dedicated: Record<string, unknown>,
+): Record<string, string> {
+  if (settings === undefined) return {};
+  if (settings === null || typeof settings !== 'object' || Array.isArray(settings)) {
+    throw validationError('sessionSettings must be an object of parameter → value', {
+      field: 'sessionSettings',
+    });
+  }
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(settings)) {
+    const lower = name.toLowerCase();
+    if (!SETTING_NAME.test(name) || RESERVED_SETTINGS.has(lower) || lower.startsWith('_pq_')) {
+      throw validationError(`sessionSettings: "${name}" is not a settable parameter name`, {
+        field: 'sessionSettings',
+        setting: name,
+      });
+    }
+    const option = DEDICATED_SETTINGS[lower];
+    if (option !== undefined && dedicated[lower] !== undefined) {
+      throw validationError(`sessionSettings: "${name}" is also set by ${option}; set it once`, {
+        field: 'sessionSettings',
+        setting: name,
+      });
+    }
+    let text: string;
+    if (typeof value === 'boolean') text = value ? 'on' : 'off';
+    else if (typeof value === 'number' && Number.isFinite(value)) text = String(value);
+    else if (typeof value === 'string' && !hasControlCharacter(value)) text = value;
+    else {
+      throw validationError(
+        `sessionSettings: "${name}" must be a string without control characters, a finite number or a boolean`,
+        { field: 'sessionSettings', setting: name },
+      );
+    }
+    out[lower] = text;
+  }
+  return out;
+}
+
+/**
+ * postgres.js `socket` option for a budgeted pool: take a slot, open and connect the socket,
+ * give the slot back when the socket closes (or when it never connected).
+ */
+function budgetedSocket(
+  budget: DataPlaneConnectionBudget,
+  connectTimeoutSeconds: number,
+): (options: { host?: string[]; port?: number[]; path?: string }) => Promise<Socket> {
+  return async (driverOptions) => {
+    const release = await budget.acquire();
+    const socket = new Socket();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          reject(new Error('connect timeout'));
+        }, connectTimeoutSeconds * 1000);
+        const done = (error?: Error) => {
+          clearTimeout(timer);
+          socket.off('connect', onConnect);
+          socket.off('error', onError);
+          if (error) reject(error);
+          else resolve();
+        };
+        const onConnect = () => done();
+        const onError = (error: Error) => done(error);
+        socket.once('connect', onConnect);
+        socket.once('error', onError);
+        if (driverOptions.path) socket.connect(driverOptions.path);
+        else {
+          socket.connect({
+            port: driverOptions.port?.[0] ?? DEFAULT_PORT,
+            host: driverOptions.host?.[0] ?? 'localhost',
+          });
+        }
+      });
+    } catch (error) {
+      socket.destroy();
+      release();
+      throw error;
+    }
+    socket.once('close', release);
+    return socket;
+  };
+}
+
 // ── Failure reporting ──
 
 function sqlStateOf(error: unknown): string | undefined {
@@ -432,13 +553,18 @@ export async function openDataPlaneConnection(
       ? undefined
       : assertMilliseconds(options.idleInTransactionTimeoutMs, 'idleInTransactionTimeoutMs');
   // Startup parameters: applied by the server to every session the pool opens.
-  const connection = {
+  const dedicated = {
     ...(applicationName === undefined ? {} : { application_name: applicationName }),
     ...(statementTimeout === undefined ? {} : { statement_timeout: statementTimeout }),
     ...(idleInTransactionTimeout === undefined
       ? {}
       : { idle_in_transaction_session_timeout: idleInTransactionTimeout }),
   };
+  const connection = {
+    ...normalizeSessionSettings(options.sessionSettings, dedicated),
+    ...dedicated,
+  };
+  const budget = options.connectionBudget;
 
   const postgresModule = (await import('postgres')).default;
   const { drizzle } = await import('drizzle-orm/postgres-js');
@@ -452,6 +578,7 @@ export async function openDataPlaneConnection(
     onnotice: () => {},
     ...(maxLifetime === undefined ? {} : { max_lifetime: maxLifetime }),
     ...(Object.keys(connection).length === 0 ? {} : { connection }),
+    ...(budget ? { socket: budgetedSocket(budget, connectTimeout) } : {}),
   };
 
   let client: postgres.Sql;
@@ -484,11 +611,13 @@ export async function openDataPlaneConnection(
       await client`SELECT 1`;
     } catch (error) {
       await close().catch(() => undefined);
+      // A full connection budget is a refusal of ours, with no secret in it: keep its type.
+      if (error instanceof DataPlaneConnectionBudgetError) throw error;
       throw connectionFailure('open a connection to', target, error);
     }
   }
 
-  return { db: drizzle(client), close };
+  return { db: drizzle(client), close, ...(budget ? { connectionBudget: budget } : {}) };
 }
 
 /**

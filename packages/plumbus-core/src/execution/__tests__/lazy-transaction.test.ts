@@ -252,24 +252,104 @@ describe('createTransactionRunner with begin: lazy', () => {
 
   it('writes held success records through the outer service when nothing opened the transaction', async () => {
     const { db } = fakeDb();
+    const inserted: Array<{ action: string; outcome: string }> = [];
+    // The default service's writer: insert(auditRecords).values(rows).onConflictDoNothing().
+    const auditDb = {
+      insert: () => ({
+        values: (rows: unknown) => ({
+          onConflictDoNothing: async () => {
+            for (const row of [rows].flat() as Array<{ action: string; outcome: string }>) {
+              inserted.push({ action: row.action, outcome: row.outcome });
+            }
+          },
+        }),
+      }),
+    };
     const audit = createAuditService({
-      db: { insert: vi.fn() } as never,
+      db: auditDb as never,
       auth: { userId: 'u1', roles: [], scopes: [], provider: 'test' },
-    });
-    const writes: string[] = [];
-    vi.spyOn(audit, 'record').mockImplementation(async (action) => {
-      writes.push(action);
     });
     const { runner } = runnerFor(db, audit as never);
     await runner(
       async (scope) => {
         await scope.audit?.record('note.success', { outcome: 'success' });
-        expect(writes).toEqual([]);
+        await scope.audit?.recordMany?.([
+          { eventType: 'note.many', metadata: { outcome: 'success' } },
+          { eventType: 'note.refused', metadata: { outcome: 'denied' } },
+        ]);
+        // The refusal stands at once; the success records wait.
+        expect(inserted).toEqual([{ action: 'note.refused', outcome: 'denied' }]);
       },
       { begin: 'lazy' },
     );
-    expect(writes).toEqual(['note.success']);
+    expect(inserted).toEqual([
+      { action: 'note.refused', outcome: 'denied' },
+      { action: 'note.success', outcome: 'success' },
+      { action: 'note.many', outcome: 'success' },
+    ]);
     expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  it('a held success record that cannot be written after the call does not fail it: retried, then reported', async () => {
+    const { db } = fakeDb();
+    let failing = true;
+    const inserted: string[] = [];
+    const auditDb = {
+      insert: () => ({
+        values: (rows: unknown) => ({
+          onConflictDoNothing: async () => {
+            if (failing) throw new Error('audit store offline');
+            for (const row of [rows].flat() as Array<{ action: string }>) inserted.push(row.action);
+          },
+        }),
+      }),
+    };
+    const failures: Array<{ final: boolean; attempts: number }> = [];
+    const audit = createAuditService({
+      db: auditDb as never,
+      auth: { userId: 'u1', roles: [], scopes: [], provider: 'test' },
+      retryDelaysMs: [5, 5],
+      onWriteFailure: ({ final, attempts }) => failures.push({ final, attempts }),
+    });
+    const { runner } = runnerFor(db, audit as never);
+    const result = await runner(
+      async (scope) => {
+        await scope.audit?.record('note.success', { outcome: 'success' });
+        return 'done';
+      },
+      { begin: 'lazy' },
+    );
+    expect(result).toBe('done');
+    expect(failures).toEqual([{ final: false, attempts: 1 }]);
+    failing = false;
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(inserted).toEqual(['note.success']);
+  });
+
+  it('deleteMany and updateMany are writes: they open the transaction and run in it', async () => {
+    const { db, log } = fakeDb();
+    const { runner, inTx } = runnerFor(db);
+    const deleteMany = vi.fn(async () => ({ count: 2, ids: ['a', 'b'] }));
+    const updateMany = vi.fn(async () => ({ count: 1, ids: ['c'] }));
+    Object.assign(inTx.Note, { deleteMany, updateMany });
+    await runner(
+      async (scope) => {
+        const repo = scope.data.Note as unknown as {
+          deleteMany: (q: unknown, o: unknown) => Promise<unknown>;
+          updateMany: (q: unknown, v: unknown, o: unknown) => Promise<unknown>;
+        };
+        expect(await repo.deleteMany({ state: 'old' }, { limit: 10 })).toEqual({
+          count: 2,
+          ids: ['a', 'b'],
+        });
+        expect(log).toEqual(['BEGIN']);
+        await repo.updateMany({ state: 'new' }, { state: 'seen' }, { limit: 10 });
+      },
+      { begin: 'lazy' },
+    );
+    expect(deleteMany).toHaveBeenCalledWith({ state: 'old' }, { limit: 10 });
+    expect(updateMany).toHaveBeenCalledWith({ state: 'new' }, { state: 'seen' }, { limit: 10 });
+    expect(log).toEqual(['BEGIN', 'COMMIT']);
   });
 });
 

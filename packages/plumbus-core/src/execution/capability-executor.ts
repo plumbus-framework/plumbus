@@ -2,6 +2,7 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { z } from 'zod';
 import { isProviderAPIError } from '../ai/provider.js';
 import { evaluateApprovalGate } from '../approvals/gate.js';
+import { holdAuditSuccess, recordAfterEffects } from '../audit/index.js';
 import { DataPoolAcquireTimeoutError, isPlumbusError } from '../errors/index.js';
 import { createDeferredJobDispatchService } from '../jobs/deferred-job-dispatch-service.js';
 import type { JobDispatchService } from '../jobs/index.js';
@@ -328,6 +329,32 @@ async function executeCapabilityBody<TInput extends z.ZodTypeAny, TOutput extend
   rawInput: unknown,
   options?: ExecuteCapabilityOptions,
 ): Promise<CapabilityResult<z.infer<TOutput>>> {
+  // `audit.deferSuccess` on a capability without a framework transaction: its success rows wait
+  // in the process until the call ends, then go in one batch (never failing the call).
+  // A query's success row records a disclosure: it is written before the answer, never held.
+  const hold =
+    capability.audit?.deferSuccess === true &&
+    capability.kind !== CapabilityKind.Query &&
+    !(
+      shouldUseTransactionalOutbox(capability as unknown as CapabilityContract, ctx) &&
+      (ctx.__runtime?.transactionScope || ctx.__runtime?.withTransaction)
+    )
+      ? holdAuditSuccess(ctx.audit)
+      : undefined;
+  if (!hold) return runCapabilityBody(capability, ctx, rawInput, options);
+  try {
+    return await runCapabilityBody(capability, ctx, rawInput, options);
+  } finally {
+    await hold.release();
+  }
+}
+
+async function runCapabilityBody<TInput extends z.ZodTypeAny, TOutput extends z.ZodTypeAny>(
+  capability: CapabilityContract<TInput, TOutput>,
+  ctx: ExecutionContext,
+  rawInput: unknown,
+  options?: ExecuteCapabilityOptions,
+): Promise<CapabilityResult<z.infer<TOutput>>> {
   const canonicalName = getCanonicalCapabilityName(capability);
 
   const access = await authorizeAccessPolicy(capability as unknown as CapabilityContract, ctx);
@@ -392,6 +419,8 @@ async function executeCapabilityBody<TInput extends z.ZodTypeAny, TOutput extend
   const isNestedInTransaction = Boolean(existingScope);
 
   let validatedOutput: z.infer<TOutput> | undefined;
+  /** The success row went into the capability's own transaction scope (written or held there). */
+  let successInTransaction = false;
 
   try {
     if (useTransactional && existingScope) {
@@ -409,6 +438,14 @@ async function executeCapabilityBody<TInput extends z.ZodTypeAny, TOutput extend
         async (scope): Promise<z.infer<TOutput>> => {
           const handlerCtx = buildHandlerContext(ctx, anyCap, invocationRuntime, scope);
           const output = await runHandlerWithOutputValidation(anyCap, handlerCtx, input);
+          // The success row commits with the work it records, on the transaction's connection:
+          // no second pool connection after commit, and no committed call turned into an error
+          // by a failed insert. Before the transaction opens it is held like any success record
+          // (written after the call, without failing it, when nothing opened the transaction).
+          if (scope.audit) {
+            await recordAudit({ ...ctx, audit: scope.audit }, anyCap, canonicalName, 'success');
+            successInTransaction = true;
+          }
           // A lazily opened transaction the handler never needed is not opened for this: the
           // caller records the completion after the call instead (nothing to be atomic with).
           if (options?.beforeCommit && scope.db) await options.beforeCommit(scope.db, output);
@@ -454,19 +491,34 @@ async function executeCapabilityBody<TInput extends z.ZodTypeAny, TOutput extend
   }
 
   if (isNestedInTransaction && existingScope) {
-    const deferred = existingScope.deferred ?? [];
-    existingScope.deferred = deferred;
-    deferred.push(async () => {
-      await recordAudit(ctx, capability, canonicalName, 'success');
-    });
+    if (existingScope.audit) {
+      // In the parent's transaction: commits with it, rolls back with it.
+      await recordAudit(
+        { ...ctx, audit: existingScope.audit },
+        capability,
+        canonicalName,
+        'success',
+      );
+    } else {
+      // A custom audit service stays outside the transaction: written once the parent committed.
+      const deferred = existingScope.deferred ?? [];
+      existingScope.deferred = deferred;
+      deferred.push(() => recordSuccessAfterEffects(ctx, capability, canonicalName));
+    }
   } else if (ctx.__runtime?.deferredPostCommit) {
     // Nested outside shared tx scope (e.g. AI) but still under a parent transaction —
     // defer success audit so a parent rollback does not leave a false success row.
-    ctx.__runtime.deferredPostCommit.push(async () => {
-      await recordAudit(ctx, capability, canonicalName, 'success');
-    });
-  } else if (!isNestedInTransaction) {
+    ctx.__runtime.deferredPostCommit.push(() =>
+      recordSuccessAfterEffects(ctx, capability, canonicalName),
+    );
+  } else if (capability.kind === CapabilityKind.Query) {
+    // A query changed nothing, and its row records what was disclosed: written before the
+    // answer, and a row that cannot be written fails the call, as always.
     await recordAudit(ctx, capability, canonicalName, 'success');
+  } else if (!successInTransaction) {
+    // After the work is done (no transaction, or a custom audit service outside it): a row
+    // that cannot be written does not fail the call; it is retried and reported.
+    await recordSuccessAfterEffects(ctx, capability, canonicalName);
   }
 
   return { success: true, data: validatedOutput as z.infer<TOutput> };
@@ -511,23 +563,31 @@ async function recordPlumbusFailure(
   await recordAudit(ctx, capability, canonicalName, 'failure', { error });
 }
 
-async function recordAudit(
+/** Whether `outcome` is recorded for this capability at all. */
+function recordsOutcome(
+  ctx: ExecutionContext,
+  capability: CapabilityContract<any, any>,
+  outcome: 'success' | 'failure' | 'denied',
+): boolean {
+  if (capability.audit?.enabled === false) return false;
+  if (outcome !== 'success') return true;
+  if (capability.audit?.success === false) return false;
+  return !skipsSuccessfulQueryAudit(ctx, capability);
+}
+
+function auditEntry(
   ctx: ExecutionContext,
   capability: CapabilityContract<any, any>,
   canonicalName: string,
   outcome: 'success' | 'failure' | 'denied',
   metadata?: Record<string, unknown>,
-): Promise<void> {
-  if (capability.audit?.enabled === false) return;
-  if (outcome === 'success' && skipsSuccessfulQueryAudit(ctx, capability)) return;
-
-  const auditEvent = capability.audit?.event ?? `capability.${canonicalName}`;
+): { eventType: string; metadata: Record<string, unknown> } {
   const stack = ctx.__runtime?.capabilityStack ?? [];
   const caller = ctx.__runtime?.invocationCaller;
   const correlationId = ctx.__runtime?.correlationId;
-
-  try {
-    await ctx.audit.record(auditEvent, {
+  return {
+    eventType: capability.audit?.event ?? `capability.${canonicalName}`,
+    metadata: {
       capability: canonicalName,
       domain: capability.domain,
       kind: capability.kind,
@@ -538,10 +598,45 @@ async function recordAudit(
       ...(correlationId ? { correlationId } : {}),
       ...metadata,
       outcome,
-    });
+    },
+  };
+}
+
+async function recordAudit(
+  ctx: ExecutionContext,
+  capability: CapabilityContract<any, any>,
+  canonicalName: string,
+  outcome: 'success' | 'failure' | 'denied',
+  metadata?: Record<string, unknown>,
+): Promise<void> {
+  if (!recordsOutcome(ctx, capability, outcome)) return;
+  const entry = auditEntry(ctx, capability, canonicalName, outcome, metadata);
+  try {
+    await ctx.audit.record(entry.eventType, entry.metadata);
   } catch {
     ctx.logger.error(`Failed to record audit for capability "${canonicalName}"`);
     throw ctx.errors.internal('Audit persistence failed', { capability: canonicalName });
+  }
+}
+
+/**
+ * The success row of a call whose work is already done (no transaction, or written after the
+ * transaction committed): it never fails the call. A row the store cannot take now is retried
+ * in the background with the same id and reported (`recordAfterEffects`).
+ */
+async function recordSuccessAfterEffects(
+  ctx: ExecutionContext,
+  capability: CapabilityContract<any, any>,
+  canonicalName: string,
+): Promise<void> {
+  if (!recordsOutcome(ctx, capability, 'success')) return;
+  try {
+    await recordAfterEffects(ctx.audit, [auditEntry(ctx, capability, canonicalName, 'success')]);
+  } catch (error) {
+    // Only a non-framework audit service whose own reporting threw can land here.
+    ctx.logger.error(`Success audit for capability "${canonicalName}" was not recorded`, {
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 

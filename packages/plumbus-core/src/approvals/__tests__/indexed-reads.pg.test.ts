@@ -287,6 +287,23 @@ describe('approval service on the SQL store', () => {
     }
   });
 
+  it('reads many requests by id in one statement with one array parameter', async () => {
+    const store = createSqlApprovalStore({ db, schemaName: FRAMEWORK_SCHEMA });
+    const wanted = ['hist-1-0', 'hist-2-3', 'hist-400-4', 'no-such-request', 'hist-1-0'];
+    const filler = Array.from({ length: 70_000 }, (_, i) => `missing-${i}`);
+    const since = statements.length;
+    const rows = await store.getRequests?.([...wanted, ...filler]);
+    expect(rows?.map((row) => row.approvalRequestId).sort()).toEqual([
+      'hist-1-0',
+      'hist-2-3',
+      'hist-400-4',
+    ]);
+    const sent = approvalStatements(since);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatch(/= ANY\(\$1::text\[\]\)/);
+    expect(await store.getRequests?.([])).toEqual([]);
+  });
+
   it('pages through every request on the primary key', async () => {
     const store = createSqlApprovalStore({ db, schemaName: FRAMEWORK_SCHEMA });
     const total = (

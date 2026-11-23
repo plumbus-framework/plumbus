@@ -73,3 +73,20 @@ describe('defineEntity', () => {
     ).toThrow('index references unknown field "nope"');
   });
 });
+
+describe('gin indexes (json containment)', () => {
+  it('accepts one json field and refuses any other shape', () => {
+    const fields = { id: field.id(), tags: field.json(), title: field.string() };
+    expect(() =>
+      defineEntity({ name: 'Tagged', fields, indexes: [{ columns: ['tags'], using: 'gin' }] }),
+    ).not.toThrow();
+    for (const index of [
+      { columns: ['title'], using: 'gin' as const },
+      { columns: ['tags', 'title'], using: 'gin' as const },
+      { columns: ['tags'], using: 'gin' as const, unique: true },
+      { columns: ['tags'], using: 'hash' as never },
+    ]) {
+      expect(() => defineEntity({ name: 'Tagged', fields, indexes: [index] })).toThrow(/index/);
+    }
+  });
+});

@@ -20,6 +20,12 @@ export function createMemoryApprovalStore(): ApprovalStore {
       const row = requests.get(id);
       return row ? { ...row } : undefined;
     },
+    async getRequests(ids) {
+      return [...new Set(ids)].flatMap((id) => {
+        const row = requests.get(id);
+        return row ? [{ ...row }] : [];
+      });
+    },
     async listRequests() {
       return [...requests.values()].map((row) => ({ ...row }));
     },

@@ -7,9 +7,18 @@
 
 export { auditRecords } from './schema.js';
 export {
+  AUDIT_RETRY_DELAYS_MS,
   bindAuditServiceToTransaction,
   createAuditService,
+  holdAuditSuccess,
   isTransactionBindableAuditService,
+  recordAfterEffects,
+  recordAuditBatch,
 } from './service.js';
-export type { AuditServiceConfig, TransactionAuditBinding } from './service.js';
-export { createDatabaseAuditWriter } from './writer.js';
+export type {
+  AuditServiceConfig,
+  AuditSuccessHold,
+  AuditWriteFailure,
+  TransactionAuditBinding,
+} from './service.js';
+export { AUDIT_WRITE_BATCH_SIZE, createDatabaseAuditWriter } from './writer.js';

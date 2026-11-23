@@ -226,6 +226,7 @@ export type DataPlaneStepName =
   | 'grant-sequence-privileges'
   | 'set-default-table-privileges'
   | 'set-default-sequence-privileges'
+  | 'refuse-connections'
   | 'terminate-connections'
   | 'drop-owned'
   | 'drop-database'
@@ -787,7 +788,14 @@ export interface DropDataPlaneOptions {
   allowedNamePattern: RegExp;
   /** Roles to drop after the database. Each must match `allowedNamePattern`. */
   roles?: readonly string[];
-  /** Terminate sessions still attached to the database. Default true. */
+  /**
+   * End sessions still attached to the database. Default true: the database first stops
+   * accepting connections (`ALTER DATABASE … ALLOW_CONNECTIONS false`), then
+   * `DROP DATABASE … WITH (FORCE)` ends the sessions and drops it in one statement, so no
+   * session can reconnect in between (PostgreSQL 13+; older servers terminate, then drop).
+   * `false`: a plain `DROP DATABASE`, which fails while any session is attached; the database
+   * accepts connections again after such a failure.
+   */
   terminateConnections?: boolean;
   /** Default 10. */
   connectTimeoutSeconds?: number;
@@ -855,31 +863,64 @@ export async function dropDataPlane(options: DropDataPlaneOptions): Promise<Data
 
     const exists = await databaseExists(admin, databaseName);
     if (exists) {
-      if (options.terminateConnections !== false) {
-        const terminated = await admin<{ pid: number }[]>`
-          SELECT pg_catalog.pg_terminate_backend(pid) AS ok, pid
-          FROM pg_catalog.pg_stat_activity
-          WHERE datname = ${databaseName} AND pid <> pg_catalog.pg_backend_pid()
-        `;
-        terminatedConnections = terminated.length;
-        steps.push({
-          step: 'terminate-connections',
-          target: databaseName,
-          outcome: terminatedConnections > 0 ? 'applied' : 'skipped',
-          statement: 'SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1',
-        });
-      }
+      const quoted = quoteIdentifier(databaseName);
+      const force = options.terminateConnections !== false;
+      const versionRows = await admin<{ version: string }[]>`
+        SELECT current_setting('server_version_num') AS version
+      `;
+      const withForce = force && Number(versionRows[0]?.version ?? 0) >= 130000;
 
-      // DROP DATABASE, like CREATE DATABASE, cannot run inside a transaction block.
-      const statement = `DROP DATABASE IF EXISTS ${quoteIdentifier(databaseName)}`;
-      await execute(admin, statement, 'drop-database', databaseName);
-      databaseDropped = true;
+      // No new session from here on: a pool that reconnects cannot slip in before the drop.
+      const refuse = `ALTER DATABASE ${quoted} ALLOW_CONNECTIONS false`;
+      await execute(admin, refuse, 'refuse-connections', databaseName);
       steps.push({
-        step: 'drop-database',
+        step: 'refuse-connections',
         target: databaseName,
-        outcome: 'dropped',
-        statement,
+        outcome: 'applied',
+        statement: refuse,
       });
+
+      try {
+        if (force) {
+          const attached = await admin<{ pid: number }[]>`
+            SELECT pid FROM pg_catalog.pg_stat_activity
+            WHERE datname = ${databaseName} AND pid <> pg_catalog.pg_backend_pid()
+          `;
+          terminatedConnections = attached.length;
+          if (!withForce) {
+            await admin`
+              SELECT pg_catalog.pg_terminate_backend(pid)
+              FROM pg_catalog.pg_stat_activity
+              WHERE datname = ${databaseName} AND pid <> pg_catalog.pg_backend_pid()
+            `;
+          }
+          steps.push({
+            step: 'terminate-connections',
+            target: databaseName,
+            outcome: terminatedConnections > 0 ? 'applied' : 'skipped',
+            statement: withForce
+              ? 'DROP DATABASE … WITH (FORCE) ends the attached sessions'
+              : 'SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1',
+          });
+        }
+
+        // DROP DATABASE, like CREATE DATABASE, cannot run inside a transaction block.
+        const statement = `DROP DATABASE IF EXISTS ${quoted}${withForce ? ' WITH (FORCE)' : ''}`;
+        await execute(admin, statement, 'drop-database', databaseName);
+        databaseDropped = true;
+        steps.push({
+          step: 'drop-database',
+          target: databaseName,
+          outcome: 'dropped',
+          statement,
+        });
+      } catch (error) {
+        // Not dropped: leave the database as usable as it was.
+        await admin
+          .unsafe(`ALTER DATABASE ${quoted} ALLOW_CONNECTIONS true`)
+          .catch(() => undefined);
+        throw error;
+      }
     } else {
       steps.push({
         step: 'drop-database',

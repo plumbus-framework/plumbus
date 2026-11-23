@@ -55,6 +55,8 @@ interface DefineCapabilityInput<TInput extends z.ZodTypeAny, TOutput extends z.Z
     event: string;
     includeInput?: string[];
     includeOutput?: string[];
+    success?: boolean;
+    deferSuccess?: boolean;
   };
   explanation?: {
     enabled?: boolean;
@@ -289,6 +291,15 @@ export function defineCapability<TInput extends z.ZodTypeAny, TOutput extends z.
   validateCapabilityDependencies(
     config as unknown as DefineCapabilityInput<z.ZodTypeAny, z.ZodTypeAny>,
   );
+
+  for (const flag of ['success', 'deferSuccess'] as const) {
+    const value = (config.audit as Record<string, unknown> | undefined)?.[flag];
+    if (value !== undefined && typeof value !== 'boolean') {
+      throwDefineValidationError(`Capability "${config.name}": audit.${flag} must be a boolean`, {
+        field: 'audit',
+      });
+    }
+  }
 
   if (
     config.transactional !== undefined &&

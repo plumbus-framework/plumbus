@@ -3,13 +3,15 @@ import { z } from 'zod';
 import {
   bindAuditServiceToTransaction,
   isTransactionBindableAuditService,
+  recordAfterEffects,
+  recordAuditBatch,
   type TransactionAuditBinding,
 } from '../audit/index.js';
 import type { EntityRegistry } from '../data/registry.js';
 import { createErrorService } from '../errors/index.js';
 import { createEventEmitter } from '../events/emitter.js';
 import type { EventRegistry } from '../events/registry.js';
-import type { AuditService } from '../types/audit.js';
+import type { AuditBatchEntry, AuditService } from '../types/audit.js';
 import type { CapabilityContract } from '../types/capability.js';
 import type {
   DataService,
@@ -63,7 +65,15 @@ const READ_METHODS = new Set([
 ]);
 
 /** Repository methods that write: the first one opens a lazily opened transaction. */
-const WRITE_METHODS = ['create', 'createMany', 'update', 'updateWhere', 'delete'] as const;
+const WRITE_METHODS = [
+  'create',
+  'createMany',
+  'update',
+  'updateWhere',
+  'delete',
+  'deleteMany',
+  'updateMany',
+] as const;
 
 const auditOutcomeSchema = z.enum(['success', 'failure', 'denied']);
 
@@ -168,7 +178,7 @@ export function createTransactionRunner(config: TransactionRunnerConfig): WithTr
     const outerAudit = getAudit();
     const transaction = createDeferredTransaction(db, acquireTimeoutMs);
     const bindable = isTransactionBindableAuditService(outerAudit);
-    const heldSuccess: [string, Record<string, unknown> | undefined][] = [];
+    const heldSuccess: AuditBatchEntry[] = [];
     const opened: {
       tx?: PostgresJsDatabase;
       binding?: TransactionAuditBinding;
@@ -200,9 +210,7 @@ export function createTransactionRunner(config: TransactionRunnerConfig): WithTr
         });
         opened.tx = tx;
         // Success records made before the open now commit or roll back with the work.
-        for (const [eventType, metadata] of heldSuccess.splice(0)) {
-          await audit.record(eventType, metadata);
-        }
+        await recordAuditBatch(audit, heldSuccess.splice(0));
         return tx;
       })();
       bound.catch(() => undefined);
@@ -248,6 +256,13 @@ export function createTransactionRunner(config: TransactionRunnerConfig): WithTr
       };
     }
 
+    /** Whether an entry is a `success` record (held until the transaction opens). */
+    const isSuccess = (entry: AuditBatchEntry): boolean => {
+      const outcome = auditOutcomeSchema.safeParse(entry.metadata?.outcome ?? 'success');
+      if (!outcome.success) throw createErrorService().validation('Invalid audit outcome');
+      return outcome.data === 'success';
+    };
+
     const audit: AuditService = bindable
       ? {
           async record(eventType, metadata) {
@@ -256,14 +271,24 @@ export function createTransactionRunner(config: TransactionRunnerConfig): WithTr
               const live = opened.binding?.audit ?? outerAudit;
               return live.record(eventType, metadata);
             }
-            const outcome = auditOutcomeSchema.safeParse(metadata?.outcome ?? 'success');
-            if (!outcome.success) throw createErrorService().validation('Invalid audit outcome');
-            if (outcome.data === 'success') {
-              heldSuccess.push([eventType, metadata]);
+            if (isSuccess({ eventType, metadata })) {
+              heldSuccess.push({ eventType, metadata });
               return;
             }
             // A refusal or failure stands whatever happens to the work.
             return outerAudit.record(eventType, metadata);
+          },
+          async recordMany(entries) {
+            if (started()) {
+              await acquire();
+              return recordAuditBatch(opened.binding?.audit ?? outerAudit, entries);
+            }
+            const others: AuditBatchEntry[] = [];
+            for (const entry of entries) {
+              if (isSuccess(entry)) heldSuccess.push(entry);
+              else others.push(entry);
+            }
+            return recordAuditBatch(outerAudit, others);
           },
         }
       : outerAudit;
@@ -298,9 +323,10 @@ export function createTransactionRunner(config: TransactionRunnerConfig): WithTr
       /** `fn` returned: commit what was opened, or write the held success records. */
       async succeeded(): Promise<void> {
         if (!bound) {
-          for (const [eventType, metadata] of heldSuccess.splice(0)) {
-            await outerAudit.record(eventType, metadata);
-          }
+          // Nothing was opened, so nothing commits with these records; the work they describe
+          // (outside the framework's transaction) is done. Never fail the call for them: they
+          // are retried in the background and reported if they cannot be written.
+          await recordAfterEffects(outerAudit, heldSuccess.splice(0));
           return;
         }
         await bound;

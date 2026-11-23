@@ -744,8 +744,58 @@ describe('dropDataPlane', () => {
         });
         expect(result.terminatedConnections).toBeGreaterThan(0);
         expect(result.databaseDropped).toBe(true);
+        // New sessions are refused first; one statement then ends the attached ones and drops,
+        // so a pool that reconnects cannot slip in between (#249).
+        const names = result.steps.map((step) => step.step);
+        expect(names.slice(0, 3)).toEqual([
+          'refuse-connections',
+          'terminate-connections',
+          'drop-database',
+        ]);
+        expect(result.steps[0]?.statement).toMatch(/ALLOW_CONNECTIONS false$/);
+        expect(result.steps[2]?.statement).toMatch(/ WITH \(FORCE\)$/);
       } finally {
         await lingering.end({ timeout: 5 }).catch(() => undefined);
+      }
+    },
+    DB_TIMEOUT,
+  );
+
+  it(
+    'terminateConnections: false fails on an attached session and leaves the database accepting connections',
+    async () => {
+      const fixture = newFixture();
+      await provisionFixture(fixture);
+      const lingering = connect({
+        database: fixture.database,
+        user: fixture.runtime,
+        password: fixture.runtimePassword,
+      });
+      await lingering`SELECT 1`;
+      try {
+        await expect(
+          dropDataPlane({
+            adminConnection: admin,
+            databaseName: fixture.database,
+            allowedNamePattern: FIXTURE_PATTERN,
+            terminateConnections: false,
+          }),
+        ).rejects.toBeInstanceOf(DataPlaneProvisioningError);
+        const later = connect({
+          database: fixture.database,
+          user: fixture.runtime,
+          password: fixture.runtimePassword,
+        });
+        await expect(later`SELECT 1 AS one`).resolves.toEqual([{ one: 1 }]);
+        await later.end({ timeout: 5 });
+      } finally {
+        await lingering.end({ timeout: 5 }).catch(() => undefined);
+        await dropDataPlane({
+          adminConnection: admin,
+          databaseName: fixture.database,
+          roles: [fixture.owner, fixture.runtime],
+          allowedNamePattern: FIXTURE_PATTERN,
+        });
       }
     },
     DB_TIMEOUT,

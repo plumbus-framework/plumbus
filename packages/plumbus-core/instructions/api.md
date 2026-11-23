@@ -73,10 +73,36 @@ export const idempotencyStore = createDatabaseIdempotencyStore(); // leaseMs 60 
 Records live in `request_idempotency` on the database the request's capability writes to: the
 spine (unqualified) for control-plane requests, `<framework schema>.request_idempotency`
 (`core_plumbus` by default, `tenantSchema` option) on the tenant plane under
-`requestDataPlane: 'resolved'`. Create the table on every plane: the shipped migrations
-`migrations/spine/0001_request_idempotency.sql` and
+`requestDataPlane: 'resolved'`. Create the table on every plane: `plumbus migrate generate`
+emits `core_plumbus.request_idempotency` in your generated migrations (core 0.9.0-beta.15+,
+every stream you generate, an app's own tenant stream included; on the spine the store reads it
+there with `spineSchema: 'core_plumbus'`), or use the shipped
+`migrations/spine/0001_request_idempotency.sql` (unqualified) /
 `migrations/durable-tenant/0003_request_idempotency.sql`, or `requestIdempotencyDdl()` /
 `requestIdempotencyDdl('core_plumbus')` copied into your own migration stream.
+
+**Choosing the database per request (`resolveDatabase`).** A host that keeps request
+repositories on the control plane (`requestDataPlane: 'control-plane'`) while tenant work runs
+on per-tenant databases would otherwise put every stored answer — tenant-private content
+included — into the control plane. Tell the store where each request's key goes:
+
+```typescript
+export const idempotencyStore = createDatabaseIdempotencyStore({
+  resolveDatabase: async ({ principal, auth, plane, database }) => {
+    if (!principal.tenantId) return undefined; // the request's own database
+    const lease = await dataPlaneResolver.acquire(principal.tenantId, { purpose: 'request' });
+    return { database: lease.handle.db, plane: 'tenant', release: () => lease.release() };
+  },
+});
+```
+
+It is called once per request that presents a key, before the claim; `undefined` keeps the
+default, a throw refuses the request. `plane` picks the schema (`tenantSchema` /
+`spineSchema`) unless the target names `schema`. `release` is called once the store has written
+the completion or the release (also when the claim is refused or replayed). When the target is
+not the request's database the completion cannot join the capability's transaction: it is
+written right after the capability returns, so a crash between the capability's commit and
+that write lets a retry run the capability again once the lease lapses (the gap below).
 
 - **Key:** sha256 of `operationId:tenant:user:key`; also stored: principal id, tenant scope
   (`spine` without a tenant), and a sha256 of the canonical request (input + caller authority).

@@ -1,4 +1,5 @@
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import type { AuthContext } from '../types/security.js';
 
 export interface IdempotencyPrincipal {
   userId?: string;
@@ -43,6 +44,11 @@ export interface IdempotencyStoreOptions {
   plane?: 'spine' | 'tenant';
   /** The token of this request's claim (`{ status: 'new', token }`), for complete/abort. */
   claimToken?: string;
+  /**
+   * The caller's auth context (the core `/api` routes pass it), for a store that decides per
+   * request where a key is kept (`createDatabaseIdempotencyStore({ resolveDatabase })`).
+   */
+  auth?: AuthContext;
 }
 
 export interface IdempotencyStore {
@@ -59,16 +65,25 @@ export interface IdempotencyStore {
    * Record the completion inside the capability's business transaction (`tx`, on
    * `options.database`), so the business effect and the completion commit together or not at
    * all. Throws when the claim was taken over by another request, which rolls the business
-   * transaction back. Optional: without it the completion is written after the capability
-   * returned (`complete`).
+   * transaction back. Resolves `false` when it cannot write there (the key is kept on another
+   * database): the caller then writes the completion after the capability returned
+   * (`complete`). Optional: without it the completion is always written that way.
    */
   completeInTransaction?(
     tx: PostgresJsDatabase,
     key: string,
     result: unknown,
     options?: IdempotencyStoreOptions,
-  ): Promise<void>;
+    // biome-ignore lint/suspicious/noConfusingVoidType: stores written before `false` existed resolve void, and must still satisfy this.
+  ): Promise<void | boolean>;
   abort(key: string, options?: IdempotencyStoreOptions): Promise<void>;
+  /**
+   * The request is done with its claim (completed, released, or the execution threw): give
+   * back what the claim holds, such as a data-plane lease taken to reach the key's database.
+   * Optional. `executeIdempotently` calls it once after every claim that returned
+   * `{ status: 'new' }`.
+   */
+  release?(key: string, options?: IdempotencyStoreOptions): void;
 }
 
 /** Thrown when an in-flight idempotency claim is aborted (e.g. the first request failed). */

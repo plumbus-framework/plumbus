@@ -307,11 +307,16 @@ describe('executeCapability transactional outbox integration', () => {
     expect(result.success).toBe(true);
     expect(seen).toBe(boundAudit);
     expect(boundAudit.record).toHaveBeenCalledWith('inside.tx');
-    // The capability's own success row is written after commit on the outer service.
-    expect(ctx.audit.record).toHaveBeenCalledWith(
+    // The capability's own success row is written in its transaction, through the bound
+    // service, so it commits with the work; nothing is written on the outer service after it.
+    expect(boundAudit.record).toHaveBeenCalledWith(
       'capability.orders.createOrder',
       expect.objectContaining({ outcome: 'success' }),
     );
-    expect(boundAudit.record).toHaveBeenCalledTimes(1);
+    expect(boundAudit.record).toHaveBeenCalledTimes(2);
+    expect(ctx.audit.record).not.toHaveBeenCalledWith(
+      'capability.orders.createOrder',
+      expect.objectContaining({ outcome: 'success' }),
+    );
   });
 });

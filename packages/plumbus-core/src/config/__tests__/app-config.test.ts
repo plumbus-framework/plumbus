@@ -42,7 +42,7 @@ describe('configuration resolution', () => {
         flowConcurrency: 3,
         flowLanes: {
           reservedUntenanted: 1,
-          lanes: { authoring: { max: 1, domains: ['course-builder'] } },
+          lanes: { authoring: { max: 1, domains: ['report-builder'] } },
         },
         flowStepHistoryLimit: 200,
         eventOutboxPump: 'none',
@@ -53,7 +53,7 @@ describe('configuration resolution', () => {
       flowLanes: {
         maxPerTenant: 2,
         reservedUntenanted: 1,
-        lanes: { authoring: { max: 1, domains: ['course-builder'] } },
+        lanes: { authoring: { max: 1, domains: ['report-builder'] } },
       },
       flowStepHistoryLimit: 200,
       eventOutboxPump: 'none',

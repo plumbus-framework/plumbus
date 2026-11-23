@@ -230,6 +230,15 @@ export function generateDrizzleSchema(
         const idxName = `${tableName}_${idxFields.map(camelToSnake).join('_')}_idx`;
 
         const cols = idxFields.map((f: string) => (table as any)[f]).filter(Boolean);
+        if (!Array.isArray(entry) && entry.using === 'gin') {
+          // Serves `contains` (`col @> value`): jsonb_path_ops is smaller and faster than the
+          // default jsonb_ops for containment, which is the only operator it supports.
+          const column = cols[0];
+          if (column) {
+            indexes.push(index(`${idxName}_gin`).using('gin', column.op('jsonb_path_ops')));
+          }
+          continue;
+        }
         if (cols.length > 0) {
           const [first, ...rest] = cols;
           indexes.push((isUnique ? uniqueIndex(idxName) : index(idxName)).on(first, ...rest));
