@@ -1,6 +1,6 @@
 # @plumbus/core changelog
 
-## Unreleased (0.9.0-beta.15) — flow lanes, event and job retention, bounded flow rows
+## 0.9.0-beta.15 — 2026-11-23 — flow lanes, event and job retention, bounded flow rows
 
 Opt-in except where marked. One migration (seven indexes on framework tables, `plumbus migrate generate`). Peer ranges unchanged. See [upgrading to core 0.9](../../docs/upgrading-core-0.9.md).
 
@@ -12,6 +12,7 @@ Opt-in except where marked. One migration (seven indexes on framework tables, `p
 - **Host-relayed `event_outbox`:** `workers.eventOutboxPump: 'none'` / `PLUMBUS_EVENT_OUTBOX_PUMP`, `WorkerPoolConfig.pumpEventOutbox` and the `app/server.ts` export `pumpEventOutbox` (per plane) keep the dispatcher off `event_outbox` while it still publishes `dispatch_outbox`. `WorkerPool.wakeOutbox(tenantRef?)`.
 - **Indexes:** `flow_exec_failed_idx`, `flow_exec_updated_idx` (`updated_at DESC NULLS FIRST, id DESC NULLS FIRST`), `event_outbox_dispatched_idx`, `event_idempotency_processed_idx`, `event_dead_letter_unresolved_idx`, `event_dead_letter_resolved_idx`, `job_exec_finished_idx`; also in `flowExecutionsDdl` / `eventOutboxDdl` / `eventDeliveryDdl` and the new `jobExecutionsDdl`.
 - **Fix:** exclusion lists in the claim queries (the engine's skip list after a missing-definition release) were sent as a tuple and failed with `malformed array literal`; every claim of that worker failed for 60 s.
+- **Deployment instructions: npm 11+ for `npm install`.** npm 10 (bundled with Node 22) fails to install `@plumbus/core` without a lockfile (`Cannot read properties of null (reading 'edgesOut')`, an npm 10 resolver bug in Vitest's optional peers; earlier releases are affected too). `instructions/deployment.md` now states the requirement, and its example Dockerfiles use `node:24-alpine` (npm 11), matching its existing advice to use Node 24 for new images. Node 22 images: `npm install -g npm@11` first.
 - **Exports:** `createTransactionRunner`, `readPendingMigrations` and the types `TransactionRunnerConfig`, `PendingMigration` from the package root, plus the names above.
 
 ## Unreleased (0.9.0-beta.15) — set-based writes, idempotency records per tenant plane, success audit rows, connection ceiling

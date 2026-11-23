@@ -13,7 +13,7 @@ Production checklist for `@plumbus/auth` on `@plumbus/core` 0.8.x (stable family
 | `@plumbus/auth` | `@plumbus/core` **`0.8.x`** | `@plumbus/core` **`>=0.9.0-beta.0 <0.10.0`** |
 | `@plumbus/auth-cognito` | `@plumbus/auth` **`0.3.x`** | `@plumbus/auth` **`>=0.4.0-beta.0 <0.5.0`** |
 
-Install production deps with **npm** in Docker (`npm install --omit=dev`) — copy peer literals from [`peer-dependencies.md`](../../packages/plumbus-core/instructions/peer-dependencies.md).
+Install production deps with **npm 11+** in Docker (`npm install --omit=dev`; Node 24 images ship npm 11, Node 22 images need `npm install -g npm@11` first, see [deployment](../../packages/plumbus-core/instructions/deployment.md)) — copy peer literals from [`peer-dependencies.md`](../../packages/plumbus-core/instructions/peer-dependencies.md).
 
 ---
 

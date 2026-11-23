@@ -2,6 +2,8 @@
 
 Core 0.8 (and the core 0.9 beta family) bundles Vitest 5 and requires Node 22.12+ on the 22.x line, Node 24.x, or Node 26+. Use Node 24 for new deployment images; existing Node 22 images must be at least 22.12. `plumbus doctor` checks this requirement.
 
+Installing `@plumbus/core` with **npm** needs **npm 11+**. npm 10, the version bundled with Node 22, fails without a lockfile with `npm error Cannot read properties of null (reading 'edgesOut')` (an npm 10 resolver bug in Vitest's optional peers). Node 24 images ship npm 11. On a Node 22 image, run `npm install -g npm@11` before `npm install`. Do not use `--legacy-peer-deps` instead: it also stops npm checking the Plumbus peer ranges.
+
 Plumbus applications deploy as up to four services — a **backend** (Fastify API server), an optional **worker** (background queues), a **frontend** (Next.js), and optionally an **admin dashboard** (Next.js) — backed by PostgreSQL and Redis.
 
 ## Service Topology
@@ -73,6 +75,7 @@ These rules are critical. Violating any one causes build failures or bloated ima
 - **DO NOT**: Copy the full `node_modules` (including `@plumbus/ui`) into the backend runner.
 - **Why**: `@plumbus/ui` pulls in `next`, `react`, `react-dom`, `tailwindcss`, `lucide-react` (~300 MB). The backend only needs `@plumbus/core` at runtime.
 - **Peer deps**: npm enforces `peerDependencies` strictly in this stage. Add-on packages must declare npm-safe `@plumbus/core` peers (`>=0.9.0-beta.0 <0.10.0` for the core 0.9 beta family; `0.8.x` on the 0.8 stabilization family). See `peer-dependencies.md` in this folder — `pnpm install` passing locally does not prove Docker will build.
+- **npm 11+**: this stage needs npm 11 or later (Node 24 images ship it). npm 10 on a Node 22 image fails with `Cannot read properties of null (reading 'edgesOut')`; add `RUN npm install -g npm@11` first. See the note at the top of this file.
 - **Target image size**: Backend should be ~500-700 MB, not 1.5 GB+.
 
 ### Rule 8: Use `ENV PATH` instead of `npx` for frontend builds
@@ -397,7 +400,7 @@ If images exceed these sizes, you are likely not using `pnpm deploy` (Rule 5) or
 # ==============================================================
 
 # ---- Base ----
-FROM node:22-alpine AS base
+FROM node:24-alpine AS base
 RUN corepack enable && corepack prepare pnpm@latest --activate
 WORKDIR /app
 
@@ -411,7 +414,7 @@ RUN pnpm install
 # Strip @plumbus/ui and devDependencies — backend doesn't need them at runtime.
 # This saves ~300 MB (next, react, tailwindcss, etc. are excluded).
 # After install, remove test/build tools from @plumbus/core transitive deps.
-FROM node:22-alpine AS proddeps
+FROM node:24-alpine AS proddeps
 WORKDIR /app
 COPY package.json ./
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
@@ -446,7 +449,7 @@ COPY drizzle/ ./drizzle/
 RUN pnpm build
 
 # ---- Runner ----
-FROM node:22-alpine AS runner
+FROM node:24-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 RUN addgroup --system --gid 1001 plumbus && \
@@ -477,7 +480,7 @@ For the **admin dashboard**, replace `{./frontend}` with `{./frontend-admin}` an
 # See "Docker Rules" section above for the rationale behind each step.
 # ==============================================================
 
-FROM node:22-alpine AS base
+FROM node:24-alpine AS base
 RUN corepack enable && corepack prepare pnpm@latest --activate
 WORKDIR /app
 
@@ -501,7 +504,7 @@ RUN next build
 # ---- Runner ----
 # Standalone output only — includes server.js + traced node_modules (~30-40 MB).
 # DO NOT copy node_modules from deps — standalone has everything it needs.
-FROM node:22-alpine AS runner
+FROM node:24-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 RUN addgroup --system --gid 1001 nextjs && \

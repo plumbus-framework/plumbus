@@ -195,9 +195,16 @@ describe('version-aware claim', () => {
       );
       expect(told.every((info) => info.reason === 'flow-not-registered')).toBe(true);
       // The hooks failed; the releases did not: both rows stay runnable and nothing is dead-lettered.
-      for (const id of [first.id, second.id]) {
-        expect(await row(database.db, id)).toMatchObject({ status: 'running', lease_owner: null });
-      }
+      // Each worker skips only the executions it released itself, so the other worker may still
+      // hold a short lease on a row while it claims and releases it in turn; wait for that to end.
+      await vi.waitFor(async () => {
+        for (const id of [first.id, second.id]) {
+          expect(await row(database.db, id)).toMatchObject({
+            status: 'running',
+            lease_owner: null,
+          });
+        }
+      });
       expect(await deadLetters(database.db)).toBe(0);
       await current.pool.start();
       await vi.waitFor(async () => {

@@ -6,10 +6,22 @@ The 0.8 numbers now belong to the stable **stabilization family** published from
 
 Core 0.9.0-beta.0 contains everything in the 0.8.0-beta.N line plus every stable change merged from `main`: the core 0.8.0 stabilization (PLB-01 to PLB-10), core 0.8.1, auth 0.3.1 and the Vitest 5.0.4 toolchain. See [Included in v0.9.0-beta.0](#included-in-v090-beta0).
 
-## Unreleased (core 0.9.0-beta.15): flow lanes, event and job retention, bounded flow rows
+## v0.9.0-beta.16 (2026-11-23): flow lanes, event and job retention, bounded flow rows
 
-Not yet released; numbered for the next core prerelease. `@plumbus/core` only; peer ranges
-unchanged. Nothing changes until an app opts in, except the three points under "On upgrade".
+Prepared for repository release `v0.9.0-beta.16` under npm dist-tag `plumbus-next`. One package
+changes: `@plumbus/core` **0.9.0-beta.14 → 0.9.0-beta.15**. Every other package and all peer
+ranges stay unchanged. One migration (seven indexes, below). Nothing changes until an app opts
+in, except the three points under "On upgrade".
+
+**Upgrade:** install `@plumbus/core@0.9.0-beta.15` (dist-tag `plumbus-next`), then run
+`plumbus migrate generate` and apply the generated index migration.
+
+**Installing with npm needs npm 11+.** npm 10 (bundled with Node 22) fails to install
+`@plumbus/core` without a lockfile with `Cannot read properties of null (reading 'edgesOut')`.
+This is an npm 10 bug triggered by Vitest's optional peers, and earlier core releases hit it too.
+Build backend images on `node:24-alpine` (npm 11), or run `npm install -g npm@11` first on a
+Node 22 image; see [deployment](../packages/plumbus-core/instructions/deployment.md). pnpm is
+not affected.
 
 **On upgrade (no setting needed)**
 
