@@ -1,8 +1,10 @@
 # @plumbus/core changelog
 
-## 0.9.0-beta.15 — 2026-11-23 — flow lanes, event and job retention, bounded flow rows
+## 0.9.0-beta.15 — 2026-11-23 — flow lanes, event and job retention, bounded flow rows, set-based writes, idempotency records per tenant plane, success audit rows, connection ceiling
 
-Opt-in except where marked. One migration (seven indexes on framework tables, `plumbus migrate generate`). Peer ranges unchanged. See [upgrading to core 0.9](../../docs/upgrading-core-0.9.md).
+Opt-in except where marked; behaviour changes are called out. Run `plumbus migrate generate`: seven indexes on framework tables and the `request_idempotency` framework table. Consumer agents: `instructions/upgrading-set-writes-and-audit.md` and [upgrading to core 0.9](../../docs/upgrading-core-0.9.md). Peer ranges unchanged.
+
+### Flow lanes, event and job retention, bounded flow rows
 
 - **Flow lanes** (`workers.flowLanes`, `PLUMBUS_FLOW_RESERVED_UNTENANTED` / `PLUMBUS_FLOW_MAX_PER_TENANT` / `PLUMBUS_FLOW_MAX_PER_FLOW` / `PLUMBUS_FLOW_TENANT_ORDER`): runner slots held for untenanted flows, limits per tenant, per flow and per named lane (flows by name or domain), and a fair claim order (the tenant with the fewest executions running first). Enforced in the claim SQL; held-back executions stay runnable. `Flow lane full` log line, `plumbus_flow_lane_running` / `plumbus_flow_lanes_full`, `WorkerPool.flowLanes`. Engine: `claimNext(batchSize, filter?)` with `FlowClaimFilter`; `claimSpineDispatch` gains `excludeTenantRouteIds` / `excludeDefinitionIds`.
 - **Retention of event and job tables:** `frameworkRetention.eventOutbox` (dispatched rows), `eventIdempotency` (rows whose event can no longer be delivered again from that database: no outbox row, no unresolved dead letter), `eventDeadLetter` (resolved rows), `jobExecutions` (completed, failed, dead-lettered with nothing pending), each `true` or `{ keepDays }`. A class whose index a database lacks is skipped there (`result.missingIndexes`, warning).
@@ -14,10 +16,6 @@ Opt-in except where marked. One migration (seven indexes on framework tables, `p
 - **Fix:** exclusion lists in the claim queries (the engine's skip list after a missing-definition release) were sent as a tuple and failed with `malformed array literal`; every claim of that worker failed for 60 s.
 - **Deployment instructions: npm 11+ for `npm install`.** npm 10 (bundled with Node 22) fails to install `@plumbus/core` without a lockfile (`Cannot read properties of null (reading 'edgesOut')`, an npm 10 resolver bug in Vitest's optional peers; earlier releases are affected too). `instructions/deployment.md` now states the requirement, and its example Dockerfiles use `node:24-alpine` (npm 11), matching its existing advice to use Node 24 for new images. Node 22 images: `npm install -g npm@11` first.
 - **Exports:** `createTransactionRunner`, `readPendingMigrations` and the types `TransactionRunnerConfig`, `PendingMigration` from the package root, plus the names above.
-
-## Unreleased (0.9.0-beta.15) — set-based writes, idempotency records per tenant plane, success audit rows, connection ceiling
-
-Behaviour changes are called out. Consumer agents: `instructions/upgrading-set-writes-and-audit.md` and [upgrading to core 0.9](../../docs/upgrading-core-0.9.md). Peer ranges unchanged.
 
 ### Repository: set-based writes and narrower reads
 

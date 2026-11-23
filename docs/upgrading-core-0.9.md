@@ -6,15 +6,17 @@ The 0.8 numbers now belong to the stable **stabilization family** published from
 
 Core 0.9.0-beta.0 contains everything in the 0.8.0-beta.N line plus every stable change merged from `main`: the core 0.8.0 stabilization (PLB-01 to PLB-10), core 0.8.1, auth 0.3.1 and the Vitest 5.0.4 toolchain. See [Included in v0.9.0-beta.0](#included-in-v090-beta0).
 
-## v0.9.0-beta.16 (2026-11-23): flow lanes, event and job retention, bounded flow rows
+## v0.9.0-beta.16 (2026-11-23): flow lanes, event and job retention, bounded flow rows, set-based writes, idempotency records on the tenant's plane, success audit rows, connection ceiling
 
 Prepared for repository release `v0.9.0-beta.16` under npm dist-tag `plumbus-next`. One package
 changes: `@plumbus/core` **0.9.0-beta.14 → 0.9.0-beta.15**. Every other package and all peer
-ranges stay unchanged. One migration (seven indexes, below). Nothing changes until an app opts
-in, except the three points under "On upgrade".
+ranges stay unchanged. Behaviour changes are listed under "On upgrade" (flows) and in the
+success audit rows and `in` list sections below.
+Consumer agents: [`instructions/upgrading-set-writes-and-audit.md`](../packages/plumbus-core/instructions/upgrading-set-writes-and-audit.md).
 
 **Upgrade:** install `@plumbus/core@0.9.0-beta.15` (dist-tag `plumbus-next`), then run
-`plumbus migrate generate` and apply the generated index migration.
+`plumbus migrate generate` and apply the generated migration: the seven framework indexes
+(below) and the `request_idempotency` framework table (see idempotency records).
 
 **Installing with npm needs npm 11+.** npm 10 (bundled with Node 22) fails to install
 `@plumbus/core` without a lockfile with `Cannot read properties of null (reading 'edgesOut')`.
@@ -22,6 +24,8 @@ This is an npm 10 bug triggered by Vitest's optional peers, and earlier core rel
 Build backend images on `node:24-alpine` (npm 11), or run `npm install -g npm@11` first on a
 Node 22 image; see [deployment](../packages/plumbus-core/instructions/deployment.md). pnpm is
 not affected.
+
+### Core: flow lanes, event and job retention, bounded flow rows
 
 **On upgrade (no setting needed)**
 
@@ -83,11 +87,6 @@ migration does not scan the table.
 / `flowStepHistoryLimit` / `pumpEventOutbox`, `WorkerPool.flowLanes` / `wakeOutbox`,
 `DispatcherConfig.pumpEventOutbox`, metrics `plumbus_flow_lane_running` and
 `plumbus_flow_lanes_full`.
-
-## Unreleased (core 0.9.0-beta.15): set-based writes, idempotency records on the tenant's plane, success audit rows, connection ceiling
-
-Not yet released; prepared in the working tree. Only `@plumbus/core` changes. Peer ranges unchanged.
-Consumer agents: [`instructions/upgrading-set-writes-and-audit.md`](../packages/plumbus-core/instructions/upgrading-set-writes-and-audit.md).
 
 ### Core: set-based repository writes and narrower reads
 
