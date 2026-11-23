@@ -76,6 +76,7 @@ export type {
   AuthorizeFlowAccess,
   FlowAccessOperation,
   FlowAccessRequest,
+  FlowClaimFilter,
   FlowDefinitionUnavailableInfo,
   FlowEngineConfig,
   FlowExecutionOwner,
@@ -110,22 +111,28 @@ export {
   replayDeadLetterFlow,
   retryDeadLetteredFlow,
   sweepFailedFlows,
+  sweepFailedFlowsSince,
 } from './dead-letter.js';
 export type {
   OperatorRetryOptions,
   OperatorRetryPlacement,
   OperatorRetryResult,
   ReplayDeadLetterOptions,
+  SweepFailedFlowsOptions,
+  SweepFailedFlowsResult,
 } from './dead-letter.js';
 
 // ── Retention (opt-in sweep of finished framework rows) ──
 export {
+  FRAMEWORK_RETENTION_CLASSES,
   FRAMEWORK_RETENTION_DEFAULTS,
   pruneFrameworkTables,
   pruneSpineDispatchHints,
   resolveFrameworkRetentionOptions,
 } from './retention.js';
 export type {
+  FrameworkRetentionClass,
+  FrameworkRetentionClassOption,
   FrameworkRetentionOptions,
   FrameworkRetentionResult,
   PruneFrameworkTablesOptions,

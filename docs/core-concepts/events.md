@@ -238,12 +238,17 @@ Dead Letter Table
     └─ original envelope
 ```
 
+### Resolving dead letters (core 0.9.0-beta.15)
+
+A dead letter stays until it is settled. `resolveEventDeadLetter(db, id, { actor, resolution?, note? })` marks one resolved on the database that holds it (the pool's, or the tenant plane the delivery ran on) by adding `resolvedAt`, `resolvedBy`, `resolution` (`'retried'` or `'discarded'`, default `'discarded'`) and `note` to its `metadata`; it returns `false` for an unknown or already resolved row (the first resolution is kept). `plumbus events dead-letter retry` marks the row `retried` after re-publishing it (a delivery that fails again writes a new dead letter); `plumbus events dead-letter resolve` marks it `discarded`. Only resolved rows are ever deleted, by framework retention with `eventDeadLetter` on ([flows › retention](./flows.md#operations-claim-indexes-and-retention-of-finished-rows)).
+
 ### Operational CLI
 
 ```bash
 plumbus events status                        # backlog + DLQ count
 plumbus events dead-letter list [--limit 20]
-plumbus events dead-letter retry <id>        # re-publish to events queue
+plumbus events dead-letter retry <id>        # re-publish to events queue; marks the row resolved
+plumbus events dead-letter resolve <id> [--note <text>] [--actor <name>]  # settle without re-publishing
 plumbus events replay <eventId>              # re-dispatch from outbox (trusted replay actor)
 plumbus events replay <eventId> --from 2026-01-01T00:00:00Z  # bulk replay
 ```

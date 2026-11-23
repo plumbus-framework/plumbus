@@ -6,6 +6,72 @@ The 0.8 numbers now belong to the stable **stabilization family** published from
 
 Core 0.9.0-beta.0 contains everything in the 0.8.0-beta.N line plus every stable change merged from `main`: the core 0.8.0 stabilization (PLB-01 to PLB-10), core 0.8.1, auth 0.3.1 and the Vitest 5.0.4 toolchain. See [Included in v0.9.0-beta.0](#included-in-v090-beta0).
 
+## Unreleased (core 0.9.0-beta.15): flow lanes, event and job retention, bounded flow rows
+
+Not yet released; numbered for the next core prerelease. `@plumbus/core` only; peer ranges
+unchanged. Nothing changes until an app opts in, except the three points under "On upgrade".
+
+**On upgrade (no setting needed)**
+
+- **The failed-flow sweep reads only recent failures.** After one full pass per process it reads
+  failed executions updated since its last complete pass (less five minutes). Serve it with the
+  new index (below); without it the window falls back to the existing status index.
+- **A flow step writes only what it changed:** `state` is left out of the update when the step
+  did not change it, `step_history` when it added no entry.
+- **Fix: claims after a release for a missing definition.** A worker that released an execution
+  because it lacked its definition sent its 60-second skip list to PostgreSQL as a tuple
+  (`malformed array literal`), so every claim it made in that window failed. Fixed.
+
+**Opt in**
+
+| Need | Setting | Docs |
+|------|---------|------|
+| One tenant or one long flow must not take every runner slot; spine sweeps need a slot (#26, #118) | `workers.flowLanes: { reservedUntenanted, maxPerTenant, maxPerFlow, lanes, tenantOrder }` or `PLUMBUS_FLOW_RESERVED_UNTENANTED`, `PLUMBUS_FLOW_MAX_PER_TENANT`, `PLUMBUS_FLOW_MAX_PER_FLOW`, `PLUMBUS_FLOW_TENANT_ORDER` | [flows › flow lanes](./core-concepts/flows.md#multi-worker-safety--leasing) |
+| Prune `event_outbox`, `event_idempotency`, `event_dead_letter`, `job_executions` (#30, #51, #84, #157, #44) | `frameworkRetention: { keepDays, eventOutbox, eventIdempotency, eventDeadLetter, jobExecutions }` (each `true` or `{ keepDays }`) | [flows › retention](./core-concepts/flows.md#operations-claim-indexes-and-retention-of-finished-rows) |
+| Settle event dead letters so retention can delete them | `plumbus events dead-letter resolve <id>`, `resolveEventDeadLetter(db, id, { actor, resolution, note })`; `retry` now marks the row `retried` | [events › resolving dead letters](./core-concepts/events.md#resolving-dead-letters-core-090-beta15) |
+| Bound `step_history` of looping flows (#205) | `workers.flowStepHistoryLimit` / `PLUMBUS_FLOW_STEP_HISTORY_LIMIT` (e.g. 200) | [flows › history](./core-concepts/flows.md#flow-execution-history) |
+| Keep the framework off a host-relayed `event_outbox` (#200) | `workers.eventOutboxPump: 'none'` / `PLUMBUS_EVENT_OUTBOX_PUMP=none`, or `export const pumpEventOutbox = (tenantRef) => boolean` | [configuration](./sdk-reference/configuration.md#event-delivery-and-scheduler-activation) |
+| Ask for an early outbox visit under `outboxIdleBackoffMaxMs` | `pool.wakeOutbox(tenantRef?)` | same |
+
+**Migration.** Seven new indexes on framework tables, for every database the app migrates (spine
+and tenant planes): `flow_exec_failed_idx`, `flow_exec_updated_idx` (#166: `updated_at DESC, id
+DESC` for newest-first lists), `event_outbox_dispatched_idx`, `event_idempotency_processed_idx`,
+`event_dead_letter_unresolved_idx`, `event_dead_letter_resolved_idx`, `job_exec_finished_idx`.
+Run `plumbus migrate generate`; the generated file holds only these `CREATE INDEX IF NOT EXISTS`
+statements. On large tables make it non-transactional before applying it:
+
+```sql
+-- plumbus:no-transaction
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "event_outbox_dispatched_idx" ON "event_outbox" USING btree ("dispatched_at") WHERE status = 'dispatched';
+--> statement-breakpoint
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "event_idempotency_processed_idx" ON "event_idempotency" USING btree ("processed_at");
+--> statement-breakpoint
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "event_dead_letter_unresolved_idx" ON "event_dead_letter" USING btree ("event_id") WHERE (metadata->>'resolvedAt') IS NULL;
+--> statement-breakpoint
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "event_dead_letter_resolved_idx" ON "event_dead_letter" USING btree (("metadata"->>'resolvedAt')) WHERE (metadata->>'resolvedAt') IS NOT NULL;
+--> statement-breakpoint
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "flow_exec_failed_idx" ON "flow_executions" USING btree ("updated_at") WHERE status = 'failed';
+--> statement-breakpoint
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "flow_exec_updated_idx" ON "flow_executions" USING btree ("updated_at" DESC NULLS FIRST,"id" DESC NULLS FIRST);
+--> statement-breakpoint
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "job_exec_finished_idx" ON "job_executions" USING btree ("completed_at") WHERE status IN ('completed', 'failed', 'dead_lettered');
+```
+
+A retention class whose index is missing on a database is skipped there (warning
+`Framework retention skipped tables whose index is missing`), so turning a class on before the
+migration does not scan the table.
+
+**New exports:** `FlowLaneKind`, `FRAMEWORK_RETENTION_CLASSES`, `sweepFailedFlowsSince`,
+`resolveEventDeadLetter`, `EventDeadLetterResolution`, `createTransactionRunner`,
+`readPendingMigrations`; types `FlowLanesConfig`, `FlowLaneDefinition`, `FlowTenantOrder`,
+`FlowLaneSnapshot`, `FlowLaneFull`, `FlowLaneEntry`, `FlowClaimFilter`, `FrameworkRetentionClass`,
+`FrameworkRetentionClassOption`, `SweepFailedFlowsOptions`, `SweepFailedFlowsResult`,
+`ResolveEventDeadLetterOptions`, `TransactionRunnerConfig`, `PendingMigration`. Additive API:
+`claimNext(batchSize, filter?)`, `FlowEngineConfig.stepHistoryLimit`, `WorkerPoolConfig.flowLanes`
+/ `flowStepHistoryLimit` / `pumpEventOutbox`, `WorkerPool.flowLanes` / `wakeOutbox`,
+`DispatcherConfig.pumpEventOutbox`, metrics `plumbus_flow_lane_running` and
+`plumbus_flow_lanes_full`.
+
 ## Unreleased (core 0.9.0-beta.15): set-based writes, idempotency records on the tenant's plane, success audit rows, connection ceiling
 
 Not yet released; prepared in the working tree. Only `@plumbus/core` changes. Peer ranges unchanged.

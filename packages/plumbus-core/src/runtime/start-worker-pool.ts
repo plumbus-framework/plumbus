@@ -172,6 +172,9 @@ export async function startWorkerPool(options: StartWorkerPoolOptions): Promise<
     ...(extensions?.frameworkRetention !== undefined
       ? { frameworkRetention: extensions.frameworkRetention }
       : {}),
+    ...(extensions?.pumpEventOutbox !== undefined
+      ? { pumpEventOutbox: extensions.pumpEventOutbox }
+      : {}),
     onCapabilityError: extensions?.onCapabilityError,
     onTelemetrySpan: extensions?.onTelemetrySpan,
     logger,

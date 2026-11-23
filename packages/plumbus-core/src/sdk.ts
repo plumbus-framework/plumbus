@@ -323,6 +323,7 @@ export type {
   MigrationLockRetryInfo,
   MigrationRecord,
   MigrationRollbackResult,
+  PendingMigration,
   ReadCeilingConfig,
   ReadCeilingEvent,
   ReadCeilingPolicy,
@@ -363,6 +364,7 @@ export {
   MigrationStatementError,
   ReadCeilingMode,
   readCeilingPolicyFromConfig,
+  readPendingMigrations,
   resolveEncryptionKey,
   rollbackLastMigration,
   sql,
@@ -409,6 +411,7 @@ export type {
   IdempotencyService,
   RedisClient,
   RedisQueueConfig,
+  ResolveEventDeadLetterOptions,
   WorkerConfig,
 } from './events/index.js';
 // ── Events ──
@@ -421,10 +424,12 @@ export {
   createOutboxDispatcher,
   createRedisQueue,
   deadLetterTable,
+  EventDeadLetterResolution,
   EventRegistry,
   evaluateEventSubscriptionDelivery,
   idempotencyTable,
   outboxTable,
+  resolveEventDeadLetter,
 } from './events/index.js';
 export type {
   AuthorizationResult,
@@ -436,6 +441,7 @@ export type {
   ExecuteCapabilityOptions,
   ExecutionFailure,
   ExecutionResult,
+  TransactionRunnerConfig,
 } from './execution/index.js';
 // ── Execution Engine ──
 //
@@ -448,6 +454,7 @@ export {
   authorizeCapability,
   buildCapabilityRuntimeDeps,
   CapabilityRegistry,
+  createTransactionRunner,
   evaluateAccess,
   executeCapability,
   getCanonicalCapabilityName,
@@ -473,8 +480,11 @@ export type {
   FlowAccessOperation,
   FlowAccessRequest,
   FlowDefinitionUnavailableInfo,
+  FlowClaimFilter,
   FlowEngineConfig,
   FlowExecutionOwner,
+  FrameworkRetentionClass,
+  FrameworkRetentionClassOption,
   FrameworkRetentionOptions,
   FrameworkRetentionResult,
   PruneFrameworkTablesOptions,
@@ -484,6 +494,8 @@ export type {
   StepExecutorDeps,
   StepHistoryEntry,
   StepResult,
+  SweepFailedFlowsOptions,
+  SweepFailedFlowsResult,
 } from './flows/index.js';
 // ── Flows ──
 export {
@@ -510,6 +522,7 @@ export {
   executeStep,
   FlowRegistry,
   FlowStatus,
+  FRAMEWORK_RETENTION_CLASSES,
   FRAMEWORK_RETENTION_DEFAULTS,
   flowDeadLetterTable,
   flowDefinitionId,
@@ -528,6 +541,7 @@ export {
   retryDeadLetteredFlow,
   StepStatus,
   sweepFailedFlows,
+  sweepFailedFlowsSince,
   tryLoadCompiledFlowRegistryFromDirectory,
 } from './flows/index.js';
 export type {
@@ -732,10 +746,18 @@ export {
   resolveInputArrayMaxItems,
   safeParseBounded,
 } from './validation/bounded-parse.js';
-export type { WorkerPool, WorkerPoolConfig, WorkerPoolStopOptions } from './worker/index.js';
+export type {
+  FlowLaneEntry,
+  FlowLaneFull,
+  FlowLaneSnapshot,
+  WorkerPool,
+  WorkerPoolConfig,
+  WorkerPoolStopOptions,
+} from './worker/index.js';
 // ── Worker Bootstrap ──
 export {
   assertFlowLeaseColumns,
   createWorkerPool,
   DEFAULT_FLOW_CONCURRENCY,
+  FlowLaneKind,
 } from './worker/index.js';

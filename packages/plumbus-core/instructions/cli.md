@@ -202,6 +202,8 @@ Behind a load balancer set `TRUST_PROXY=true` (or a specific IP/CIDR) so Fastify
 ```bash
 plumbus worker start --health-port $PLUMBUS_WORKER_HEALTH_PORT   # split deployments
 plumbus events status             # outbox / queue health
+plumbus events dead-letter retry <id>    # re-publish an event dead letter; marks it resolved
+plumbus events dead-letter resolve <id> --note "…"  # settle without re-publishing (retention may delete it)
 plumbus flow dead-letter list     # persisted failed-flow snapshots
 plumbus flow dead-letter retry <executionId> [--actor <id>] # new replay execution ID
 plumbus flow dead-letter retry <executionId> --in-place     # reset the same execution

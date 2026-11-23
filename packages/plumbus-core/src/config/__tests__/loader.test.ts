@@ -37,6 +37,39 @@ describe('Config Loader', () => {
       ).toEqual({ flowConcurrency: 2, enableScheduler: false });
     });
 
+    it('reads flow lanes, the step history limit and the event outbox pump from env', () => {
+      expect(
+        loadConfig({
+          env: {
+            PLUMBUS_FLOW_RESERVED_UNTENANTED: '1',
+            PLUMBUS_FLOW_MAX_PER_TENANT: '2',
+            PLUMBUS_FLOW_MAX_PER_FLOW: '3',
+            PLUMBUS_FLOW_TENANT_ORDER: 'fifo',
+            PLUMBUS_FLOW_STEP_HISTORY_LIMIT: '200',
+            PLUMBUS_EVENT_OUTBOX_PUMP: 'none',
+          },
+        }).workers,
+      ).toEqual({
+        flowLanes: { reservedUntenanted: 1, maxPerTenant: 2, maxPerFlow: 3, tenantOrder: 'fifo' },
+        flowStepHistoryLimit: 200,
+        eventOutboxPump: 'none',
+      });
+      // One of them alone turns lanes on with only that limit.
+      expect(loadConfig({ env: { PLUMBUS_FLOW_MAX_PER_TENANT: '1' } }).workers).toEqual({
+        flowLanes: { maxPerTenant: 1 },
+      });
+      for (const [variable, value] of [
+        ['PLUMBUS_FLOW_RESERVED_UNTENANTED', '-1'],
+        ['PLUMBUS_FLOW_MAX_PER_TENANT', '0'],
+        ['PLUMBUS_FLOW_MAX_PER_FLOW', '1.5'],
+        ['PLUMBUS_FLOW_TENANT_ORDER', 'random'],
+        ['PLUMBUS_FLOW_STEP_HISTORY_LIMIT', 'all'],
+        ['PLUMBUS_EVENT_OUTBOX_PUMP', 'off'],
+      ] as const) {
+        expect(() => loadConfig({ env: { [variable]: value } }), variable).toThrow(variable);
+      }
+    });
+
     it('refuses a PLUMBUS_FLOW_CONCURRENCY that is not a whole number from 1 to 256', () => {
       for (const value of ['0', '-1', '1.5', 'four', '257']) {
         expect(() => loadConfig({ env: { PLUMBUS_FLOW_CONCURRENCY: value } })).toThrow(

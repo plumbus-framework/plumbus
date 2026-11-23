@@ -51,8 +51,8 @@ import {
   pruneSpineDispatchHints,
   recoverFlowStartIntents,
   resolveFrameworkRetentionOptions,
-  sweepFailedFlows,
 } from '../flows/index.js';
+import { sweepFailedFlowsSince } from '../flows/dead-letter.js';
 import type { FlowRegistry } from '../flows/registry.js';
 import type { SchedulerConfig } from '../flows/scheduler.js';
 import { createFlowScheduler } from '../flows/scheduler.js';
@@ -71,11 +71,19 @@ import {
 } from '../tenancy/data-plane-resolver.js';
 import type { DataPlaneLease, DataPlaneResolver } from '../tenancy/types.js';
 import type { AuditService } from '../types/audit.js';
-import type { PlumbusConfig } from '../types/config.js';
+import type { FlowLanesConfig, PlumbusConfig } from '../types/config.js';
 import type { AIService, DataService, LoggerService } from '../types/context.js';
 import { ErrorCode } from '../types/enums.js';
 import type { PlumbusErrorLike } from '../types/errors.js';
 import type { AuthContext } from '../types/security.js';
+import {
+  createFlowLaneTracker,
+  type FlowLaneEntry,
+  type FlowLaneFull,
+  type FlowLaneSnapshot,
+  type FlowLaneTracker,
+  resolveFlowLanes,
+} from './flow-lanes.js';
 
 // ── Error description helper ──
 // Drizzle wraps the underlying driver error in `cause`, and its own `message`
@@ -135,6 +143,13 @@ function claimedTenantRef(row: { tenantId?: string | null }): string | undefined
   const columns = row as unknown as Record<string, unknown>;
   const value = columns.tenantId ?? columns.tenant_id;
   return typeof value === 'string' && value !== '' ? value : undefined;
+}
+
+/** The flow a claimed execution runs, under either spelling (see `claimedTenantRef`). */
+function claimedFlowName(row: { flowName?: string }): string {
+  const columns = row as unknown as Record<string, unknown>;
+  const value = columns.flowName ?? columns.flow_name;
+  return typeof value === 'string' ? value : '';
 }
 
 // ── Flow step capability errors ──
@@ -210,6 +225,14 @@ export async function assertFlowLeaseColumns(db: PostgresJsDatabase): Promise<vo
     throw err;
   }
 }
+
+// ── Failed-flow sweep ──
+
+/**
+ * How far back a failed-flow sweep looks before the start of the last complete one: covers
+ * clock differences between workers and a failure committed a while after its `updated_at`.
+ */
+const FAILED_SWEEP_MARGIN_MS = 5 * 60_000;
 
 // ── Flow runner concurrency ──
 
@@ -308,6 +331,13 @@ export interface WorkerPoolConfig {
   flowPollIntervalMs?: number;
   /** Whether to start the outbox dispatcher (default: true) */
   enableDispatcher?: boolean;
+  /**
+   * Whether the outbox dispatcher publishes `event_outbox` rows, for every plane (`true` /
+   * `false`) or per plane (a function of the tenant reference, `undefined` for the pool's own
+   * database). Default: `config.workers.eventOutboxPump` (`'none'` → `false`), else `true`.
+   * `dispatch_outbox` (flow dispatch hints) is pumped either way.
+   */
+  pumpEventOutbox?: boolean | ((tenantRef: string | undefined) => boolean);
   /** Whether to start the event worker (default: true) */
   enableEventWorker?: boolean;
   /** Whether to start the flow scheduler (default: true) */
@@ -358,6 +388,19 @@ export interface WorkerPoolConfig {
    */
   flowConcurrency?: number;
   /**
+   * Limits on what the runner slots run at once: slots held for untenanted flows, executions
+   * per tenant, per flow and per named lane, and the claim order between tenants (see
+   * `FlowLanesConfig`). Default: `config.workers.flowLanes`; omitted there too, no limits and
+   * the oldest runnable execution first, as before. Counts are this pool's own.
+   */
+  flowLanes?: FlowLanesConfig;
+  /**
+   * Most `step_history` entries an execution this pool runs keeps (see
+   * `WorkersConfig.flowStepHistoryLimit`). Default: `config.workers.flowStepHistoryLimit`, else
+   * `0` (every entry).
+   */
+  flowStepHistoryLimit?: number;
+  /**
    * How often the runner starts flows whose post-commit start never happened (a process died
    * between a capability's commit and its deferred `ctx.flows.start`): due rows of
    * `flow_start_intents` on the pool and on every listed tenant plane. Default 10 000 ms.
@@ -369,7 +412,9 @@ export interface WorkerPoolConfig {
    * hints, acknowledged `dispatch_outbox` rows, `side_effect_log` and old schedule ticks, kept
    * `keepDays` (default 30) and deleted in bounded batches every `intervalMs` (default one
    * hour) on the pool's database, the spine and every listed tenant plane. Failed executions,
-   * dead letters, audit records, event and job tables are never touched. `true` runs it with
+   * flow dead letters and audit records are never touched; the event and job tables only with
+   * their class on (`eventOutbox`, `eventIdempotency`, `eventDeadLetter`, `jobExecutions`, core
+   * 0.9.0-beta.15), and then only terminal rows past the class's period. `true` runs it with
    * the defaults; omitted or `false` it does not run. Runs with the flow runner. Hosts run by
    * the CLI export it from `app/server.ts` (`export const frameworkRetention`).
    */
@@ -484,12 +529,23 @@ export interface WorkerPool {
   /** Graceful shutdown — stops all workers */
   stop(options?: WorkerPoolStopOptions): Promise<void>;
   /**
+   * Ask the outbox dispatcher to visit `tenantRef`'s plane (every plane when omitted) on its
+   * next poll even while it backs off as idle (`outboxIdleBackoffMaxMs`): for a host that just
+   * wrote to that outbox. Nothing happens without a dispatcher.
+   */
+  wakeOutbox?(tenantRef?: string): void;
+  /**
    * True while the flow runner is inside a cycle or any runner slot is still draining an
    * execution — after `stop()`, a step that was still running at the deadline and was abandoned.
    */
   readonly flowCycleInFlight?: boolean;
   /** Ids of the flow executions the runner slots are draining now. */
   readonly flowExecutionsInFlight?: readonly string[];
+  /**
+   * What the flow lanes count now and which limits are reached (`undefined` without
+   * `flowLanes`). Executions a reached limit covers wait, runnable, in the database.
+   */
+  readonly flowLanes?: FlowLaneSnapshot;
   /** Whether any worker is running */
   readonly isRunning: boolean;
   /** Flow engine instance (for tests and consumer registration). */
@@ -529,6 +585,43 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     : flowPollIntervalMsConfig;
 
   const logger = poolConfig.logger ?? createWorkerLogger();
+
+  // ── Flow lanes (opt-in) ──
+  // Validated up front, like `flowConcurrency`: a bad lane fails the pool's construction.
+  const resolvedLanes = resolveFlowLanes(
+    poolConfig.flowLanes ?? poolConfig.config.workers?.flowLanes,
+    flowConcurrency,
+    {
+      has: (flowName) => flows.get(flowName) !== undefined,
+      namesInDomain: (domain) => flows.getByDomain(domain).map((flow) => flow.name),
+    },
+    (message, metadata) => logger.warn(message, metadata),
+  );
+  /** When each reached limit was last logged, so a limit that keeps filling logs once a minute. */
+  const laneFullLoggedAt = new Map<string, number>();
+  function laneFull(full: FlowLaneFull): void {
+    const id = `${full.kind}:${full.key}`;
+    if (Date.now() - (laneFullLoggedAt.get(id) ?? -Infinity) < 60_000) return;
+    if (laneFullLoggedAt.size >= 10_000) laneFullLoggedAt.clear();
+    laneFullLoggedAt.set(id, Date.now());
+    logger.info(
+      'Flow lane full: the executions it covers wait, runnable, until one of its running executions ends',
+      { lane: full.kind, key: full.key, running: full.running, max: full.max },
+    );
+  }
+  const laneTracker: FlowLaneTracker | undefined = resolvedLanes
+    ? createFlowLaneTracker(resolvedLanes, laneFull)
+    : undefined;
+  if (resolvedLanes) {
+    logger.info('Flow lanes on', {
+      flowConcurrency,
+      reservedUntenanted: resolvedLanes.reservedUntenanted,
+      maxPerTenant: resolvedLanes.maxPerTenant ?? null,
+      maxPerFlow: resolvedLanes.maxPerFlow ?? null,
+      lanes: resolvedLanes.lanes.map((lane) => ({ name: lane.name, max: lane.max })),
+      tenantOrder: resolvedLanes.tenantOrder,
+    });
+  }
   // Bound every repository read by the host's `data` configuration (the read ceiling).
   poolConfig.entities?.configureReadCeiling(
     readCeilingPolicyFromConfig(poolConfig.config.data, (message, metadata) =>
@@ -650,6 +743,8 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     logger,
     pollIntervalMs: outboxPollIntervalMs,
     idlePlaneBackoffMaxMs: outboxIdleBackoffMaxMs,
+    pumpEventOutbox:
+      poolConfig.pumpEventOutbox ?? poolConfig.config.workers?.eventOutboxPump !== 'none',
     metrics,
     ...(dataPlaneResolver
       ? {
@@ -715,6 +810,8 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     flowLeaseDurationMs: poolConfig.flowLeaseDurationMs,
     flowHeartbeatIntervalMs: poolConfig.flowHeartbeatIntervalMs,
     flowClaimBatchSize: poolConfig.flowClaimBatchSize,
+    stepHistoryLimit:
+      poolConfig.flowStepHistoryLimit ?? poolConfig.config.workers?.flowStepHistoryLimit,
     logger,
     // The engine logs `definition-unavailable` and releases the execution; count it here, then
     // tell the host (`export const onFlowDefinitionUnavailable`), never letting the hook fail it.
@@ -918,12 +1015,33 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
   }
 
   /**
+   * Where each database's failed-flow sweep starts next time: the start of its last pass that
+   * found everything moved, less `FAILED_SWEEP_MARGIN_MS`. Absent until a first complete pass,
+   * which reads every failed execution once; later passes read only those updated since.
+   */
+  const failedSweepSince = new Map<string, Date>();
+
+  /** One database's failed-flow sweep, through its watermark. Throws what the sweep throws. */
+  async function sweepFailedOn(planeDb: PostgresJsDatabase, source: string): Promise<void> {
+    const startedAt = Date.now();
+    const limit = 100;
+    const { found, moved } = await sweepFailedFlowsSince(planeDb, {
+      limit,
+      updatedSince: failedSweepSince.get(source),
+    });
+    // Advance only past a pass that left nothing behind; otherwise the same window again.
+    if (found < limit && moved === found) {
+      failedSweepSince.set(source, new Date(startedAt - FAILED_SWEEP_MARGIN_MS));
+    }
+  }
+
+  /**
    * Snapshot failed pool executions that have no dead letter yet. Runs every cycle, before the
    * claims. Never throws: a sweep failure must not stop the cycle from claiming work.
    */
   async function sweepPoolDeadLetters(): Promise<void> {
     try {
-      await sweepFailedFlows(db);
+      await sweepFailedOn(db, 'pool');
     } catch (err) {
       warnSweepFailed(err, 'pool');
     }
@@ -955,7 +1073,7 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
       }
       try {
         try {
-          await sweepFailedFlows(lease.handle.db);
+          await sweepFailedOn(lease.handle.db, `tenant-plane:${tenantRef}`);
         } catch (err) {
           warnSweepFailed(err, { tenantRef });
           continue;
@@ -1038,11 +1156,20 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
   }
 
   function reportRetention(source: string, result: Partial<FrameworkRetentionResult>): void {
-    const deleted = Object.values(result).reduce<number>(
+    const { missingIndexes, ...counts } = result;
+    const deleted = Object.values(counts).reduce<number>(
       (sum, value) => sum + (typeof value === 'number' ? value : 0),
       0,
     );
-    if (deleted > 0) logger.info('Framework retention pruned finished rows', { source, ...result });
+    if (deleted > 0) logger.info('Framework retention pruned finished rows', { source, ...counts });
+    if (missingIndexes && missingIndexes.length > 0) {
+      // Once per pass (hourly by default): the classes stay skipped on this database until
+      // the indexes exist, rather than scanning whole tables.
+      logger.warn(
+        'Framework retention skipped tables whose index is missing; run `plumbus migrate generate` and apply it',
+        { source, missingIndexes },
+      );
+    }
   }
 
   /**
@@ -1164,20 +1291,95 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     // long steps without a heartbeat, and another poll can reclaim them.
     const cycleLimit = poolConfig.flowClaimBatchSize ?? 50;
     for (let count = 0; count < cycleLimit && running; count += 1) {
-      const claimed = await polling(flowEngine.claimNext(1));
+      const claimed = await polling(claimForSlot());
       if (claimed.length === 0) break;
       startFlowSlot();
       // Without a resolver the claim's rows share one context on the pool's plane; the
       // resolver path builds each row's context from its claimed tenant.
       const baseCtx = dataPlaneResolver ? undefined : buildFlowRunnerContext(flowRunnerAuth());
-      for (const row of claimed) await runClaimedExecution(row, baseCtx);
+      for (const { row, lane } of claimed) await runClaimedExecution(row, baseCtx, lane);
     }
+  }
+
+  type ClaimedRow = Awaited<ReturnType<typeof flowEngine.claimNext>>[number];
+
+  /** Claims under flow lanes run one at a time, each on the counts the previous one left. */
+  let laneClaimChain: Promise<unknown> = Promise.resolve();
+  /**
+   * Executions handed back because they broke a lane (see `FlowLaneEntry.exceeded`): left out
+   * of claims until a running execution ends (or a minute passes), so they cannot loop.
+   */
+  const laneDeferred = new Map<string, number>();
+
+  function laneDeferredIds(): string[] {
+    const now = Date.now();
+    for (const [id, until] of laneDeferred) if (until <= now) laneDeferred.delete(id);
+    return [...laneDeferred.keys()];
+  }
+
+  function reportLanes(): void {
+    if (!laneTracker || !resolvedLanes || !metrics) return;
+    const snapshot = laneTracker.snapshot();
+    metrics.flowLaneRunning?.set(snapshot.running.untenanted, { lane: 'untenanted' });
+    metrics.flowLaneRunning?.set(snapshot.running.tenanted, { lane: 'tenanted' });
+    for (const lane of resolvedLanes.lanes) {
+      metrics.flowLaneRunning?.set(snapshot.running.byLane[lane.name] ?? 0, {
+        lane: `lane:${lane.name}`,
+      });
+    }
+    for (const kind of ['untenanted-reserve', 'tenant', 'flow', 'lane'] as const) {
+      metrics.flowLanesFull?.set(snapshot.full.filter((full) => full.kind === kind).length, {
+        kind,
+      });
+    }
+  }
+
+  /**
+   * Claim one execution for a runner slot. Without flow lanes this is `claimNext(1)`, exactly
+   * as before. With them, the claims the lanes allow are tried in order (fairest first) and
+   * the claimed execution is counted before the next slot may claim.
+   */
+  async function claimForSlot(): Promise<Array<{ row: ClaimedRow; lane?: FlowLaneEntry }>> {
+    const tracker = laneTracker;
+    if (!tracker) return (await flowEngine.claimNext(1)).map((row) => ({ row }));
+    const claim = laneClaimChain.then(async () => {
+      const deferred = laneDeferredIds();
+      for (const filter of tracker.claimPlan()) {
+        const rows = await flowEngine.claimNext(
+          1,
+          deferred.length > 0 ? { ...filter, excludeExecutions: deferred } : filter,
+        );
+        if (rows.length === 0) continue;
+        const claimed = rows.map((row) => ({
+          row,
+          lane: tracker.admit({
+            executionId: row.id,
+            tenant: claimedTenantRef(row),
+            flow: claimedFlowName(row),
+          }),
+        }));
+        reportLanes();
+        return claimed;
+      }
+      return [];
+    });
+    laneClaimChain = claim.catch(() => undefined);
+    return claim;
+  }
+
+  /** Stop counting a drained execution; executions handed back for a lane may be claimed again. */
+  function releaseLane(lane: FlowLaneEntry | undefined): void {
+    if (!lane || !laneTracker) return;
+    laneTracker.release(lane);
+    laneDeferred.clear();
+    reportLanes();
   }
 
   /** Drain one claimed execution; never throws (a failure finalizes the row as failed). */
   async function runClaimedExecution(
-    row: Awaited<ReturnType<typeof flowEngine.claimNext>>[number],
+    row: ClaimedRow,
     baseCtx: import('../types/context.js').ExecutionContext | undefined,
+    lane?: FlowLaneEntry,
   ): Promise<void> {
     const systemAuth = flowRunnerAuth();
     // The claim's fencing token: every write the engine makes for this run carries it,
@@ -1193,6 +1395,29 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     try {
       const executionPlane = await flowEngine.acquireExecutionPlane(row.id);
       if (executionPlane) leases.push(executionPlane);
+      if (lane?.exceeded) {
+        // The claim filter missed it (its spine hint names another tenant route or definition
+        // than its row): hand it back for a worker with room, and leave it out of this one's
+        // claims until a running execution ends.
+        logger.warn('Claimed a flow execution a flow lane holds back; released it', {
+          executionId: row.id,
+          flowName: lane.flow,
+          tenantId: lane.tenant ?? null,
+          lane: lane.exceeded.kind,
+          key: lane.exceeded.key,
+        });
+        if (laneDeferred.size >= 10_000) laneDeferred.clear();
+        laneDeferred.set(row.id, Date.now() + 60_000);
+        try {
+          await flowEngine.releaseClaim(row.id, leaseToken);
+        } catch (releaseErr) {
+          logger.warn('Could not release the flow execution; its lease expires', {
+            executionId: row.id,
+            ...describeError(releaseErr),
+          });
+        }
+        return;
+      }
       // Resolving inside the per-row try means an unknown or absent tenant
       // fails this execution the same way a failing step does, instead of
       // aborting the cycle for every other tenant in the batch.
@@ -1302,6 +1527,11 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
       drainingExecutions.delete(draining);
       if (unitPlane && unitPlanes.get(row.id) === unitPlane) unitPlanes.delete(row.id);
       for (const lease of leases) lease.release();
+      if (lane) {
+        // A handed-back execution keeps its place in `laneDeferred` until another one ends.
+        if (lane.exceeded) laneTracker?.release(lane);
+        else releaseLane(lane);
+      }
     }
   }
 
@@ -1508,7 +1738,10 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
 
       if (dispatcher) {
         dispatcher.start();
-        logger.info('Outbox dispatcher started');
+        const pump = dispatcherConfig.pumpEventOutbox;
+        logger.info('Outbox dispatcher started', {
+          eventOutbox: typeof pump === 'function' ? 'per plane' : pump === false ? 'off' : 'on',
+        });
       }
 
       if (eventWorker) {
@@ -1649,6 +1882,14 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
 
     get flowExecutionsInFlight() {
       return drainingExecutionIds();
+    },
+
+    get flowLanes() {
+      return laneTracker?.snapshot();
+    },
+
+    wakeOutbox(tenantRef?: string) {
+      dispatcher?.wake(tenantRef);
     },
   };
 }

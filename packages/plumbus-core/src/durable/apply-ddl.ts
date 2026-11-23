@@ -132,6 +132,7 @@ CREATE TABLE event_outbox (
 );
 CREATE INDEX event_outbox_status_idx ON event_outbox (status);
 CREATE INDEX event_outbox_occurred_at_idx ON event_outbox (occurred_at);
+CREATE INDEX event_outbox_dispatched_idx ON event_outbox (dispatched_at) WHERE status = 'dispatched';
 `;
 }
 
@@ -145,6 +146,7 @@ CREATE TABLE event_idempotency (
   processed_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX event_idempotency_event_consumer_idx ON event_idempotency (event_id, consumer_id);
+CREATE INDEX event_idempotency_processed_idx ON event_idempotency (processed_at);
 CREATE TABLE event_dead_letter (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   event_id text NOT NULL,
@@ -156,6 +158,38 @@ CREATE TABLE event_dead_letter (
   failed_at timestamptz NOT NULL DEFAULT now(),
   metadata jsonb
 );
+CREATE INDEX event_dead_letter_unresolved_idx ON event_dead_letter (event_id) WHERE (metadata->>'resolvedAt') IS NULL;
+CREATE INDEX event_dead_letter_resolved_idx ON event_dead_letter ((metadata->>'resolvedAt')) WHERE (metadata->>'resolvedAt') IS NOT NULL;
+`;
+}
+
+/** Framework job table, as the job pipeline and retention use it. */
+export function jobExecutionsDdl(): string {
+  return `
+CREATE TABLE job_executions (
+  id uuid PRIMARY KEY,
+  capability_domain text NOT NULL,
+  capability_name text NOT NULL,
+  status text NOT NULL DEFAULT 'queued',
+  dispatch_pending boolean NOT NULL DEFAULT false,
+  dispatch_after timestamptz NOT NULL DEFAULT now(),
+  dispatch_attempts integer NOT NULL DEFAULT 0,
+  dispatch_lease_token uuid,
+  dispatch_lease_expires_at timestamptz,
+  input_json jsonb,
+  output_json jsonb,
+  error_json jsonb,
+  auth_snapshot_json jsonb,
+  tenant_id text,
+  traceparent text,
+  correlation_id text,
+  source text NOT NULL DEFAULT 'http',
+  created_at timestamptz NOT NULL DEFAULT now(),
+  started_at timestamptz,
+  completed_at timestamptz
+);
+CREATE INDEX job_exec_dispatch_pending_idx ON job_executions (dispatch_after) WHERE dispatch_pending = true AND status = 'queued';
+CREATE INDEX job_exec_finished_idx ON job_executions (completed_at) WHERE status IN ('completed', 'failed', 'dead_lettered');
 `;
 }
 
@@ -233,6 +267,8 @@ CREATE INDEX flow_exec_lease_idx ON flow_executions (status, lease_expires_at);
 CREATE INDEX flow_exec_schedule_idx ON flow_executions (schedule_id, status);
 CREATE INDEX flow_exec_runnable_idx ON flow_executions (created_at) WHERE status IN ('created', 'running', 'waiting');
 CREATE INDEX flow_exec_finished_idx ON flow_executions (updated_at) WHERE status IN ('completed', 'cancelled');
+CREATE INDEX flow_exec_failed_idx ON flow_executions (updated_at) WHERE status = 'failed';
+CREATE INDEX flow_exec_updated_idx ON flow_executions (updated_at DESC, id DESC);
 CREATE TABLE flow_start_intents (
   execution_id uuid PRIMARY KEY,
   flow_name text NOT NULL,

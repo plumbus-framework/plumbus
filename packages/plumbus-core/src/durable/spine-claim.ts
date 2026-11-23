@@ -71,6 +71,21 @@ export interface SpineClaimOptions {
   limit?: number;
   /** Executions this worker released recently and must not take again yet. */
   excludeExecutionIds?: readonly string[];
+  /** Leave hints of these tenant routes for another claim (a tenant at its limit). */
+  excludeTenantRouteIds?: readonly string[];
+  /** Leave hints of these definition ids (flow names) for another claim (a flow at its limit). */
+  excludeDefinitionIds?: readonly string[];
+}
+
+/**
+ * `AND NOT (column = ANY(values))`, or nothing for an empty list. The list goes as one array
+ * parameter (`sql.param`): interpolated bare, drizzle expands an array into a `($1, $2)` tuple,
+ * which `::text[]` cannot cast (`malformed array literal` / `cannot cast type record`).
+ */
+function excluding(column: string, values: readonly string[] | undefined) {
+  return values && values.length > 0
+    ? sql`AND NOT (${sql.raw(column)} = ANY(${sql.param([...values])}::text[]))`
+    : sql``;
 }
 
 export interface SpineLeaseOptions {
@@ -101,11 +116,9 @@ export async function claimSpineDispatch(
       FROM opaque_dispatch
       WHERE not_before <= now()
         AND ${CLAIMABLE_HINT_PREDICATE}
-        ${
-          options.excludeExecutionIds && options.excludeExecutionIds.length > 0
-            ? sql`AND NOT (execution_id = ANY(${[...options.excludeExecutionIds]}::text[]))`
-            : sql``
-        }
+        ${excluding('execution_id', options.excludeExecutionIds)}
+        ${excluding('tenant_route_id', options.excludeTenantRouteIds)}
+        ${excluding('definition_id', options.excludeDefinitionIds)}
       ORDER BY created_at
       FOR UPDATE SKIP LOCKED
       LIMIT ${limit}

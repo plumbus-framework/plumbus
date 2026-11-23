@@ -61,5 +61,9 @@ export const jobExecutionsTable = pgTable(
     index('job_exec_dispatch_pending_idx')
       .on(table.dispatchAfter)
       .where(sql`dispatch_pending = true AND status = 'queued'`),
+    // The retention sweep's scan of finished jobs (`frameworkRetention.jobExecutions`).
+    index('job_exec_finished_idx')
+      .on(table.completedAt)
+      .where(sql`status IN ('completed', 'failed', 'dead_lettered')`),
   ],
 );

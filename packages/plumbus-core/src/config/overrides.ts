@@ -143,6 +143,29 @@ export const configOverridesSchema = z
       .object({
         enableScheduler: z.boolean().optional(),
         flowConcurrency: positive.int().max(MAX_FLOW_CONCURRENCY).optional(),
+        flowStepHistoryLimit: z.number().int().min(0).max(1_000_000).optional(),
+        eventOutboxPump: z.enum(['all', 'none']).optional(),
+        flowLanes: z
+          .object({
+            reservedUntenanted: z.number().int().min(0).max(MAX_FLOW_CONCURRENCY).optional(),
+            maxPerTenant: positive.int().max(MAX_FLOW_CONCURRENCY).optional(),
+            maxPerFlow: positive.int().max(MAX_FLOW_CONCURRENCY).optional(),
+            lanes: z
+              .record(
+                text,
+                z
+                  .object({
+                    max: positive.int().max(MAX_FLOW_CONCURRENCY),
+                    flows: z.array(text).optional(),
+                    domains: z.array(text).optional(),
+                  })
+                  .strict(),
+              )
+              .optional(),
+            tenantOrder: z.enum(['fair', 'fifo']).optional(),
+          })
+          .strict()
+          .optional(),
         outboxPollIntervalMs: timeoutMs.optional(),
         outboxIdleBackoffMaxMs: z.number().int().nonnegative().max(2_147_483_647).optional(),
         flowPollIntervalMs: timeoutMs.optional(),

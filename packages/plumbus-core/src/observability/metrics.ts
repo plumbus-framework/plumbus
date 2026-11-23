@@ -168,6 +168,16 @@ export interface PlumbusMetrics {
    * (`plumbus_flow_definition_unavailable_total`, labels `flow`, `reason`).
    */
   flowDefinitionUnavailable?: Counter;
+  /**
+   * Executions a worker pool's runner slots hold now, under flow lanes
+   * (`plumbus_flow_lane_running`, label `lane`: `untenanted`, `tenanted`, or `lane:<name>`).
+   */
+  flowLaneRunning?: Gauge;
+  /**
+   * Flow-lane limits reached now (`plumbus_flow_lanes_full`, label `kind`: `tenant`, `flow`,
+   * `lane`, `untenanted-reserve`); the executions they cover wait for a running one to end.
+   */
+  flowLanesFull?: Gauge;
   aiRequestDuration: Histogram;
   aiRequestTotal: Counter;
   outboxPending: Gauge;
@@ -211,6 +221,14 @@ export function createPlumbusMetrics(registry?: MetricsRegistry): PlumbusMetrics
     flowDefinitionUnavailable: reg.counter(
       'plumbus_flow_definition_unavailable_total',
       'Claimed flow executions released because this worker lacks their definition',
+    ),
+    flowLaneRunning: reg.gauge(
+      'plumbus_flow_lane_running',
+      'Flow executions the worker runner slots hold now, per flow lane',
+    ),
+    flowLanesFull: reg.gauge(
+      'plumbus_flow_lanes_full',
+      'Flow lane limits reached now, per kind of limit',
     ),
     aiRequestDuration: reg.histogram(
       'plumbus_ai_request_duration_ms',
