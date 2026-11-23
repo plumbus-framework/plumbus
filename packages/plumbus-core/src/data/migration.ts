@@ -8,7 +8,6 @@ import { PgDialect, PgTable } from 'drizzle-orm/pg-core';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { documentChunksTable, documentsTable } from '../ai/rag/schema.js';
 import { createRequestIdempotencyTable } from '../api/idempotency-schema.js';
-import { auditOutboxTable } from '../audit/outbox.js';
 import { auditRecords } from '../audit/schema.js';
 import { createTenantApprovalTables } from '../approvals/schema.js';
 import { createTenantDurableTables } from '../durable/schema.js';
@@ -888,9 +887,6 @@ export function collectSchemas(
   // Framework-internal tables
   schemas.__audit_records = auditRecords as unknown as PgTableWithColumns<any>;
   tableNames.add(getTableName(auditRecords));
-  // Audit records of tenant-plane work, held in that work's transaction (`createAuditOutbox`)
-  schemas.__audit_outbox = auditOutboxTable as unknown as PgTableWithColumns<any>;
-  tableNames.add(getTableName(auditOutboxTable));
   // Event outbox tables
   schemas.__event_outbox = outboxTable as unknown as PgTableWithColumns<any>;
   tableNames.add(getTableName(outboxTable));

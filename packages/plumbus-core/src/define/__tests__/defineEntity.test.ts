@@ -84,9 +84,56 @@ describe('gin indexes (json containment)', () => {
       { columns: ['title'], using: 'gin' as const },
       { columns: ['tags', 'title'], using: 'gin' as const },
       { columns: ['tags'], using: 'gin' as const, unique: true },
-      { columns: ['tags'], using: 'hash' as never },
+      { columns: ['tags'], using: 'spgist' as never },
     ]) {
       expect(() => defineEntity({ name: 'Tagged', fields, indexes: [index] })).toThrow(/index/);
+    }
+  });
+});
+
+describe('indexes beyond fields: framework columns, order, expressions, partial, operator classes', () => {
+  const fields = { id: field.id(), displayName: field.string(), state: field.string() };
+
+  it('accepts framework columns, sort options, expressions with a name, a predicate and an opclass', () => {
+    expect(() =>
+      defineEntity({
+        name: 'Account',
+        tenantScoped: true,
+        fields,
+        indexes: [
+          {
+            columns: ['tenantId', 'createdAt', 'id'],
+            columnOptions: { createdAt: { order: 'desc', nulls: 'last' } },
+          },
+          { columns: [], expressions: ['lower(display_name)'], name: 'account_lower_name_idx' },
+          { columns: ['state'], where: "state = 'open'" },
+          {
+            columns: ['displayName'],
+            columnOptions: { displayName: { opclass: 'gin_trgm_ops' } },
+            using: 'gin',
+          },
+          { columns: ['updatedAt'], using: 'brin' },
+        ],
+      }),
+    ).not.toThrow();
+  });
+
+  it('refuses unknown columns, tenantId on an untenanted entity, unnamed expressions and second statements', () => {
+    for (const index of [
+      { columns: ['tenantId'] },
+      { columns: ['nope'] },
+      { columns: ['state'], columnOptions: { email: { order: 'desc' } } },
+      { columns: [], expressions: ['lower(display_name)'] },
+      { columns: [] },
+      { columns: ['state'], where: "state = 'x'; DROP TABLE account" },
+      { columns: [], expressions: [''], name: 'x_idx' },
+      { columns: ['state'], columnOptions: { state: { order: 'sideways' as never } } },
+      { columns: ['state'], columnOptions: { state: { opclass: 'x; drop' } } },
+      { columns: ['state'], name: 'Bad-Name' },
+    ]) {
+      expect(() => defineEntity({ name: 'Account', fields, indexes: [index as never] })).toThrow(
+        /index/,
+      );
     }
   });
 });

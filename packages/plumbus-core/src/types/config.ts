@@ -262,14 +262,6 @@ export interface WorkersConfig {
    */
   eventOutboxPump?: 'all' | 'none';
   /**
-   * Deliver audit records left in `audit_outbox` (records of tenant-plane work written with
-   * `createAuditOutbox`, which a post-commit flush could not hand over) to the `audit_records`
-   * of the worker pool's database, every this many milliseconds, on the pool's database and
-   * every listed tenant plane (`PLUMBUS_AUDIT_OUTBOX_RELAY_INTERVAL_MS`, core 0.9.0-beta.16).
-   * `0` or unset: off.
-   */
-  auditOutboxRelayIntervalMs?: number;
-  /**
    * How often the outbox dispatcher polls, in milliseconds (`PLUMBUS_OUTBOX_POLL_INTERVAL_MS`).
    * Under a data-plane resolver each poll visits every listed tenant plane in turn. Default:
    * `1000`.

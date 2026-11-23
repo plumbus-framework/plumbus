@@ -859,6 +859,7 @@ Database migration commands. **All schema changes must go through the framework 
 
 ```bash
 plumbus migrate generate [options]   # Generate migration SQL from entity diffs (programmatic)
+plumbus migrate new <name> [--no-transaction]   # Empty hand-written SQL migration in the journal
 plumbus migrate apply [options]      # Apply pending migrations
 plumbus migrate reconcile [options]  # Backfill migration history when schema is already in sync
 plumbus migrate push [options]       # Push schema directly to DB (no migration files)
@@ -882,7 +883,8 @@ plumbus migrate rollback [options]   # Rollback last migration
 4. If schema already exists but migration history is missing: `plumbus migrate reconcile` — verifies the live DB already matches the current Plumbus schema, then backfills `__drizzle_migrations` without executing DDL
 
    On `migrate apply` / `migrate reconcile`, Plumbus automatically copies any rows from legacy `public.__drizzle_migrations` into `drizzle.__drizzle_migrations` when that legacy table exists (idempotent by hash). If the legacy table is absent — typical for fresh installs that never tracked migrations in `public` — adoption is skipped. Use the copy step after moving migration tracking from `public` into the `drizzle` schema.
-5. For rapid dev: `plumbus migrate push` — diffs schemas against live DB and applies changes directly (no files)
+5. What entities cannot declare (extensions, triggers, indexes on framework tables, table storage settings): `plumbus migrate new <name> [--no-transaction]` writes an empty SQL file registered in the journal after every entry; write its SQL and `apply` runs it in order. The next `generate` does not repeat or undo it. See [data layer › hand-written migrations](../sdk-reference/data-layer.md#hand-written-migrations-plumbus-migrate-new-core-090-beta17).
+6. For rapid dev: `plumbus migrate push` — diffs schemas against live DB and applies changes directly (no files)
 
 **Never run `drizzle-kit` manually** — the framework wraps it programmatically via the `drizzle-kit/api`.
 

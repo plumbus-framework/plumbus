@@ -100,7 +100,12 @@ export type {
   UpdateResult,
 } from './context.js';
 // ── Entity ──
-export type { EntityDefinition, EntityIndexDefinition, EntityRetention } from './entity.js';
+export type {
+  EntityDefinition,
+  EntityIndexColumn,
+  EntityIndexDefinition,
+  EntityRetention,
+} from './entity.js';
 // ── Enums & Constants ──
 export {
   BackoffStrategy,

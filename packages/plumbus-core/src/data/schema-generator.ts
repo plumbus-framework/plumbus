@@ -15,7 +15,8 @@ import {
   type PgTableFn,
   type PgTableWithColumns,
 } from 'drizzle-orm/pg-core';
-import type { EntityDefinition } from '../types/entity.js';
+import { sql } from 'drizzle-orm';
+import type { EntityDefinition, EntityIndexDefinition } from '../types/entity.js';
 import type { FieldDescriptor } from '../types/fields.js';
 
 /**
@@ -221,28 +222,10 @@ export function generateDrizzleSchema(
     const indexes: any[] = [];
 
     if (entity.indexes) {
-      for (let i = 0; i < entity.indexes.length; i++) {
-        const entry = entity.indexes[i];
+      for (const entry of entity.indexes) {
         if (!entry) continue;
-        const idxFields: string[] = Array.isArray(entry) ? entry : entry.columns;
-        const isUnique = Array.isArray(entry) ? false : entry.unique === true;
-        if (idxFields.length === 0) continue;
-        const idxName = `${tableName}_${idxFields.map(camelToSnake).join('_')}_idx`;
-
-        const cols = idxFields.map((f: string) => (table as any)[f]).filter(Boolean);
-        if (!Array.isArray(entry) && entry.using === 'gin') {
-          // Serves `contains` (`col @> value`): jsonb_path_ops is smaller and faster than the
-          // default jsonb_ops for containment, which is the only operator it supports.
-          const column = cols[0];
-          if (column) {
-            indexes.push(index(`${idxName}_gin`).using('gin', column.op('jsonb_path_ops')));
-          }
-          continue;
-        }
-        if (cols.length > 0) {
-          const [first, ...rest] = cols;
-          indexes.push((isUnique ? uniqueIndex(idxName) : index(idxName)).on(first, ...rest));
-        }
+        const built = buildIndex(entity, tableName, table as Record<string, any>, entry);
+        if (built) indexes.push(built);
       }
     }
 
@@ -257,6 +240,58 @@ export function generateDrizzleSchema(
 
     return indexes;
   }) as PgTableWithColumns<any>;
+}
+
+/** The Drizzle index of one entity index entry (fields, framework columns, expressions). */
+function buildIndex(
+  entity: EntityDefinition,
+  tableName: string,
+  table: Record<string, any>,
+  entry: string[] | EntityIndexDefinition,
+): any {
+  const def: EntityIndexDefinition = Array.isArray(entry) ? { columns: entry } : entry;
+  const keys = def.columns.map((column) => ({ column, ...def.columnOptions?.[column] }));
+  const expressions = def.expressions ?? [];
+  if (keys.length === 0 && expressions.length === 0) return undefined;
+  const name =
+    def.name ?? `${tableName}_${keys.map((key) => camelToSnake(key.column)).join('_')}_idx`;
+  const method = def.using ?? 'btree';
+  // Historic form: `gin` on one json field without an operator class serves `contains`.
+  const jsonGin =
+    method === 'gin' &&
+    expressions.length === 0 &&
+    keys.length === 1 &&
+    keys[0]?.opclass === undefined &&
+    entity.fields[keys[0]?.column ?? '']?.type === 'json';
+  const parts = keys.map((key) => {
+    let column = table[key.column];
+    if (!column) return undefined;
+    if (jsonGin) return column.op('jsonb_path_ops');
+    if (key.opclass) column = column.op(key.opclass);
+    if (key.order === 'desc') column = column.desc();
+    else if (key.order === 'asc') column = column.asc();
+    // PostgreSQL's own default (`DESC` sorts NULLs first): drizzle would write `DESC NULLS
+    // LAST`, which a plain `ORDER BY col DESC` cannot read from the index.
+    const nulls = key.nulls ?? (key.order === 'desc' ? 'first' : undefined);
+    if (nulls === 'first') column = column.nullsFirst();
+    else if (nulls === 'last') column = column.nullsLast();
+    return column;
+  });
+  const columns = [
+    ...parts.filter(Boolean),
+    ...expressions.map((expression) => sql.raw(expression)),
+  ];
+  if (columns.length === 0) return undefined;
+  const builder =
+    def.unique === true
+      ? uniqueIndex(jsonGin ? `${name}_gin` : name)
+      : index(jsonGin ? `${name}_gin` : name);
+  let built =
+    method === 'btree'
+      ? builder.on(...(columns as [any, ...any[]]))
+      : builder.using(method, ...(columns as [any, ...any[]]));
+  if (def.where) built = built.where(sql.raw(def.where));
+  return built;
 }
 
 function mapFieldToColumn(colName: string, descriptor: FieldDescriptor): any {

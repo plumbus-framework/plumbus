@@ -1792,3 +1792,80 @@ describe('registerApiRoutes — a streamed answer', () => {
     await app.close();
   });
 });
+
+describe('registerApiRoutes — an upload', () => {
+  async function uploadCap() {
+    const { streamedUploadInput } = await import('@plumbus/core');
+    return defineCapability({
+      name: 'attachRefundReceipt',
+      kind: 'action',
+      domain: 'billing',
+      input: z.object({ refundId: z.string(), file: streamedUploadInput({ maxBytes: 1024 }) }),
+      output: z.object({ refundId: z.string(), bytes: z.number() }),
+      effects: { data: [], events: [], external: [], ai: false },
+      access: { roles: ['admin'] },
+      exposeAs: ['api'],
+      api: {
+        operationId: 'attachRefundReceipt',
+        method: 'POST',
+        path: '/refunds/{refundId}/receipt',
+      },
+      handler: async (_ctx, input) => {
+        let bytes = 0;
+        for await (const chunk of input.file) bytes += chunk.byteLength;
+        return { refundId: input.refundId, bytes };
+      },
+    });
+  }
+
+  it('hands the raw body to the capability, with path fields and a size limit', async () => {
+    const app = Fastify();
+    registerApiRoutes(app, buildRouteConfig(), [await uploadCap()]);
+    await app.ready();
+    const ok = await app.inject({
+      method: 'POST',
+      url: '/api/v1/refunds/r7/receipt',
+      headers: { authorization: 'Bearer test', 'content-type': 'image/png' },
+      payload: Buffer.alloc(300, 1),
+    });
+    expect(ok.statusCode, ok.body).toBe(200);
+    expect(JSON.parse(ok.body).data).toEqual({ refundId: 'r7', bytes: 300 });
+    const tooBig = await app.inject({
+      method: 'POST',
+      url: '/api/v1/refunds/r7/receipt',
+      headers: { authorization: 'Bearer test', 'content-type': 'image/png' },
+      payload: Buffer.alloc(2048, 1),
+    });
+    expect(tooBig.statusCode).toBe(413);
+    await app.close();
+  });
+
+  it('refuses an idempotent or GET upload operation at registration', async () => {
+    const cap = await uploadCap();
+    for (const entry of [
+      { method: 'POST', idempotency: { required: true, header: 'Idempotency-Key' } },
+      { method: 'GET' },
+    ]) {
+      const app = Fastify();
+      expect(() =>
+        registerApiRoutes(app, buildRouteConfig(), [cap], {
+          rejectActionsOverGet: false,
+          manifest: {
+            apiVersion: 'plumbus.dev/v1',
+            name: 'test-api',
+            basePath: '/api/v1',
+            expose: [
+              {
+                capability: 'billing.attachRefundReceipt',
+                operationId: 'attachRefundReceipt',
+                path: '/refunds/{refundId}/receipt',
+                ...entry,
+              } as never,
+            ],
+          },
+        }),
+      ).toThrow(/takes an upload/);
+      await app.close();
+    }
+  });
+});

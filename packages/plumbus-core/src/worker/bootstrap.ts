@@ -9,9 +9,7 @@ import type { GovernedArtifactStore } from '../ai/governed-artifacts.js';
 import { resolveGovernedArtifactStore } from '../ai/governed-artifacts.js';
 import { hostApprovalRuntimeExtras } from '../approvals/host-runtime.js';
 import type { ApprovalService, AuthorizationProvider } from '../approvals/types.js';
-import { relayAuditOutbox } from '../audit/outbox.js';
 import { type AuditWriteFailure, createAuditService } from '../audit/service.js';
-import { createDatabaseAuditWriter } from '../audit/writer.js';
 import { MAX_FLOW_CONCURRENCY } from '../config/overrides.js';
 import { resolveEncryptionKey } from '../data/field-encryption.js';
 import { readCeilingPolicyFromConfig } from '../data/read-ceiling.js';
@@ -422,15 +420,8 @@ export interface WorkerPoolConfig {
    */
   frameworkRetention?: FrameworkRetentionOptions | boolean;
   /**
-   * Deliver audit records left in `audit_outbox` (`createAuditOutbox`) to the `audit_records`
-   * of this pool's database, every this many milliseconds, on the pool's database and every
-   * listed tenant plane (core 0.9.0-beta.16). `0` or unset: off. Default:
-   * `config.workers.auditOutboxRelayIntervalMs` (`PLUMBUS_AUDIT_OUTBOX_RELAY_INTERVAL_MS`).
-   */
-  auditOutboxRelayIntervalMs?: number;
-  /**
    * Told when an audit record of work already done could not be written by an audit service
-   * this pool builds (and by the audit outbox relay): `final: false` while retried, `final:
+   * this pool builds: `final: false` while retried, `final:
    * true` when lost. Hosts run by the CLI export it from `app/server.ts`
    * (`export const onAuditWriteFailure`). Default: an error-level log line.
    */
@@ -1170,99 +1161,6 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
     intentRecoveryInFlight = sweep;
   }
 
-  // ── Audit outbox relay (opt-in) ──
-  const auditRelayIntervalMs =
-    poolConfig.auditOutboxRelayIntervalMs ??
-    poolConfig.config.workers?.auditOutboxRelayIntervalMs ??
-    0;
-  if (!Number.isInteger(auditRelayIntervalMs) || auditRelayIntervalMs < 0) {
-    throw new Error('auditOutboxRelayIntervalMs must be a whole number of milliseconds, 0 for off');
-  }
-  let auditRelayTimer: ReturnType<typeof setInterval> | null = null;
-  /** The relay pass in flight; stop() waits for it like a poll. */
-  let auditRelayInFlight: Promise<void> | null = null;
-  const lastAuditRelayWarningAt = new Map<string, number>();
-  const AUDIT_RELAY_BATCH = 500;
-
-  function warnAuditRelay(
-    message: string,
-    source: string,
-    metadata: Record<string, unknown>,
-  ): void {
-    if (Date.now() - (lastAuditRelayWarningAt.get(source) ?? -Infinity) < 60_000) return;
-    lastAuditRelayWarningAt.set(source, Date.now());
-    logger.warn(message, { source, ...metadata });
-  }
-
-  /** Relay every due row of one database, a batch at a time, until a batch is short or fails. */
-  async function relayAuditOn(planeDb: PostgresJsDatabase, source: string): Promise<void> {
-    const writer = createDatabaseAuditWriter(db);
-    let delivered = 0;
-    try {
-      for (;;) {
-        const result = await relayAuditOutbox(planeDb, {
-          writer,
-          limit: AUDIT_RELAY_BATCH,
-          onWriteFailure: (failure) => {
-            warnAuditRelay(
-              'Audit outbox relay could not deliver records; they stay and are retried',
-              source,
-              { records: failure.events.length, ...describeError(failure.error) },
-            );
-            try {
-              poolConfig.onAuditWriteFailure?.(failure);
-            } catch {
-              // The host's reporter must not stop the relay.
-            }
-          },
-        });
-        delivered += result.delivered;
-        if (result.failed > 0 || result.delivered < AUDIT_RELAY_BATCH || !running) break;
-      }
-    } catch (err) {
-      warnAuditRelay('Audit outbox relay failed', source, describeError(err));
-    }
-    if (delivered > 0) logger.info('Audit outbox relay delivered records', { source, delivered });
-  }
-
-  /** One relay pass: the pool's database, then every listed tenant plane in turn. */
-  async function runAuditRelay(): Promise<void> {
-    await relayAuditOn(db, 'pool');
-    if (!dataPlaneResolver || !running) return;
-    let tenantRefs: string[];
-    try {
-      tenantRefs = await listedTenantRefs();
-    } catch (err) {
-      warnAuditRelay('Audit outbox relay failed', 'tenant-list', describeError(err));
-      return;
-    }
-    for (const tenantRef of tenantRefs) {
-      if (!running) return;
-      try {
-        await withDataPlane(
-          dataPlaneResolver,
-          tenantRef,
-          (handle) => relayAuditOn(handle.db, `tenant-plane:${tenantRef}`),
-          { purpose: 'background' },
-        );
-      } catch (err) {
-        warnAuditRelay(
-          'Audit outbox relay failed',
-          `tenant-plane:${tenantRef}`,
-          describeError(err),
-        );
-      }
-    }
-  }
-
-  function triggerAuditRelay(): void {
-    if (!running || auditRelayInFlight) return;
-    const pass = runAuditRelay().finally(() => {
-      if (auditRelayInFlight === pass) auditRelayInFlight = null;
-    });
-    auditRelayInFlight = pass;
-  }
-
   let retentionTimer: ReturnType<typeof setInterval> | null = null;
   let retentionFirstRun: ReturnType<typeof setTimeout> | null = null;
   /** The retention sweep in flight; stop() waits for it like a poll. */
@@ -1838,12 +1736,6 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
         recoverJobs();
       }
 
-      if (auditRelayIntervalMs > 0) {
-        auditRelayTimer = setInterval(triggerAuditRelay, auditRelayIntervalMs);
-        triggerAuditRelay();
-        logger.info('Audit outbox relay on', { intervalMs: auditRelayIntervalMs });
-      }
-
       if (enableFlowRunner) {
         flowRunnerTimer = setInterval(triggerFlowCycle, flowPollIntervalMs);
         triggerFlowCycle();
@@ -1923,13 +1815,6 @@ export function createWorkerPool(poolConfig: WorkerPoolConfig): WorkerPool {
         await scheduler.stop();
         logger.info('Flow scheduler stopped');
       }
-
-      if (auditRelayTimer) {
-        clearInterval(auditRelayTimer);
-        auditRelayTimer = null;
-      }
-      // Ends at its next plane now that `running` is false.
-      await auditRelayInFlight?.catch(() => undefined);
 
       if (flowRunnerTimer) {
         clearInterval(flowRunnerTimer);

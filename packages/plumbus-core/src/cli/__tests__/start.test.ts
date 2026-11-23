@@ -174,6 +174,14 @@ describe('CLI start command', () => {
     expect(serverConfig.host).toBe('127.0.0.1');
   });
 
+  it('passes the onAuditWriteFailure export to createServer (the API process)', async () => {
+    const onAuditWriteFailure = vi.fn();
+    vi.mocked(loadServerExtensions).mockResolvedValueOnce({ onAuditWriteFailure } as never);
+    await startConfigured({ db: {} as never });
+    const serverConfig = (createServer as any).mock.calls[0][0];
+    expect(serverConfig.onAuditWriteFailure).toBe(onAuditWriteFailure);
+  });
+
   it('calls discoverResources', async () => {
     await startConfigured({ db: {} as never });
     expect(discoverResources).toHaveBeenCalled();

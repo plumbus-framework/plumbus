@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0-beta.7 — 2026-11-24 — uploads
+
+- A capability with a `streamedUploadInput` field (core 0.9.0-beta.17) is served on its partner route with the body as raw bytes and the other fields from path parameters, `x-plumbus-input` or the query string; size and type limits answer 413/415 as on the core route. `registerApiRoutes` refuses such an operation when it requires idempotency or uses GET/DELETE. `generateOpenApi` describes the body as binary (`x-plumbus-upload` carries `maxBytes`). Detected structurally (`uploadOf`).
+
 ## 0.4.0-beta.6 — 2026-11-23 — streamed answers
 
 - A capability declared with `output: streamedBodyOutput` (core 0.9.0-beta.16) is served as its bytes on its partner route, with its own headers and no envelope; the `api.<operationId>` audit row is written as before. `generateOpenApi` describes its `200` as `application/octet-stream` (`type: string, format: binary`). `registerApiRoutes` refuses (`ApiManifestError`) a manifest entry that makes such an operation require idempotency. Detected structurally (`isStreamedOutput`), so a core in the current peer range without streamed answers is unaffected.

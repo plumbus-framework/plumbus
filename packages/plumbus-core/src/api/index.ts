@@ -33,6 +33,16 @@ export {
 } from './streamed-body.js';
 export type { StreamedBody, StreamedBodyOptions, StreamedBodySource } from './streamed-body.js';
 export {
+  isStreamedUpload,
+  STREAMED_UPLOAD_BRAND,
+  streamedUpload,
+  streamedUploadFieldOf,
+  streamedUploadInput,
+  UPLOAD_INPUT_HEADER,
+  uploadRequestFields,
+} from './streamed-upload.js';
+export type { StreamedUpload, StreamedUploadOptions } from './streamed-upload.js';
+export {
   LOCALE_COOKIE_NAME,
   registerAllRoutes,
   registerCapabilityRoute,

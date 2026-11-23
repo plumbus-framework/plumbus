@@ -245,9 +245,7 @@ export interface ServerConfig {
   /**
    * Told when an audit record of work already done could not be written to the audit table
    * (`export const onAuditWriteFailure` in `app/server.ts`): `final: false` while it is retried
-   * in the background, `final: true` when it is lost; a record of an audit outbox
-   * (`createAuditOutbox`) that a flush could not hand over is reported with `final: false` and
-   * stays for the relay. Use it to count or raise an alert. Replaces the default error-level
+   * in the background, `final: true` when it is lost. Use it to count or raise an alert. Replaces the default error-level
    * log line for those services. Must not throw (a throw is ignored).
    */
   onAuditWriteFailure?: (failure: import('../audit/service.js').AuditWriteFailure) => void;

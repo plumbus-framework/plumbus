@@ -43,6 +43,12 @@ import {
 import { executeIdempotently } from './idempotent-execution.js';
 import { isStreamedBody, sendStreamedBody } from './streamed-body.js';
 import {
+  streamedUpload,
+  streamedUploadFieldOf,
+  UPLOAD_INPUT_HEADER,
+  uploadRequestFields,
+} from './streamed-upload.js';
+import {
   REQUEST_ID_HEADER,
   type RequestIdOptions,
   requestIdsFor,
@@ -191,6 +197,7 @@ export function registerCapabilityRoute(
 
   const method = capabilityHttpMethod(capability);
   const path = `/api/${capability.domain}/${toKebabCase(capability.name)}`;
+  const upload = streamedUploadFieldOf(capability.input);
 
   const executeHandler = async (
     request: FastifyRequest,
@@ -295,8 +302,40 @@ export function registerCapabilityRoute(
     const canonicalName = getCanonicalCapabilityName(capability);
 
     // 3. Extract input (query params for GET, body for POST)
-    const input =
-      method === 'GET' ? coerceQueryParams(request.query, capability.input) : request.body;
+    // An upload route: the body is the raw bytes (a stream), the other fields come from the
+    // `x-plumbus-input` header or the query string. Nothing is read before the handler reads it.
+    let input: unknown;
+    if (upload) {
+      let fields: Record<string, unknown>;
+      try {
+        fields = uploadRequestFields(request.headers[UPLOAD_INPUT_HEADER], () =>
+          coerceQueryParams(request.query, capability.input),
+        );
+      } catch (err) {
+        const { statusCode, body } = httpRefusal(err as never, ids.exposed);
+        reply.status(statusCode).send(body);
+        return;
+      }
+      const lengthHeader = request.headers['content-length'];
+      const declaredLength =
+        typeof lengthHeader === 'string' && /^\d+$/.test(lengthHeader)
+          ? Number(lengthHeader)
+          : undefined;
+      const body = streamedUpload(request.body as AsyncIterable<Uint8Array>, {
+        contentType: request.headers['content-type'],
+        ...(declaredLength !== undefined ? { contentLength: declaredLength } : {}),
+        maxBytes: upload.options.maxBytes,
+        ...(upload.options.contentTypes ? { contentTypes: upload.options.contentTypes } : {}),
+      });
+      // A body the handler did not read to the end (refused, or not needed) is not drained:
+      // the connection is closed once the answer is out.
+      reply.raw.once?.('finish', () => {
+        if (!body.consumed) request.raw.destroy();
+      });
+      input = { ...fields, [upload.field]: body };
+    } else {
+      input = method === 'GET' ? coerceQueryParams(request.query, capability.input) : request.body;
+    }
 
     // 4. Execute capability (jobs dispatched async via queue if available)
     if (capability.kind === 'job' && config.jobQueue) {
@@ -599,6 +638,16 @@ export function registerCapabilityRoute(
     }
   };
   const options = { onSend: challengeUnauthorized };
+  if (upload) {
+    // The body reaches the handler unparsed: in its own scope, every content type is handed
+    // over as the request stream (Fastify's body limit does not apply; `maxBytes` does).
+    app.register(async (scope) => {
+      scope.removeAllContentTypeParsers();
+      scope.addContentTypeParser('*', (_request, payload, done) => done(null, payload));
+      scope.route({ method, url: path, ...options, handler });
+    });
+    return;
+  }
   switch (method) {
     case 'GET':
       app.get(path, options, handler);

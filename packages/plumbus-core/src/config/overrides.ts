@@ -145,7 +145,6 @@ export const configOverridesSchema = z
         flowConcurrency: positive.int().max(MAX_FLOW_CONCURRENCY).optional(),
         flowStepHistoryLimit: z.number().int().min(0).max(1_000_000).optional(),
         eventOutboxPump: z.enum(['all', 'none']).optional(),
-        auditOutboxRelayIntervalMs: z.number().int().min(0).max(86_400_000).optional(),
         flowLanes: z
           .object({
             reservedUntenanted: z.number().int().min(0).max(MAX_FLOW_CONCURRENCY).optional(),

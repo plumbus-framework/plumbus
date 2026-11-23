@@ -126,11 +126,11 @@ describe('collectSchemas', () => {
     expect(getTableName(getSchema(schemas, '__approval_decision'))).toBe('approval_decision');
   });
 
-  it('includes all 23 framework tables with zero entities', () => {
+  it('includes all 22 framework tables with zero entities', () => {
     const schemas = collectSchemas([]);
     const frameworkKeys = Object.keys(schemas).filter((k) => k.startsWith('__'));
-    expect(frameworkKeys).toHaveLength(23);
-    expect(getTableName(getSchema(schemas, '__audit_outbox'))).toBe('audit_outbox');
+    expect(frameworkKeys).toHaveLength(22);
+    expect(Object.keys(schemas)).not.toContain('__audit_outbox');
     expect(getTableName(getSchema(schemas, '__request_idempotency'))).toBe('request_idempotency');
   });
 

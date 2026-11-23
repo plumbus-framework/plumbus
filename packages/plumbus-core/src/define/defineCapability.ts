@@ -14,6 +14,7 @@ import type { CapabilityKind } from '../types/enums.js';
 import { deepFreeze } from '../types/deep-freeze.js';
 import { isMcpExposed } from '../mcp/exposure.js';
 import { isStreamedBodySchema } from '../api/streamed-body.js';
+import { streamedUploadFieldsOf } from '../api/streamed-upload.js';
 import type { AccessPolicy } from '../types/security.js';
 import { isActionRiskTier, isProhibitedRiskTier } from '../approvals/action-risk.js';
 import type { ActionRiskTier } from '../approvals/action-risk.js';
@@ -322,6 +323,7 @@ export function defineCapability<TInput extends z.ZodTypeAny, TOutput extends z.
   }
 
   validateStreamedOutput(config);
+  validateStreamedUpload(config);
 
   // A prohibited capability is never made available: no MCP tool, no API route.
   if (
@@ -360,6 +362,47 @@ function validateStreamedOutput(config: DefineCapabilityInput<z.ZodTypeAny, z.Zo
   if (config.api?.idempotency?.required === true) {
     throwDefineValidationError(
       `Capability "${config.name}": a streamed answer cannot be stored for replay; remove api.idempotency.required`,
+      { field: 'api' },
+    );
+  }
+}
+
+/**
+ * A capability taking an upload (`streamedUploadInput`) reads the HTTP body as bytes: one such
+ * field, a method with a body, no job or event handler, no MCP tool (no byte body there), and no
+ * required idempotency (the body cannot be hashed and replayed).
+ */
+function validateStreamedUpload(config: DefineCapabilityInput<z.ZodTypeAny, z.ZodTypeAny>): void {
+  const fields = streamedUploadFieldsOf(config.input);
+  if (fields.length === 0) return;
+  if (fields.length > 1) {
+    throwDefineValidationError(
+      `Capability "${config.name}": at most one streamedUploadInput field (found ${fields.join(', ')})`,
+      { field: 'input' },
+    );
+  }
+  if (config.kind === 'job' || config.kind === 'eventHandler') {
+    throwDefineValidationError(
+      `Capability "${config.name}": a ${config.kind} cannot take an upload`,
+      { field: 'input' },
+    );
+  }
+  const method = config.api?.method ?? (config.kind === 'query' ? 'GET' : 'POST');
+  if (method === 'GET' || method === 'DELETE') {
+    throwDefineValidationError(
+      `Capability "${config.name}": an upload needs a method with a body (POST, PUT or PATCH), not ${method}`,
+      { field: 'api' },
+    );
+  }
+  if (config.exposeAs?.includes('mcp')) {
+    throwDefineValidationError(
+      `Capability "${config.name}": a capability taking an upload cannot be exposed via MCP`,
+      { field: 'exposeAs' },
+    );
+  }
+  if (config.api?.idempotency?.required === true) {
+    throwDefineValidationError(
+      `Capability "${config.name}": an uploaded body cannot be stored for replay; remove api.idempotency.required`,
       { field: 'api' },
     );
   }

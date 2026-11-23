@@ -149,6 +149,7 @@ plumbus migrate generate
 # Apply pending migration files to the database
 plumbus migrate apply
 plumbus migrate apply --create-db   # Create DB if it doesn't exist, then apply
+plumbus migrate new "enable trigram search" [--no-transaction]   # hand-written SQL in the journal (extensions, triggers, framework-table indexes, storage settings)
 plumbus migrate apply --database tenant_alpha   # Named tenant database (owner role in config)
 plumbus migrate apply --lock-timeout 5000 --lock-retries 3   # The defaults: DDL waits ≤5 s for a lock, then retries
 

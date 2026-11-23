@@ -223,6 +223,14 @@ describe('CLI dev command', () => {
       expect(serverConfig.capabilities.getAll()[0].name).toBe('testCap');
     });
 
+    it('passes the onAuditWriteFailure export to createServer (the API process)', async () => {
+      const onAuditWriteFailure = vi.fn();
+      vi.mocked(loadServerExtensions).mockResolvedValueOnce({ onAuditWriteFailure } as never);
+      await startDevServer({ db: {} as never, port: LISTEN_PORT });
+      const serverConfig = (createServer as any).mock.calls[0][0];
+      expect(serverConfig.onAuditWriteFailure).toBe(onAuditWriteFailure);
+    });
+
     it('passes a credentials catalog from server extensions to createServer', async () => {
       const credentials = { id: 'host-catalog' };
       vi.mocked(loadServerExtensions).mockResolvedValueOnce({ credentials } as never);

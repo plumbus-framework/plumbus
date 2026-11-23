@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.0-beta.7 — 2026-11-24 — uploads in the generated client
+
+- A capability with a `streamedUploadInput` field (core 0.9.0-beta.17) gets a client function `fn(input, { body, contentType?, headers?, signal? })`: the file (`File`, `Blob`, `ArrayBuffer`, `Uint8Array`) is the request body, the other fields travel base64url-encoded in `x-plumbus-input` (never in the URL), and the input type leaves the upload field out. Its mutation hook takes the same second argument. Detected from schema metadata (`uploadFieldOf`), so a core without uploads is unaffected.
+- **Fix:** split client modules (`--split-client`) import only the runtime helpers they call. A streamed-answer module imported `unwrapEnvelope` without using it, which failed a consumer compiled with `noUnusedLocals`.
+
 ## 0.10.0-beta.6 — 2026-11-23 — streamed answers in the generated client
 
 - A capability declared with `output: streamedBodyOutput` (core 0.9.0-beta.16) gets a client function that returns the fetch `Response` unread (`<Name>Output = Response`): read it with `blob()`, `arrayBuffer()` or `body`, or hand it to a file save, without the bytes passing through JSON. A refused call still throws the usual error. Such a GET is never shared under `dedupeQueries`. Detected from the output schema's metadata (`isStreamedOutput`), so nothing changes for a core without streamed answers.

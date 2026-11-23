@@ -2,6 +2,7 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { z } from 'zod';
 import {
   bindAuditServiceToTransaction,
+  registerDerivedAuditService,
   isTransactionBindableAuditService,
   recordAfterEffects,
   recordAuditBatch,
@@ -292,6 +293,9 @@ export function createTransactionRunner(config: TransactionRunnerConfig): WithTr
           },
         }
       : outerAudit;
+    // The scope's service records for `outerAudit`: `withAuditWriter(ctx.audit, …)` inside the
+    // handler then builds the same service over another writer.
+    registerDerivedAuditService(audit, outerAudit);
 
     const scope: TransactionScope = {
       data,
