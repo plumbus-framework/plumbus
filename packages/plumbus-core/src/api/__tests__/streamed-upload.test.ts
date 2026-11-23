@@ -58,22 +58,29 @@ function receiptCapability(
   } as never) as unknown as CapabilityContract;
 }
 
+/**
+ * The bytes a sender has handed over that the handler has not read yet. Counted, not sampled
+ * from process memory: uncollected garbage made a memory reading differ from one machine to
+ * the next.
+ */
+interface InFlight {
+  /** Bytes the sender has produced so far. */
+  sent: number;
+  /** The most that was waiting between the sender and the handler at any read. */
+  most: number;
+}
+
 /** A handler that hashes the upload chunk by chunk and reports the byte count. */
-function hashing(peak?: { value: number }) {
+function hashing(inFlight?: InFlight) {
   return vi.fn(async (_ctx: unknown, input: { invoiceId: string; file: StreamedUpload }) => {
     const hash = createHash('sha256');
     let bytes = 0;
-    const base = process.memoryUsage();
+    // Not reading yet: all that may stop the sender now is back-pressure.
+    if (inFlight) await new Promise((resolve) => setTimeout(resolve, 250));
     for await (const chunk of input.file) {
+      if (inFlight) inFlight.most = Math.max(inFlight.most, inFlight.sent - bytes);
       hash.update(chunk);
       bytes += chunk.byteLength;
-      if (peak) {
-        const now = process.memoryUsage();
-        peak.value = Math.max(
-          peak.value,
-          now.heapUsed + now.arrayBuffers - base.heapUsed - base.arrayBuffers,
-        );
-      }
     }
     return { invoiceId: input.invoiceId, bytes, sha256: hash.digest('hex') };
   });
@@ -108,7 +115,7 @@ async function serve(cap: CapabilityContract, auth = member) {
 const fieldsHeader = (fields: Record<string, unknown>) =>
   Buffer.from(JSON.stringify(fields)).toString('base64url');
 
-function bodyOf(size: number, chunk = MiB): ReadableStream<Uint8Array> {
+function bodyOf(size: number, chunk = MiB, inFlight?: InFlight): ReadableStream<Uint8Array> {
   const block = new Uint8Array(chunk).fill(5);
   let sent = 0;
   return new ReadableStream({
@@ -120,14 +127,15 @@ function bodyOf(size: number, chunk = MiB): ReadableStream<Uint8Array> {
       const n = Math.min(chunk, size - sent);
       controller.enqueue(n === chunk ? block : block.subarray(0, n));
       sent += n;
+      if (inFlight) inFlight.sent = sent;
     },
   });
 }
 
 describe('streamed uploads', () => {
   it('reads a 200 MiB body chunk by chunk without holding it', async () => {
-    const peak = { value: 0 };
-    const url = await serve(receiptCapability(hashing(peak)));
+    const inFlight: InFlight = { sent: 0, most: 0 };
+    const url = await serve(receiptCapability(hashing(inFlight)));
     const size = 200 * MiB;
     const response = await fetch(url, {
       method: 'POST',
@@ -135,13 +143,17 @@ describe('streamed uploads', () => {
         'content-type': 'application/pdf',
         [UPLOAD_INPUT_HEADER]: fieldsHeader({ invoiceId: 'inv-1', token: 'secret-token' }),
       },
-      body: bodyOf(size),
+      body: bodyOf(size, MiB, inFlight),
       duplex: 'half',
     } as RequestInit);
     expect(response.status).toBe(200);
     const { data } = (await response.json()) as { data: { bytes: number; invoiceId: string } };
     expect(data).toMatchObject({ invoiceId: 'inv-1', bytes: size });
-    expect(peak.value).toBeLessThan(64 * MiB);
+    // While the handler was not reading, the sender was held back: what waited between the two
+    // is the socket's and the streams' buffers, never the body. A route that collected the body
+    // first would have all 200 MiB waiting at the handler's first read.
+    expect(inFlight.most).toBeGreaterThan(0);
+    expect(inFlight.most).toBeLessThan(64 * MiB);
   }, 60_000);
 
   it('takes the other fields from the query string too, and keeps a JSON body raw', async () => {
