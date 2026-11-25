@@ -1563,7 +1563,11 @@ after inheritance, and never silently clamp a persisted choice.
 Profiles follow the [OpenAI model catalog](https://developers.openai.com/api/docs/models),
 including [GPT-5.6 Sol](https://developers.openai.com/api/docs/models/gpt-5.6-sol).
 Model-list endpoints do not themselves publish reasoning levels; these framework
-profiles need maintenance when provider support changes.
+profiles need maintenance when provider support changes. From core 0.9.0-beta.18, every `gpt-6*` model
+(including dated snapshots) reports `low` to `max` without needing its own entry.
+`none` is reported only for models whose OpenAI page documents it (`gpt-6-sol`,
+`gpt-6-luna`, `gpt-6.1-terra`). Other GPT-6 models, including `gpt-6-cyber` and
+`gpt-6-rosalind`, do not report it, so an app never offers a level the model may reject.
 
 ## Structured answers with native tools
 

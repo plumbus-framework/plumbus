@@ -8,6 +8,7 @@ import {
   type ListModelsFilter,
   ProviderAPIError,
 } from '../provider.js';
+import { allKnownModels } from '../model-pricing.js';
 import { AIIncompleteOutputError, AIInvalidRequestError, AIRefusalError } from '../refusal.js';
 
 // The built-in OpenAI and Anthropic adapters always implement `listModels`;
@@ -2689,5 +2690,60 @@ describe('model reasoning metadata', () => {
       all.slice(1),
       all,
     ]);
+  });
+
+  it('lists GPT-6.2 Astra and Sol (and dated snapshots) without `none`', () => {
+    const official = joinAndFilterModels({
+      provider: 'openai',
+      entries: [{ id: 'gpt-6.2-astra' }, { id: 'gpt-6.2-sol' }, { id: 'gpt-6.2-sol-2026-11-18' }],
+      filter: undefined,
+      isOfficial: true,
+    });
+    const withoutNone = ['low', 'medium', 'high', 'xhigh', 'max'];
+    expect(official.map((model) => model.reasoningEfforts)).toEqual([
+      withoutNone,
+      withoutNone,
+      withoutNone,
+    ]);
+  });
+
+  it('does not offer `none` to GPT-6 models where it is undocumented', () => {
+    const official = joinAndFilterModels({
+      provider: 'openai',
+      entries: [{ id: 'gpt-6-cyber' }, { id: 'gpt-6-rosalind' }, { id: 'gpt-6.9-future' }],
+      filter: undefined,
+      isOfficial: true,
+    });
+    const withoutNone = ['low', 'medium', 'high', 'xhigh', 'max'];
+    expect(official.map((model) => model.reasoningEfforts)).toEqual([
+      withoutNone,
+      withoutNone,
+      withoutNone,
+    ]);
+  });
+
+  it('gives every priced GPT-6 model the full effort scale', () => {
+    // Guard: adding a GPT-6 model to the pricing catalog must never leave it without
+    // reasoning efforts. This walks the catalog instead of naming models by hand.
+    const gpt6 = allKnownModels()
+      .map(([id]) => id)
+      .filter((id) => /^gpt-6(?:$|[-.])/.test(id));
+    expect(gpt6.length).toBeGreaterThan(0);
+    const official = joinAndFilterModels({
+      provider: 'openai',
+      entries: gpt6.map((id) => ({ id })),
+      filter: undefined,
+      isOfficial: true,
+    });
+    for (const model of official) {
+      expect(model.reasoningEfforts, model.id).not.toBeNull();
+      expect(model.reasoningEfforts?.slice(-5), model.id).toEqual([
+        'low',
+        'medium',
+        'high',
+        'xhigh',
+        'max',
+      ]);
+    }
   });
 });

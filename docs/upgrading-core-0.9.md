@@ -6,6 +6,12 @@ The 0.8 numbers now belong to the stable **stabilization family** published from
 
 Core 0.9.0-beta.0 contains everything in the 0.8.0-beta.N line plus every stable change merged from `main`: the core 0.8.0 stabilization (PLB-01 to PLB-10), core 0.8.1, auth 0.3.1 and the Vitest 5.0.4 toolchain. See [Included in v0.9.0-beta.0](#included-in-v090-beta0).
 
+## v0.9.0-beta.20 (2026-11-25): thinking levels for every GPT-6 model
+
+Prepared for repository release `v0.9.0-beta.20` under npm dist-tag `plumbus-next`. One package changes: `@plumbus/core` **0.9.0-beta.17 → 0.9.0-beta.18**. Every other package stays. Peer ranges unchanged. No migration. (Repository release `v0.9.0-beta.19` published core 0.9.0-beta.17 with a test-only change.)
+
+- **Fixed:** `ProviderModel.reasoningEfforts` from `listModels()` was `null` for `gpt-6.2-astra`, `gpt-6.2-sol`, `gpt-6-cyber` and `gpt-6-rosalind`, so a thinking-level picker built from it was empty for those models. Every `gpt-6*` model now reports `low` to `max`; `none` only for `gpt-6-sol`, `gpt-6-luna` and `gpt-6.1-terra`, where OpenAI documents it. Request validation is unchanged. See [AI integration](./ai/ai-integration.md).
+
 ## v0.9.0-beta.18 (2026-11-24): uploads, entity indexes beyond fields, hand-written migrations, `withAuditWriter`; audit outbox removed
 
 Prepared for repository release `v0.9.0-beta.18` under npm dist-tag `plumbus-next`. Three packages change: `@plumbus/core` **0.9.0-beta.16 → 0.9.0-beta.17**, `@plumbus/api` **0.4.0-beta.6 → 0.4.0-beta.7**, `@plumbus/ui` **0.10.0-beta.6 → 0.10.0-beta.7**. Peer ranges unchanged. Consumer agents: [`instructions/upgrading-uploads-indexes-and-migrations.md`](../packages/plumbus-core/instructions/upgrading-uploads-indexes-and-migrations.md).

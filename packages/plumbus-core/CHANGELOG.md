@@ -1,5 +1,13 @@
 # @plumbus/core changelog
 
+## 0.9.0-beta.18 — 2026-11-25 — thinking levels for every GPT-6 model
+
+Peer ranges unchanged. No migration.
+
+### Fixed
+
+- `listModels()` reported no `reasoningEfforts` (`null`, "unknown") for `gpt-6.2-astra`, `gpt-6.2-sol`, `gpt-6-cyber` and `gpt-6-rosalind`, so apps that build their thinking-level picker from it showed none for those models. Request validation already knew GPT-6.2; the metadata was a separate per-model list nobody updated. Every `gpt-6*` model, including dated snapshots, now reports `low`, `medium`, `high`, `xhigh`, `max`. `none` is reported only where OpenAI documents it (`gpt-6-sol`, `gpt-6-luna`, `gpt-6.1-terra`), so a model is never offered a level it may reject. A test walks the pricing catalog and fails if any priced GPT-6 model reports no levels.
+
 ## 0.9.0-beta.17 — 2026-11-24 — uploads, entity indexes beyond fields, hand-written migrations, `withAuditWriter`; audit outbox removed
 
 Consumer agents: `instructions/upgrading-uploads-indexes-and-migrations.md`. Peer ranges unchanged.

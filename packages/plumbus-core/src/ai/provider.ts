@@ -567,6 +567,13 @@ export interface AIProviderAdapter {
  * provider-supplied model entries against the pricing catalog, then apply
  * the kind filter respecting the official-endpoint rule.
  */
+/** GPT-6 models whose OpenAI model page documents the `none` effort. */
+const GPT6_MODELS_WITH_NONE_EFFORT: readonly string[] = [
+  'gpt-6-sol',
+  'gpt-6-luna',
+  'gpt-6.1-terra',
+];
+
 /** Published model profiles for official endpoints. Unknown models stay unknown. */
 function knownReasoningEfforts(
   provider: string,
@@ -575,9 +582,13 @@ function knownReasoningEfforts(
   if (provider !== 'openai') return null;
   const id = model.replace(/-\d{4}-\d{2}-\d{2}$/, '');
   // https://developers.openai.com/api/docs/guides/latest-model and each model's page.
-  if (['gpt-6.1-terra', 'gpt-6-sol', 'gpt-6-luna'].includes(id))
-    return ['none', 'low', 'medium', 'high', 'xhigh', 'max'];
-  if (['gpt-6-astra', 'gpt-6.1-sol'].includes(id)) return ['low', 'medium', 'high', 'xhigh', 'max'];
+  // Every GPT-6 model shares the `low`–`max` scale, so a new GPT-6 model gets thinking levels
+  // without an entry here. `none` is listed only where OpenAI documents it: offering a level a
+  // model rejects would fail the request, while leaving one out only hides an option.
+  if (isGpt6Family(id)) {
+    const scale: readonly ReasoningEffortOption[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+    return GPT6_MODELS_WITH_NONE_EFFORT.includes(id) ? ['none', ...scale] : scale;
+  }
   if (['gpt-5.6', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'].includes(id))
     return ['none', 'low', 'medium', 'high', 'xhigh', 'max'];
   if (['gpt-5.2', 'gpt-5.4', 'gpt-5.5'].includes(id))
